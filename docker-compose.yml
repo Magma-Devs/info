@@ -1,0 +1,45 @@
+# Full info stack. Expects lava-indexer running separately on port 3000.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+    environment:
+      API_PORT: "8080"
+      API_HOST: "0.0.0.0"
+      INDEXER_GRAPHQL_URL: ${INDEXER_GRAPHQL_URL:-http://host.docker.internal:3000}
+      REDIS_URL: redis://redis:6379
+      LAVA_REST_URL: ${LAVA_REST_URL:-https://lava.rest.lava.build}
+      LAVA_RPC_URL: ${LAVA_RPC_URL:-https://lava.tendermintrpc.lava.build:443}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production

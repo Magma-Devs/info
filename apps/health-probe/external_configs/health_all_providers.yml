@@ -1,0 +1,8 @@
+max-provider-latency: 300ms
+interval: 0s
+allowed_time_lag: 30s
+query-retries: 5
+identifier: health_all_providers
+post-results-address: http://localhost:6500
+provider_addresses:
+  - all

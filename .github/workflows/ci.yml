@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, mainnet, testnet]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      packages-db: ${{ steps.filter.outputs.packages-db }}
+      packages-shared: ${{ steps.filter.outputs.packages-shared }}
+      api: ${{ steps.filter.outputs.api }}
+      indexer: ${{ steps.filter.outputs.indexer }}
+      web: ${{ steps.filter.outputs.web }}
+      health-probe: ${{ steps.filter.outputs.health-probe }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            packages-db:
+              - 'packages/db/**'
+            packages-shared:
+              - 'packages/shared/**'
+            api:
+              - 'apps/api/**'
+              - 'packages/db/**'
+              - 'packages/shared/**'
+            indexer:
+              - 'apps/indexer/**'
+              - 'packages/db/**'
+              - 'packages/shared/**'
+            web:
+              - 'apps/web/**'
+              - 'packages/shared/**'
+            health-probe:
+              - 'apps/health-probe/**'
+              - 'packages/shared/**'
+
+  typecheck-and-test:
+    runs-on: ubuntu-latest
+    needs: changes
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck packages
+        run: |
+          pnpm --filter @info/db typecheck
+          pnpm --filter @info/shared typecheck
+
+      - name: Typecheck api
+        if: needs.changes.outputs.api == 'true'
+        run: pnpm --filter @info/api typecheck
+
+      - name: Typecheck indexer
+        if: needs.changes.outputs.indexer == 'true'
+        run: pnpm --filter @info/indexer typecheck
+
+      - name: Typecheck health-probe
+        if: needs.changes.outputs.health-probe == 'true'
+        run: pnpm --filter @info/health-probe typecheck
+
+      - name: Test
+        run: pnpm test

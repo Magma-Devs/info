@@ -1,0 +1,10 @@
+node_modules
+dist
+.next
+.git
+.env
+*.md
+coverage
+**/__tests__
+**/vitest.config.ts
+**/vitest.workspace.ts
