@@ -4,7 +4,9 @@ import { Suspense } from "react";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
 import { StatCard } from "@/components/data/StatCard";
-import Link from "next/link";
+import { ProviderLink } from "@/components/data/ProviderLink";
+import { LavaAmount } from "@/components/data/LavaAmount";
+import { formatNumber, formatLava } from "@/lib/format";
 
 interface Provider {
   provider: string;
@@ -67,14 +69,12 @@ function ProvidersContent() {
               {providers.map((p) => (
                 <tr key={p.provider} className="hover:bg-muted/20 transition-colors">
                   <td className="px-6 py-3">
-                    <Link href={`/provider/${p.provider}`} className="text-accent hover:underline font-mono text-xs">
-                      {p.provider.slice(0, 20)}...
-                    </Link>
+                    <ProviderLink address={p.provider} moniker={p.moniker} />
                   </td>
                   <td className="px-6 py-3 text-foreground">{p.moniker || "—"}</td>
                   <td className="px-6 py-3 text-right text-muted-foreground">{p.activeServices}</td>
-                  <td className="px-6 py-3 text-right text-muted-foreground">{fmtLava(p.totalStake)} LAVA</td>
-                  <td className="px-6 py-3 text-right text-muted-foreground">{fmtLava(p.totalDelegation)} LAVA</td>
+                  <td className="px-6 py-3 text-right text-muted-foreground"><LavaAmount amount={p.totalStake} /></td>
+                  <td className="px-6 py-3 text-right text-muted-foreground"><LavaAmount amount={p.totalDelegation} /></td>
                 </tr>
               ))}
             </tbody>

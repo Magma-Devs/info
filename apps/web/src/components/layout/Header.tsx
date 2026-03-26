@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { MobileNav } from "./MobileNav";
+import { SearchBar } from "./SearchBar";
+import { LastUpdateBadge } from "./LastUpdateBadge";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
@@ -22,12 +25,13 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-border" style={{ backgroundColor: "#110e0ee1", backdropFilter: "blur(8px)" }}>
-      <div className="max-w-[1536px] mx-auto px-5 h-16 flex items-center justify-between">
+      <div className="max-w-[1536px] mx-auto px-5 h-16 flex items-center justify-between gap-4">
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <img src="https://lava-fe-assets.s3.amazonaws.com/lava-icon.svg" alt="Lava" className="h-6 w-6" />
-          <span className="text-lg font-semibold text-foreground">Lava Info</span>
+          <span className="text-lg font-semibold text-foreground hidden sm:inline">Lava Info</span>
         </Link>
-        <nav className="flex items-center gap-4 md:gap-6 overflow-x-auto">
+
+        <nav className="hidden md:flex items-center gap-4 lg:gap-6">
           {NAV_ITEMS.map((item) => {
             const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
             return (
@@ -54,6 +58,12 @@ export function Header() {
             </a>
           ))}
         </nav>
+
+        <div className="flex items-center gap-3">
+          <LastUpdateBadge />
+          <SearchBar />
+          <MobileNav />
+        </div>
       </div>
     </header>
   );
