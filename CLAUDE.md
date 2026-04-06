@@ -1,6 +1,26 @@
-# Info API
+# Info — Lava Network Explorer
 
-Lava Network explorer API. Fastify 5 + TypeScript, pnpm monorepo.
+Fastify 5 API + Next.js 15 frontend, pnpm monorepo.
+
+## Claude Configuration
+
+```
+.claude/
+├── settings.json          # Team permissions & config (committed)
+├── settings.local.json    # Personal overrides (gitignored)
+├── commands/              # Slash commands (/project:review, /project:fix-issue, /project:deploy)
+├── rules/                 # Auto-loaded instruction files
+│   ├── code-style.md      # TypeScript, React, Tailwind conventions
+│   ├── testing.md         # Vitest patterns
+│   ├── api-conventions.md # Fastify routes, caching, GraphQL (loads for apps/api/**)
+│   └── frontend.md        # React hooks, components, chain icons (loads for apps/web/**)
+└── agents/                # Subagent personas
+    ├── code-reviewer.md   # Code quality review
+    └── security-auditor.md # Security vulnerability audit
+```
+
+- `CLAUDE.md` — team instructions (this file), committed
+- `CLAUDE.local.md` — personal overrides, gitignored
 
 ## Architecture
 
