@@ -126,7 +126,22 @@ Write the final report to `_workspace/review-report.md` AND output it directly t
 **Total findings:** {count} ({critical} critical, {high} high, {medium} medium, {low} low)
 ```
 
-## Phase 4: Cleanup
+## Phase 4: Documentation check
+
+After merging agent findings, check whether the changes require documentation updates:
+
+1. Scan the reviewed code for new/changed/removed API endpoints, environment variables, domain concepts, gotchas, or architectural patterns
+2. Compare against `CLAUDE.md` — does the endpoint reference, gotchas table, env vars table, or architecture diagram need updating?
+3. Check if any `.claude/rules/*.md` files reference patterns that have changed
+4. If documentation is stale, add a finding:
+   ```
+   ### [WARNING] CLAUDE.md needs updating
+   **Domain:** Documentation
+   **Issue:** {what changed and what section is stale}
+   **Fix:** {specific update needed}
+   ```
+
+## Phase 5: Cleanup
 
 - Keep `_workspace/` for re-review support (don't delete)
 - If verdict is APPROVE, congratulate briefly
