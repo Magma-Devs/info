@@ -17,6 +17,7 @@
       "Bash(gh pr *)",
       "Bash(gh run *)",
       "Bash(gh api *)",
+      "Bash(git push *)",
       "Bash(ls *)",
       "Bash(curl -s http://localhost:*)",
       "WebSearch"
