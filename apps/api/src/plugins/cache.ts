@@ -45,7 +45,7 @@ export const cachePlugin = fp(async (app: FastifyInstance) => {
       if (cached) {
         reply.header("X-Cache", "HIT");
         reply.header("Content-Type", "application/json; charset=utf-8");
-        reply.send(cached);
+        return reply.send(cached);
       }
     } catch {
       // Redis unavailable, skip cache

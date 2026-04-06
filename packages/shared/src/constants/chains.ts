@@ -1,3 +1,10 @@
+/** Base specs that aren't real chains — exclude from chain lists and UI */
+export const BASE_SPECS = new Set([
+  "SUIGRPC", "SUIJSONRPC",
+  "COSMOSSDK", "COSMOSSDK50", "COSMOSWASM",
+  "ETHERMINT", "TENDERMINT", "IBC",
+]);
+
 /** Chains that use non-standard block numbering (timestamp-based or record-file-based) */
 export const NON_STANDARD_BLOCK_CHAINS = [
   "HYPERLIQUID",

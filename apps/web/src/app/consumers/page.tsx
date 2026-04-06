@@ -1,55 +1,70 @@
 "use client";
 
 import { Suspense } from "react";
-import { useApi } from "@/hooks/use-api";
+import { type ColumnDef } from "@tanstack/react-table";
+import { usePaginatedApi } from "@/hooks/use-paginated-api";
 import { Loading } from "@/components/data/Loading";
+import { DataTable } from "@/components/data/DataTable";
 import Link from "next/link";
 
 interface Consumer {
   consumer: string;
   totalCu: string;
   totalRelays: string;
+  plan?: string;
 }
 
 function fmt(n: string | number): string {
   return Number(n).toLocaleString("en-US");
 }
 
-function ConsumersContent() {
-  const { data: resp, isLoading } = useApi<{ data: Consumer[] }>("/consumers");
+const columns: ColumnDef<Consumer, unknown>[] = [
+  {
+    id: "consumer",
+    header: "Consumer",
+    cell: ({ row }) => (
+      <Link href={`/consumer/${row.original.consumer}`} className="text-accent hover:underline font-mono text-xs">
+        {row.original.consumer?.slice(0, 30)}...
+      </Link>
+    ),
+  },
+  {
+    id: "plan",
+    header: "Plan",
+    cell: ({ row }) => <span className="text-muted-foreground">{row.original.plan || "—"}</span>,
+  },
+  {
+    id: "totalCu",
+    header: "Total CU",
+    cell: ({ row }) => <span className="text-muted-foreground">{fmt(row.original.totalCu)}</span>,
+  },
+  {
+    id: "totalRelays",
+    header: "Total Relays",
+    cell: ({ row }) => <span className="text-muted-foreground">{fmt(row.original.totalRelays)}</span>,
+  },
+];
 
-  if (isLoading) return <Loading />;
-  const consumers = resp?.data ?? [];
+function ConsumersContent() {
+  const { data: consumers, pagination, setPage, setSort, sort, order, isLoading } = usePaginatedApi<Consumer>("/consumers");
 
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-border bg-card shadow">
         <div className="p-6 border-b border-border">
-          <h2 className="text-lg font-semibold">Consumers ({consumers.length})</h2>
+          <h2 className="text-lg font-semibold">Consumers ({pagination.total})</h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                <th className="px-6 py-3 text-left font-medium text-muted-foreground">Consumer</th>
-                <th className="px-6 py-3 text-right font-medium text-muted-foreground">Total CU</th>
-                <th className="px-6 py-3 text-right font-medium text-muted-foreground">Total Relays</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {consumers.map((c) => (
-                <tr key={c.consumer} className="hover:bg-muted/20 transition-colors">
-                  <td className="px-6 py-3">
-                    <Link href={`/consumer/${c.consumer}`} className="text-accent hover:underline font-mono text-xs">
-                      {c.consumer?.slice(0, 30)}...
-                    </Link>
-                  </td>
-                  <td className="px-6 py-3 text-right text-muted-foreground">{fmt(c.totalCu)}</td>
-                  <td className="px-6 py-3 text-right text-muted-foreground">{fmt(c.totalRelays)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="p-4">
+          <DataTable
+            data={consumers}
+            columns={columns}
+            pagination={pagination}
+            sort={sort}
+            order={order}
+            onSort={setSort}
+            onPageChange={setPage}
+            isLoading={isLoading}
+          />
         </div>
       </div>
     </div>

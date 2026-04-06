@@ -1,8 +1,11 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useApi } from "@/hooks/use-api";
+import { usePaginatedApi } from "@/hooks/use-paginated-api";
 import { Loading } from "@/components/data/Loading";
+import { PaginationControls } from "@/components/data/PaginationControls";
+import { downloadCsv } from "@/lib/csv";
+import { Download } from "lucide-react";
 import Link from "next/link";
 
 type TabType = "events" | "rewards" | "reports";
@@ -13,10 +16,7 @@ function fmt(n: string | number): string {
 
 function EventsContent() {
   const [tab, setTab] = useState<TabType>("events");
-  const { data: resp, isLoading } = useApi<{
-    data: Array<Record<string, unknown>>;
-    pagination: { total: number; page: number; limit: number; pages: number };
-  }>(`/events?type=${tab}&limit=50`);
+  const { data, pagination, setPage, isLoading } = usePaginatedApi<Record<string, unknown>>(`/events?type=${tab}`);
 
   return (
     <div className="space-y-6">
@@ -41,8 +41,12 @@ function EventsContent() {
         <Loading />
       ) : (
         <div className="rounded-xl border border-border bg-card shadow">
-          <div className="p-4 border-b border-border text-sm text-muted-foreground">
-            {resp?.pagination?.total ? fmt(resp.pagination.total) : 0} total records
+          <div className="p-4 border-b border-border text-sm text-muted-foreground flex items-center justify-between">
+            <span>{fmt(pagination.total)} total records</span>
+            <button onClick={() => downloadCsv(data as Record<string, unknown>[], `events-${tab}.csv`)}
+              className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
+              <Download size={14} /> CSV
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -60,10 +64,12 @@ function EventsContent() {
                   {tab === "rewards" && (
                     <>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">Consumer</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Chain</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">CU</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">Relays</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">QoS</th>
+                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">Exc. QoS</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">Time</th>
                     </>
                   )}
@@ -71,6 +77,7 @@ function EventsContent() {
                     <>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Chain</th>
+                      <th className="px-4 py-3 text-right font-medium text-muted-foreground">CU</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">Errors</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">Disconnections</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">Epoch</th>
@@ -80,7 +87,7 @@ function EventsContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {resp?.data?.map((row, i) => (
+                {data.map((row, i) => (
                   <tr key={i} className="hover:bg-muted/20">
                     {tab === "events" && (
                       <>
@@ -108,10 +115,18 @@ function EventsContent() {
                             </Link>
                           ) : "—"}
                         </td>
+                        <td className="px-4 py-2">
+                          {row.consumer ? (
+                            <Link href={`/consumer/${row.consumer}`} className="text-accent hover:underline text-xs font-mono">
+                              {String(row.consumer).slice(0, 16)}...
+                            </Link>
+                          ) : "—"}
+                        </td>
                         <td className="px-4 py-2 text-xs">{String(row.chainId ?? "—")}</td>
                         <td className="px-4 py-2 text-right">{fmt(String(row.cu ?? 0))}</td>
                         <td className="px-4 py-2 text-right">{fmt(String(row.relayNumber ?? 0))}</td>
                         <td className="px-4 py-2 text-right">{row.qosScore != null ? Number(row.qosScore).toFixed(3) : "—"}</td>
+                        <td className="px-4 py-2 text-right">{row.excellenceQosSync != null ? Number(row.excellenceQosSync).toFixed(3) : "—"}</td>
                         <td className="px-4 py-2 text-right text-xs text-muted-foreground">
                           {row.timestamp ? new Date(String(row.timestamp)).toLocaleString() : "—"}
                         </td>
@@ -127,6 +142,7 @@ function EventsContent() {
                           ) : "—"}
                         </td>
                         <td className="px-4 py-2 text-xs">{String(row.chainId ?? "—")}</td>
+                        <td className="px-4 py-2 text-right">{fmt(String(row.cu ?? 0))}</td>
                         <td className="px-4 py-2 text-right">{String(row.errors ?? 0)}</td>
                         <td className="px-4 py-2 text-right">{String(row.disconnections ?? 0)}</td>
                         <td className="px-4 py-2 text-right text-muted-foreground">{String(row.epoch ?? "—")}</td>
@@ -140,6 +156,7 @@ function EventsContent() {
               </tbody>
             </table>
           </div>
+          <PaginationControls pagination={pagination} onPageChange={setPage} />
         </div>
       )}
     </div>

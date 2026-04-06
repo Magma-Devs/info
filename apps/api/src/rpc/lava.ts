@@ -10,42 +10,217 @@ async function fetchRest<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function fetchSupplyFromChain(): Promise<{ total: string; denom: string }> {
+export async function fetchTotalSupply(): Promise<bigint> {
   const data = await fetchRest<{ supply: Array<{ denom: string; amount: string }> }>(
     "/cosmos/bank/v1beta1/supply",
   );
   const lava = data.supply?.find((c) => c.denom === "ulava");
-  return { total: lava?.amount ?? "0", denom: "ulava" };
+  return BigInt(lava?.amount ?? "0");
+}
+
+const REWARD_POOLS = [
+  "validators_rewards_distribution_pool",
+  "validators_rewards_allocation_pool",
+  "providers_rewards_distribution_pool",
+  "providers_rewards_allocation_pool",
+  "iprpc_pool",
+];
+
+export async function fetchRewardPoolsAmount(): Promise<bigint> {
+  const data = await fetchRest<{
+    pools: Array<{ name: string; balance: Array<{ denom: string; amount: string }> }>;
+  }>("/lavanet/lava/rewards/pools");
+
+  let total = 0n;
+  for (const pool of data.pools ?? []) {
+    if (REWARD_POOLS.includes(pool.name)) {
+      for (const coin of pool.balance ?? []) {
+        if (coin.denom === "ulava") total += BigInt(coin.amount);
+      }
+    }
+  }
+  return total;
+}
+
+interface VestingStats {
+  continuousVesting: bigint;
+  periodicVesting: bigint;
+}
+
+export async function fetchLockedVestingTokens(): Promise<VestingStats> {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const stats: VestingStats = { continuousVesting: 0n, periodicVesting: 0n };
+  let nextKey: string | null = null;
+
+  do {
+    const params = new URLSearchParams({ "pagination.limit": "1000" });
+    if (nextKey) params.set("pagination.key", nextKey);
+
+    const data = await fetchRest<{
+      accounts: Array<{
+        "@type": string;
+        start_time?: string;
+        base_vesting_account?: {
+          original_vesting?: Array<{ denom: string; amount: string }>;
+          end_time?: string;
+        };
+        vesting_periods?: Array<{
+          length: string;
+          amount: Array<{ denom: string; amount: string }>;
+        }>;
+      }>;
+      pagination?: { next_key: string | null };
+    }>(`/cosmos/auth/v1beta1/accounts?${params}`);
+
+    for (const account of data.accounts ?? []) {
+      const type = account["@type"];
+
+      if (type === "/cosmos.vesting.v1beta1.ContinuousVestingAccount") {
+        const totalAmount = BigInt(
+          account.base_vesting_account?.original_vesting?.[0]?.amount ?? "0",
+        );
+        const startTime = BigInt(account.start_time ?? "0");
+        const endTime = BigInt(account.base_vesting_account?.end_time ?? "0");
+        const now = BigInt(nowSeconds);
+
+        if (now < startTime) {
+          stats.continuousVesting += totalAmount;
+        } else if (now < endTime && endTime > startTime) {
+          stats.continuousVesting += ((endTime - now) * totalAmount) / (endTime - startTime);
+        }
+      } else if (type === "/cosmos.vesting.v1beta1.PeriodicVestingAccount") {
+        let currentTime = parseInt(account.start_time ?? "0");
+        for (const period of account.vesting_periods ?? []) {
+          currentTime += parseInt(period.length);
+          if (currentTime >= nowSeconds) {
+            stats.periodicVesting += BigInt(period.amount?.[0]?.amount ?? "0");
+          }
+        }
+      }
+    }
+
+    nextKey = data.pagination?.next_key ?? null;
+  } while (nextKey);
+
+  return stats;
+}
+
+export async function fetchCirculatingSupply(): Promise<bigint> {
+  const [totalSupply, pools, vesting] = await Promise.all([
+    fetchTotalSupply(),
+    fetchRewardPoolsAmount(),
+    fetchLockedVestingTokens(),
+  ]);
+
+  const circulating = totalSupply - vesting.continuousVesting - vesting.periodicVesting - pools;
+  if (circulating < 0n) {
+    logger.warn(
+      `Negative circulating supply: total=${totalSupply} continuous=${vesting.continuousVesting} periodic=${vesting.periodicVesting} pools=${pools}`,
+    );
+    return 0n;
+  }
+  return circulating;
 }
 
 export async function fetchProvidersForSpec(specId: string): Promise<
   Array<{
     address: string;
     moniker: string;
+    identity: string;
     stake: { amount: string };
     delegate_total: { amount: string };
     delegate_commission: string;
     geolocation: number;
+    addons: string;
+    extensions: string;
   }>
 > {
-  const data = await fetchRest<{ stakeEntry: unknown[] }>(
-    `/lavanet/lava/pairing/providers/${specId}`,
-  );
-  return (data.stakeEntry ?? []) as Array<{
-    address: string;
-    moniker: string;
-    stake: { amount: string };
-    delegate_total: { amount: string };
-    delegate_commission: string;
-    geolocation: number;
-  }>;
+  const data = await fetchRest<{
+    stakeEntry: Array<{
+      address: string;
+      moniker: string;
+      description?: { identity?: string };
+      stake: { amount: string };
+      delegate_total: { amount: string };
+      delegate_commission: string;
+      geolocation: number;
+      endpoints?: Array<{
+        addons?: string[];
+        extensions?: string[];
+      }>;
+    }>;
+  }>(`/lavanet/lava/pairing/providers/${specId}`);
+
+  return (data.stakeEntry ?? []).map((entry) => {
+    const allAddons = new Set<string>();
+    const allExtensions = new Set<string>();
+    for (const ep of entry.endpoints ?? []) {
+      for (const a of ep.addons ?? []) if (a) allAddons.add(a);
+      for (const e of ep.extensions ?? []) if (e) allExtensions.add(e);
+    }
+    return {
+      address: entry.address,
+      moniker: entry.moniker,
+      identity: entry.description?.identity ?? "",
+      stake: entry.stake,
+      delegate_total: entry.delegate_total,
+      delegate_commission: entry.delegate_commission,
+      geolocation: entry.geolocation,
+      addons: Array.from(allAddons).join(","),
+      extensions: Array.from(allExtensions).join(","),
+    };
+  });
 }
+
+function titleCase(s: string): string {
+  return s.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Display name overrides — keys are specIDs (uppercase) */
+const CHAIN_DISPLAY_NAMES: Record<string, string> = {
+  BSC: "BNB Chain Mainnet",
+  BSCT: "BNB Chain Testnet",
+  COSMOSHUB: "Cosmos Hub Mainnet",
+  COSMOSHUBT: "Cosmos Hub Testnet",
+  ETH1: "Ethereum Mainnet",
+  FTM4002: "Fantom Testnet",
+  FVMT: "Filecoin Testnet",
+  HEDERA: "Hedera Hashgraph Mainnet",
+  BTC: "Bitcoin Mainnet",
+  HOL1: "Ethereum Holesky Testnet",
+  LAVA: "Lava Mainnet",
+  LAV1: "Lava Testnet",
+  MOVEMENTT: "Movement Testnet",
+  OPTMS: "Optimism Sepolia Testnet",
+  POLYGONA: "Polygon Amoy Testnet",
+  SEP1: "Ethereum Sepolia Testnet",
+  SOLANAT: "Solana Testnet",
+  SONICT: "Sonic Blaze Testnet",
+  SPARK: "Fuse Testnet",
+  STRKS: "Starknet Sepolia Testnet",
+  TRX: "Tron Mainnet",
+  TRXT: "Tron Shasta Testnet",
+};
+
+function chainDisplayName(chainID: string, chainName: string): string {
+  if (CHAIN_DISPLAY_NAMES[chainID]) return CHAIN_DISPLAY_NAMES[chainID];
+  return titleCase(chainName);
+}
+
+/** Base specs that aren't real chains — excluded from all chain lists */
+const BASE_SPECS = new Set([
+  "SUIGRPC", "SUIJSONRPC",
+  "COSMOSSDK", "COSMOSSDK50", "COSMOSWASM",
+  "ETHERMINT", "TENDERMINT", "IBC",
+]);
 
 export async function fetchAllSpecs(): Promise<Array<{ index: string; name: string }>> {
   const data = await fetchRest<{
     chainInfoList: Array<{ chainName: string; chainID: string }>;
   }>("/lavanet/lava/spec/show_all_chains");
-  return (data.chainInfoList ?? []).map((c) => ({ index: c.chainID, name: c.chainName }));
+  return (data.chainInfoList ?? [])
+    .filter((c) => !BASE_SPECS.has(c.chainID))
+    .map((c) => ({ index: c.chainID, name: chainDisplayName(c.chainID, c.chainName) }));
 }
 
 export async function fetchStakingPool(): Promise<{ bonded_tokens: string; not_bonded_tokens: string }> {
@@ -159,6 +334,8 @@ export interface RpcProvider {
   delegate_limit: { amount: string; denom: string };
   delegate_commission: string;
   geolocation: number;
+  addons: string;
+  extensions: string;
 }
 
 /** Fetch all providers across all specs, with dedup by address */
@@ -166,22 +343,42 @@ export async function fetchAllProviders(): Promise<
   Array<{
     address: string;
     moniker: string;
+    identity: string;
     totalStake: string;
     totalDelegation: string;
+    commission: string;
     specs: string[];
   }>
 > {
   const specs = await fetchAllSpecs();
 
+  interface SpecEntry {
+    address: string;
+    moniker: string;
+    identity: string;
+    stake?: { amount: string };
+    delegate_total?: { amount: string };
+    delegate_commission: string;
+    specId: string;
+  }
+
   // Fetch in batches of 5 to avoid rate limiting on public RPC
-  const specProviders: Array<Array<{ address: string; moniker: string; stake?: { amount: string }; delegate_total?: { amount: string }; specId: string }>> = [];
+  const specProviders: Array<Array<SpecEntry>> = [];
   for (let i = 0; i < specs.length; i += 5) {
     const batch = specs.slice(i, i + 5);
     const results = await Promise.all(
       batch.map((s) =>
         fetchProvidersForSpec(s.index)
-          .then((providers) => providers.map((p) => ({ address: p.address, moniker: p.moniker, stake: p.stake, delegate_total: p.delegate_total, specId: s.index })))
-          .catch(() => [] as Array<{ address: string; moniker: string; stake?: { amount: string }; delegate_total?: { amount: string }; specId: string }>),
+          .then((providers) => providers.map((p): SpecEntry => ({
+            address: p.address,
+            moniker: p.moniker,
+            identity: p.identity,
+            stake: p.stake,
+            delegate_total: p.delegate_total,
+            delegate_commission: p.delegate_commission,
+            specId: s.index,
+          })))
+          .catch(() => [] as SpecEntry[]),
       ),
     );
     specProviders.push(...results);
@@ -189,7 +386,7 @@ export async function fetchAllProviders(): Promise<
 
   const byAddress = new Map<
     string,
-    { moniker: string; totalStake: bigint; totalDelegation: bigint; specs: string[] }
+    { moniker: string; identity: string; totalStake: bigint; totalDelegation: bigint; commission: string; specs: string[] }
   >();
 
   for (const providers of specProviders) {
@@ -201,11 +398,19 @@ export async function fetchAllProviders(): Promise<
         existing.totalStake += stake;
         existing.totalDelegation += delegation;
         existing.specs.push(p.specId);
+        if (!existing.commission && p.delegate_commission) {
+          existing.commission = p.delegate_commission;
+        }
+        if (!existing.identity && p.identity) {
+          existing.identity = p.identity;
+        }
       } else {
         byAddress.set(p.address, {
           moniker: p.moniker ?? "",
+          identity: p.identity ?? "",
           totalStake: stake,
           totalDelegation: delegation,
+          commission: p.delegate_commission ?? "",
           specs: [p.specId],
         });
       }
@@ -215,8 +420,10 @@ export async function fetchAllProviders(): Promise<
   return Array.from(byAddress.entries()).map(([address, data]) => ({
     address,
     moniker: data.moniker,
+    identity: data.identity,
     totalStake: data.totalStake.toString(),
     totalDelegation: data.totalDelegation.toString(),
+    commission: data.commission,
     specs: data.specs,
   }));
 }
@@ -246,5 +453,66 @@ export async function fetchIprpcSpecRewards(specId: string): Promise<
     }));
   } catch {
     return [];
+  }
+}
+
+export async function fetchDelegatorRewards(provider: string): Promise<
+  Array<{ denom: string; amount: string }>
+> {
+  try {
+    const data = await fetchRest<{
+      rewards: Array<{ provider: string; amount: Array<{ denom: string; amount: string }> }>;
+    }>(`/lavanet/lava/dualstaking/delegator_rewards/${provider}`);
+    const entry = data.rewards?.find((r) => r.provider === provider);
+    return entry?.amount ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchProviderMetadata(provider: string): Promise<{
+  description?: { identity?: string; moniker?: string };
+} | null> {
+  try {
+    const specs = await fetchAllSpecs();
+    for (const spec of specs) {
+      try {
+        const data = await fetchRest<{
+          stakeEntry: Array<{
+            address: string;
+            description?: { identity?: string; moniker?: string };
+          }>;
+        }>(`/lavanet/lava/pairing/providers/${spec.index}`);
+        const match = data.stakeEntry?.find((p) => p.address === provider);
+        if (match?.description?.identity) return match;
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchProviderAvatar(provider: string, identityHint?: string): Promise<string | null> {
+  try {
+    let identity = identityHint;
+    if (!identity) {
+      const meta = await fetchProviderMetadata(provider);
+      identity = meta?.description?.identity ?? undefined;
+    }
+    if (!identity) return null;
+
+    const res = await fetch(
+      `https://keybase.io/_/api/1.0/user/lookup.json?key_suffix=${identity}&fields=pictures`,
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      them?: Array<{ pictures?: { primary?: { url?: string } } }>;
+    };
+    return data.them?.[0]?.pictures?.primary?.url ?? null;
+  } catch {
+    return null;
   }
 }

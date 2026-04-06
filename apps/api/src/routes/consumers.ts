@@ -7,21 +7,25 @@ export async function consumerRoutes(app: FastifyInstance) {
   app.get("/", { config: { cacheTTL: 60 } }, async (request) => {
     const { page, limit } = request.pagination;
 
-    const data = await gql<{
-      relayPayments: {
-        groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relayNumber: string } }>;
-      };
-    }>(`{
-      relayPayments(filter: { consumer: { isNull: false } }) {
-        groupedAggregates(groupBy: CONSUMER) {
-          keys
-          sum { cu relayNumber }
+    const [data, subs] = await Promise.all([
+      gql<{
+        mvConsumerRelayDailies: {
+          groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
+        };
+      }>(`{
+        mvConsumerRelayDailies(filter: { consumer: { notEqualTo: "" } }) {
+          groupedAggregates(groupBy: CONSUMER) {
+            keys
+            sum { cu relays }
+          }
         }
-      }
-    }`);
+      }`),
+      fetchSubscriptionList(),
+    ]);
+    const subsMap = new Map<string, string>(subs.map((s) => [s.consumer, s.plan]));
 
-    const consumers = data.relayPayments.groupedAggregates
-      .map((g) => ({ consumer: g.keys[0], totalCu: g.sum.cu, totalRelays: g.sum.relayNumber }))
+    const consumers = data.mvConsumerRelayDailies.groupedAggregates
+      .map((g) => ({ consumer: g.keys[0], totalCu: g.sum.cu, totalRelays: g.sum.relays, plan: subsMap.get(g.keys[0]) ?? "" }))
       .filter((c) => c.consumer)
       .sort((a, b) => Number(BigInt(b.totalCu) - BigInt(a.totalCu)));
 
@@ -37,17 +41,17 @@ export async function consumerRoutes(app: FastifyInstance) {
     const { addr } = request.params;
 
     const data = await gql<{
-      relayPayments: { aggregates: { sum: { cu: string; relayNumber: string } } };
+      mvConsumerRelayDailies: { aggregates: { sum: { cu: string; relays: string } } };
     }>(`query($consumer: String!) {
-      relayPayments(filter: { consumer: { equalTo: $consumer } }) {
-        aggregates { sum { cu relayNumber } }
+      mvConsumerRelayDailies(filter: { consumer: { equalTo: $consumer } }) {
+        aggregates { sum { cu relays } }
       }
     }`, { consumer: addr });
 
     return {
       consumer: addr,
-      totalCu: data.relayPayments.aggregates.sum.cu ?? "0",
-      totalRelays: data.relayPayments.aggregates.sum.relayNumber ?? "0",
+      totalCu: data.mvConsumerRelayDailies.aggregates.sum.cu ?? "0",
+      totalRelays: data.mvConsumerRelayDailies.aggregates.sum.relays ?? "0",
     };
   });
 
@@ -99,5 +103,61 @@ export async function consumerRoutes(app: FastifyInstance) {
     }`, { consumer: addr });
 
     return { data: data.conflictResponses.nodes };
+  });
+
+  // GET /consumers/:addr/charts?from=&to=&chain= — time-series from indexer GraphQL
+  app.get<{ Params: { addr: string } }>("/:addr/charts", { config: { cacheTTL: 300 } }, async (request) => {
+    const { addr } = request.params;
+    const query = request.query as Record<string, string>;
+    const chain = query.chain;
+
+    const to = query.to ? query.to : new Date().toISOString().slice(0, 10);
+    const from = query.from
+      ? query.from
+      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const filterParts = [
+      `consumer: { equalTo: $consumer }`,
+      `date: { greaterThanOrEqualTo: $from, lessThanOrEqualTo: $to }`,
+    ];
+    const varDefs = [`$consumer: String!`, `$from: Date!`, `$to: Date!`];
+    const vars: Record<string, unknown> = { consumer: addr, from, to };
+
+    if (chain) {
+      filterParts.push(`chainId: { equalTo: $chain }`);
+      varDefs.push(`$chain: String!`);
+      vars.chain = chain;
+    }
+
+    const data = await gql<{
+      mvConsumerRelayDailies: {
+        nodes: Array<{
+          date: string; chainId: string; cu: string; relays: string;
+          qosSyncW: number | null; qosAvailW: number | null; qosLatencyW: number | null; qosWeight: string;
+        }>;
+      };
+    }>(`query(${varDefs.join(", ")}) {
+      mvConsumerRelayDailies(
+        filter: { ${filterParts.join(", ")} }
+        orderBy: DATE_ASC
+      ) {
+        nodes { date chainId cu relays qosSyncW qosAvailW qosLatencyW qosWeight }
+      }
+    }`, vars);
+
+    const result = data.mvConsumerRelayDailies.nodes.map((n) => {
+      const w = Number(n.qosWeight);
+      return {
+        date: n.date,
+        chainId: n.chainId,
+        cu: n.cu,
+        relays: n.relays,
+        qosSync: w > 0 ? (n.qosSyncW ?? 0) / w : null,
+        qosAvailability: w > 0 ? (n.qosAvailW ?? 0) / w : null,
+        qosLatency: w > 0 ? (n.qosLatencyW ?? 0) / w : null,
+      };
+    });
+
+    return { data: result };
   });
 }
