@@ -1,3 +1,8 @@
+---
+description: Fix a GitHub issue by number
+argument-hint: "<issue-number>"
+---
+
 Fix the GitHub issue: $ARGUMENTS
 
 ## Steps

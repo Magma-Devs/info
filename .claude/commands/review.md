@@ -1,3 +1,7 @@
+---
+description: Review current changes for quality and convention adherence
+---
+
 Review the current changes for code quality, correctness, and adherence to project conventions.
 
 ## Steps

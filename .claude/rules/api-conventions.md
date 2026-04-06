@@ -16,8 +16,9 @@ paths:
 - **Redis** (`REDIS_URL`): response-level cache only, never a data source
 
 ## Caching
-- Use the `cache` plugin: `app.cache(key, ttlSeconds, fetchFn)`
+- Set `cacheTTL` in route config: `app.get('/path', { config: { cacheTTL: 300 } }, handler)`
 - TTL guidelines: health/realtime = 10-30s, lists = 60-300s, supply = 300s, avatars = 3600s
+- Cache is automatic (onRequest/onSend hooks) — no explicit cache calls in handler code
 
 ## Pagination
 - Standard params: `?page=1&limit=20&sort=field&order=asc|desc`
