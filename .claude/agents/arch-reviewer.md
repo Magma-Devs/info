@@ -48,6 +48,12 @@ You review for architectural problems that lead to maintenance debt, data integr
 - Chain RPC batched in groups of 5 to avoid rate limiting
 - Provider detail queries every spec on chain — must be cached (300s TTL)
 
+### Documentation freshness
+- Do changes introduce new API endpoints, env vars, domain concepts, or gotchas not reflected in `CLAUDE.md`?
+- Do changes modify existing endpoints or behavior documented in `CLAUDE.md`?
+- Are `.claude/rules/*.md` files still accurate given the changes?
+- Flag stale documentation as [WARNING]
+
 ## When previous results exist
 
 If a file `_workspace/arch-review.md` already exists, read it first. Focus on changes since that review and update findings accordingly.
