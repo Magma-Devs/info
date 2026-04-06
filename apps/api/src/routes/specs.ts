@@ -3,19 +3,45 @@ import { gql } from "../graphql/client.js";
 import { fetchAllSpecs, fetchProvidersForSpec, fetchIprpcSpecRewards } from "../rpc/lava.js";
 
 export async function specRoutes(app: FastifyInstance) {
-  // GET /specs — from chain RPC
+  // GET /specs — from chain RPC + 30d relay data from MV
   app.get("/", { config: { cacheTTL: 300 } }, async () => {
-    const specs = await fetchAllSpecs();
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const [specs, relayData] = await Promise.all([
+      fetchAllSpecs(),
+      gql<{
+        mvRelayDailies: {
+          groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
+        };
+      }>(`query($since: Date!) {
+        mvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
+          groupedAggregates(groupBy: CHAIN_ID) {
+            keys
+            sum { cu relays }
+          }
+        }
+      }`, { since }),
+    ]);
+
+    const relayMap = new Map<string, { cu: string; relays: string }>();
+    for (const agg of relayData.mvRelayDailies.groupedAggregates) {
+      relayMap.set(agg.keys[0], { cu: agg.sum.cu, relays: agg.sum.relays });
+    }
+
     const specProviders = await Promise.all(
       specs.map((s) =>
         fetchProvidersForSpec(s.index)
-          .then((ps) => ({
-            specId: s.index,
-            name: s.name,
-            providerCount: ps.length,
-            totalStake: ps.reduce((sum, p) => sum + BigInt(p.stake?.amount ?? "0"), 0n).toString(),
-          }))
-          .catch(() => ({ specId: s.index, name: s.name, providerCount: 0, totalStake: "0" })),
+          .then((ps) => {
+            const relay = relayMap.get(s.index);
+            return {
+              specId: s.index,
+              name: s.name,
+              providerCount: ps.length,
+              relays30d: relay?.relays ?? "0",
+              cu30d: relay?.cu ?? "0",
+            };
+          })
+          .catch(() => ({ specId: s.index, name: s.name, providerCount: 0, relays30d: "0", cu30d: "0" })),
       ),
     );
 
@@ -33,6 +59,7 @@ export async function specRoutes(app: FastifyInstance) {
         moniker: p.moniker,
         stake: p.stake?.amount ?? "0",
         delegation: p.delegate_total?.amount ?? "0",
+        delegateCommission: p.delegate_commission,
         geolocation: p.geolocation,
       })),
     };
@@ -63,28 +90,28 @@ export async function specRoutes(app: FastifyInstance) {
     };
   });
 
-  // GET /specs/:specId/charts — from indexer GraphQL
+  // GET /specs/:specId/charts — from indexer GraphQL (materialized view)
   app.get<{ Params: { specId: string } }>("/:specId/charts", { config: { cacheTTL: 300 } }, async (request) => {
     const { specId } = request.params;
 
     const data = await gql<{
-      relayPayments: {
-        groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relayNumber: string } }>;
+      mvRelayDailies: {
+        groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
       };
     }>(`query($chainId: String!) {
-      relayPayments(filter: { chainId: { equalTo: $chainId } }) {
+      mvRelayDailies(filter: { chainId: { equalTo: $chainId } }) {
         groupedAggregates(groupBy: CHAIN_ID) {
           keys
-          sum { cu relayNumber }
+          sum { cu relays }
         }
       }
     }`, { chainId: specId });
 
     return {
-      data: data.relayPayments.groupedAggregates.map((g) => ({
+      data: data.mvRelayDailies.groupedAggregates.map((g) => ({
         chainId: g.keys[0],
         cu: g.sum.cu,
-        relays: g.sum.relayNumber,
+        relays: g.sum.relays,
       })),
     };
   });

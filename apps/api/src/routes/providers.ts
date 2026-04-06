@@ -1,12 +1,45 @@
 import type { FastifyInstance } from "fastify";
 import { gql } from "../graphql/client.js";
-import { fetchAllProviders, fetchProvidersForSpec, fetchAllSpecs } from "../rpc/lava.js";
+import {
+  fetchAllProviders,
+  fetchProvidersForSpec,
+  fetchAllSpecs,
+  fetchProviderAvatar,
+  fetchDelegatorRewards,
+} from "../rpc/lava.js";
 
 export async function providerRoutes(app: FastifyInstance) {
-  // GET /providers — from chain RPC, cached 5 min
+  // GET /providers — from chain RPC + indexer relay data, cached 5 min
   app.get("/", { config: { cacheTTL: 300 } }, async (request) => {
     const { page, limit, offset } = request.pagination;
-    const providers = await fetchAllProviders();
+
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
+    const [providers, relayData] = await Promise.all([
+      fetchAllProviders(),
+      gql<{
+        mvRelayDailies: {
+          groupedAggregates: Array<{
+            keys: string[];
+            sum: { cu: string; relays: string };
+          }>;
+        };
+      }>(`query($since: Date!) {
+        mvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
+          groupedAggregates(groupBy: PROVIDER) {
+            keys
+            sum { cu relays }
+          }
+        }
+      }`, { since }),
+    ]);
+
+    const relayMap = new Map<string, { cu: string; relays: string }>();
+    for (const agg of relayData.mvRelayDailies.groupedAggregates) {
+      relayMap.set(agg.keys[0], { cu: agg.sum.cu, relays: agg.sum.relays });
+    }
 
     const total = providers.length;
     providers.sort((a, b) => {
@@ -16,13 +49,20 @@ export async function providerRoutes(app: FastifyInstance) {
     const paged = providers.slice(offset, offset + limit);
 
     return {
-      data: paged.map((p) => ({
-        provider: p.address,
-        moniker: p.moniker,
-        activeServices: p.specs.length,
-        totalStake: p.totalStake,
-        totalDelegation: p.totalDelegation,
-      })),
+      data: paged.map((p) => {
+        const relay = relayMap.get(p.address);
+        return {
+          provider: p.address,
+          moniker: p.moniker,
+          identity: p.identity,
+          activeServices: p.specs.length,
+          totalStake: p.totalStake,
+          totalDelegation: p.totalDelegation,
+          commission: p.commission,
+          cuSum30d: relay?.cu ?? "0",
+          relaySum30d: relay?.relays ?? "0",
+        };
+      }),
       pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     };
   });
@@ -54,6 +94,10 @@ export async function providerRoutes(app: FastifyInstance) {
         stake: s!.stake?.amount ?? "0",
         delegation: s!.delegate_total?.amount ?? "0",
         moniker: s!.moniker,
+        delegateCommission: s!.delegate_commission,
+        geolocation: s!.geolocation,
+        addons: s!.addons,
+        extensions: s!.extensions,
       })),
     };
   });
@@ -68,7 +112,15 @@ export async function providerRoutes(app: FastifyInstance) {
         fetchProvidersForSpec(s.index)
           .then((ps) => {
             const match = ps.find((p) => p.address === addr);
-            return match ? { specId: s.index, stake: match.stake?.amount ?? "0", delegation: match.delegate_total?.amount ?? "0" } : null;
+            return match ? {
+              specId: s.index,
+              stake: match.stake?.amount ?? "0",
+              delegation: match.delegate_total?.amount ?? "0",
+              delegateCommission: match.delegate_commission,
+              geolocation: match.geolocation,
+              addons: match.addons,
+              extensions: match.extensions,
+            } : null;
           })
           .catch(() => null),
       ),
@@ -137,7 +189,7 @@ export async function providerRoutes(app: FastifyInstance) {
         first: $first
         offset: $offset
       ) {
-        nodes { id provider chainId cu rewardedCu relayNumber qosScore timestamp }
+        nodes { id provider consumer chainId cu rewardedCu relayNumber qosScore qosSync qosAvailability qosLatency excellenceQosSync excellenceQosAvailability excellenceQosLatency timestamp }
         totalCount
       }
     }`, { provider: addr, first: limit, offset: (page - 1) * limit });
@@ -169,29 +221,128 @@ export async function providerRoutes(app: FastifyInstance) {
     return { data: data.providerReports.nodes, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
   });
 
-  // GET /providers/:addr/charts — from indexer GraphQL (grouped relay payments)
+  // GET /providers/:addr/charts?from=&to=&chain= — time-series with QoS from indexer GraphQL
   app.get<{ Params: { addr: string } }>("/:addr/charts", { config: { cacheTTL: 300 } }, async (request) => {
     const { addr } = request.params;
+    const query = request.query as Record<string, string>;
+    const chain = query.chain;
+
+    // If no date params, return alltime summary by chain (backwards-compatible)
+    if (!query.from && !query.to && !chain) {
+      const data = await gql<{
+        mvRelayDailies: {
+          groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
+        };
+      }>(`query($provider: String!) {
+        mvRelayDailies(filter: { provider: { equalTo: $provider } }) {
+          groupedAggregates(groupBy: CHAIN_ID) {
+            keys
+            sum { cu relays }
+          }
+        }
+      }`, { provider: addr });
+
+      return {
+        data: data.mvRelayDailies.groupedAggregates.map((g) => ({
+          chainId: g.keys[0],
+          cu: g.sum.cu,
+          relays: g.sum.relays,
+        })),
+      };
+    }
+
+    // Time-series mode — MV is already aggregated by (date, chain, provider)
+    const to = query.to ? query.to : new Date().toISOString().slice(0, 10);
+    const from = query.from
+      ? query.from
+      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const filterParts = [
+      `provider: { equalTo: $provider }`,
+      `date: { greaterThanOrEqualTo: $from, lessThanOrEqualTo: $to }`,
+    ];
+    const varDefs = [`$provider: String!`, `$from: Date!`, `$to: Date!`];
+    const vars: Record<string, unknown> = { provider: addr, from, to };
+
+    if (chain) {
+      filterParts.push(`chainId: { equalTo: $chain }`);
+      varDefs.push(`$chain: String!`);
+      vars.chain = chain;
+    }
 
     const data = await gql<{
-      relayPayments: {
-        groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relayNumber: string } }>;
+      mvRelayDailies: {
+        nodes: Array<{
+          date: string; chainId: string; cu: string; relays: string;
+          qosSyncW: number | null; qosAvailW: number | null; qosLatencyW: number | null; qosWeight: string;
+          exQosSyncW: number | null; exQosAvailW: number | null; exQosLatencyW: number | null; exQosWeight: string;
+        }>;
       };
-    }>(`query($provider: String!) {
-      relayPayments(filter: { provider: { equalTo: $provider } }) {
-        groupedAggregates(groupBy: CHAIN_ID) {
-          keys
-          sum { cu relayNumber }
-        }
+    }>(`query(${varDefs.join(", ")}) {
+      mvRelayDailies(
+        filter: { ${filterParts.join(", ")} }
+        orderBy: DATE_ASC
+      ) {
+        nodes { date chainId cu relays qosSyncW qosAvailW qosLatencyW qosWeight exQosSyncW exQosAvailW exQosLatencyW exQosWeight }
       }
-    }`, { provider: addr });
+    }`, vars);
 
     return {
-      data: data.relayPayments.groupedAggregates.map((g) => ({
-        chainId: g.keys[0],
-        cu: g.sum.cu,
-        relays: g.sum.relayNumber,
-      })),
+      data: data.mvRelayDailies.nodes.map((n) => {
+        const w = Number(n.qosWeight);
+        const ew = Number(n.exQosWeight);
+        return {
+          date: n.date,
+          chainId: n.chainId,
+          cu: n.cu,
+          relays: n.relays,
+          qosSync: w > 0 ? (n.qosSyncW ?? 0) / w : null,
+          qosAvailability: w > 0 ? (n.qosAvailW ?? 0) / w : null,
+          qosLatency: w > 0 ? (n.qosLatencyW ?? 0) / w : null,
+          excellenceQosSync: ew > 0 ? (n.exQosSyncW ?? 0) / ew : null,
+          excellenceQosAvailability: ew > 0 ? (n.exQosAvailW ?? 0) / ew : null,
+          excellenceQosLatency: ew > 0 ? (n.exQosLatencyW ?? 0) / ew : null,
+        };
+      }),
     };
   });
+
+  // GET /providers/:addr/avatar?identity= — from Keybase API, cached 24h
+  app.get<{ Params: { addr: string } }>("/:addr/avatar", { config: { cacheTTL: 86400 } }, async (request) => {
+    const { addr } = request.params;
+    const query = request.query as Record<string, string>;
+    const url = await fetchProviderAvatar(addr, query.identity || undefined);
+    return { url };
+  });
+
+  // GET /providers/:addr/delegator-rewards — from chain RPC
+  app.get<{ Params: { addr: string } }>("/:addr/delegator-rewards", { config: { cacheTTL: 300 } }, async (request) => {
+    const { addr } = request.params;
+    const rewards = await fetchDelegatorRewards(addr);
+    return { data: rewards };
+  });
+
+  // GET /providers/:addr/block-reports — from indexer GraphQL
+  app.get<{ Params: { addr: string } }>("/:addr/block-reports", async (request) => {
+    const { addr } = request.params;
+    const { page, limit } = request.pagination;
+
+    const data = await gql<{
+      providerBlockReports: { nodes: unknown[]; totalCount: number };
+    }>(`query($provider: String!, $first: Int!, $offset: Int!) {
+      providerBlockReports(
+        filter: { provider: { equalTo: $provider } }
+        orderBy: BLOCK_HEIGHT_DESC
+        first: $first
+        offset: $offset
+      ) {
+        nodes { id provider chainId chainBlockHeight blockHeight timestamp }
+        totalCount
+      }
+    }`, { provider: addr, first: limit, offset: (page - 1) * limit });
+
+    const total = data.providerBlockReports.totalCount;
+    return { data: data.providerBlockReports.nodes, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
+  });
 }
+

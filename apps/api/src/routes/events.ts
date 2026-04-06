@@ -14,7 +14,7 @@ export async function eventRoutes(app: FastifyInstance) {
         relayPayments: { nodes: unknown[]; totalCount: number };
       }>(`query($first: Int!, $offset: Int!) {
         relayPayments(orderBy: TIMESTAMP_DESC, first: $first, offset: $offset) {
-          nodes { id provider chainId cu rewardedCu relayNumber qosScore timestamp }
+          nodes { id provider consumer chainId cu rewardedCu relayNumber qosScore qosSync qosAvailability qosLatency excellenceQosSync excellenceQosAvailability excellenceQosLatency timestamp }
           totalCount
         }
       }`, { first: limit, offset });

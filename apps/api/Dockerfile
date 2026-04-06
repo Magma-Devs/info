@@ -2,14 +2,12 @@ FROM node:22-alpine AS builder
 RUN corepack enable
 WORKDIR /app
 
+# Copy everything first — ensures any file change busts the cache
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
-COPY packages/shared/package.json packages/shared/
-COPY apps/api/package.json apps/api/
-
-RUN pnpm install --frozen-lockfile
-
 COPY packages/shared/ packages/shared/
 COPY apps/api/ apps/api/
+
+RUN pnpm install --frozen-lockfile
 
 RUN pnpm --filter @info/shared build && \
     pnpm --filter @info/api build

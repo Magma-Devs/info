@@ -36,8 +36,9 @@ export function usePaginatedApi<T>(basePath: string) {
     order,
   }).toString();
 
+  const separator = basePath.includes("?") ? "&" : "?";
   const { data, error, isLoading, mutate } = useApi<PaginatedResponse<T>>(
-    `${basePath}?${queryString}`,
+    `${basePath}${separator}${queryString}`,
   );
 
   const setPage = useCallback(

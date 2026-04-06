@@ -1,0 +1,125 @@
+"use client";
+
+import { useState } from "react";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getPaginationRowModel,
+  flexRender,
+  type ColumnDef,
+  type SortingState,
+} from "@tanstack/react-table";
+import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+
+interface SortableTableProps<T> {
+  data: T[];
+  columns: ColumnDef<T, unknown>[];
+  defaultSort?: SortingState;
+  pageSize?: number;
+}
+
+/**
+ * Client-side sortable table with optional pagination.
+ * All columns are sortable by clicking the header.
+ */
+export function SortableTable<T>({
+  data,
+  columns,
+  defaultSort = [],
+  pageSize,
+}: SortableTableProps<T>) {
+  const [sorting, setSorting] = useState<SortingState>(defaultSort);
+
+  const table = useReactTable({
+    data,
+    columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    ...(pageSize
+      ? { getPaginationRowModel: getPaginationRowModel(), initialState: { pagination: { pageSize } } }
+      : {}),
+  });
+
+  if (data.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12 text-muted-foreground">
+        No data available
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            {table.getHeaderGroups().map((hg) => (
+              <tr key={hg.id} className="border-b border-border bg-card">
+                {hg.headers.map((header) => {
+                  const sorted = header.column.getIsSorted();
+                  return (
+                    <th
+                      key={header.id}
+                      className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground"
+                      onClick={header.column.getToggleSortingHandler()}
+                    >
+                      <div className="flex items-center gap-1">
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {sorted === "asc" ? (
+                          <ChevronUp size={14} />
+                        ) : sorted === "desc" ? (
+                          <ChevronDown size={14} />
+                        ) : (
+                          <ChevronsUpDown size={14} className="opacity-30" />
+                        )}
+                      </div>
+                    </th>
+                  );
+                })}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.getRowModel().rows.map((row) => (
+              <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id} className="px-4 py-3 text-foreground">
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {pageSize && table.getPageCount() > 1 && (
+        <div className="flex items-center justify-between mt-4 px-4 pb-4 text-sm text-muted-foreground">
+          <span>
+            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+            {" "}({data.length} total)
+          </span>
+          <div className="flex gap-2">
+            <button
+              disabled={!table.getCanPreviousPage()}
+              onClick={() => table.previousPage()}
+              className="px-3 py-1 rounded border border-border disabled:opacity-30 hover:bg-muted"
+            >
+              Previous
+            </button>
+            <button
+              disabled={!table.getCanNextPage()}
+              onClick={() => table.nextPage()}
+              className="px-3 py-1 rounded border border-border disabled:opacity-30 hover:bg-muted"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -10,6 +11,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  Brush,
 } from "recharts";
 
 interface ChartSeries {
@@ -25,13 +27,32 @@ interface ChartProps {
   xKey: string;
   height?: number;
   isLoading?: boolean;
+  brushable?: boolean;
+  toggleable?: boolean;
 }
 
 /**
  * THE one chart component. Built on Recharts.
  * Replaces: IndexChart, ProviderChart, ConsumerChart, ChainChart (all nearly identical).
  */
-export function Chart({ data, series, xKey, height = 300, isLoading }: ChartProps) {
+export function Chart({ data, series, xKey, height = 300, isLoading, brushable = false, toggleable = false }: ChartProps) {
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleLegendClick = useCallback((entry: any) => {
+    if (!toggleable || entry?.dataKey == null) return;
+    const key = String(entry.dataKey);
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, [toggleable]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center text-muted-foreground" style={{ height }}>
@@ -67,9 +88,16 @@ export function Chart({ data, series, xKey, height = 300, isLoading }: ChartProp
           contentStyle={{ backgroundColor: "#1a1a1a", border: "1px solid #333", borderRadius: 8 }}
           labelStyle={{ color: "#aaa" }}
         />
-        <Legend />
-        {series.map((s) =>
-          s.type === "area" ? (
+        <Legend
+          onClick={toggleable ? handleLegendClick : undefined}
+          formatter={(value, entry) => {
+            const isHidden = toggleable && "dataKey" in entry && hidden.has(entry.dataKey as string);
+            return <span style={{ opacity: isHidden ? 0.3 : 1, cursor: toggleable ? "pointer" : undefined }}>{value}</span>;
+          }}
+        />
+        {series.map((s) => {
+          if (toggleable && hidden.has(s.key)) return null;
+          return s.type === "area" ? (
             <Area
               key={s.key}
               type="monotone"
@@ -88,8 +116,9 @@ export function Chart({ data, series, xKey, height = 300, isLoading }: ChartProp
               stroke={s.color}
               dot={false}
             />
-          ),
-        )}
+          );
+        })}
+        {brushable && <Brush dataKey={xKey} height={30} stroke="#ac4c39" />}
       </ComposedChart>
     </ResponsiveContainer>
   );

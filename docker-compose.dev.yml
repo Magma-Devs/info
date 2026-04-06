@@ -1,0 +1,55 @@
+# Dev stack — hot reload for both API and web.
+# Usage: docker-compose -f docker-compose.dev.yml up --build
+# Source is mounted at runtime — code changes reflect instantly.
+# Only rebuild (--build) when dependencies change.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command: pnpm --filter @info/api dev
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis: { condition: service_healthy }
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+    environment:
+      API_PORT: "8080"
+      API_HOST: "0.0.0.0"
+      INDEXER_GRAPHQL_URL: ${INDEXER_GRAPHQL_URL:-http://host.docker.internal:3000}
+      REDIS_URL: redis://redis:6379
+      LAVA_REST_URL: ${LAVA_REST_URL:-https://lava.rest.lava.build}
+      LAVA_RPC_URL: ${LAVA_RPC_URL:-https://lava.tendermintrpc.lava.build:443}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command: pnpm --filter @info/web dev
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api
+    volumes:
+      - ./apps/web/src:/app/apps/web/src
+      - ./apps/web/public:/app/apps/web/public
+      - ./apps/web/next.config.dev.ts:/app/apps/web/next.config.ts
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
