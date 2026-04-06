@@ -322,7 +322,7 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 
 ## Claude Configuration
 
-See `.claude/` for team-shared settings, commands, rules, agents, and hooks:
+See `.claude/` for team-shared settings, commands, rules, agents, skills, and hooks:
 
 ### Settings & Permissions
 - `.claude/settings.json` — team permissions + hooks (committed)
@@ -338,14 +338,69 @@ See `.claude/` for team-shared settings, commands, rules, agents, and hooks:
 ### Commands (slash commands)
 - `/project:fix-issue <number>` — Fetch GitHub issue, analyze, implement fix, run tests
 - `/project:fix-pr` — Fetch unresolved PR review comments, fix them all
-- `/project:review` — Full pre-push gate (build, security, perf, quality)
 - `/project:deploy [target]` — Pre-deploy checks + push + PR
 - `/project:context-prime` — Prime context at session start or after compaction
 
-### Agents (delegated specialists)
-- `code-reviewer` — Read-only code review (Sonnet, no write access)
-- `security-auditor` — Security vulnerability scan (Sonnet, no write/network access)
-- `refactor-planner` — Analyzes blast radius and produces refactoring plans before execution (Sonnet, read-only)
-
 ### Hooks (automated checks)
 - **PostToolUse (Write|Edit)** — Runs `pnpm typecheck` on the affected package after every file edit. Catches TypeScript errors immediately instead of letting them compound.
+
+## Harness: Code Review
+
+**Goal:** Comprehensive parallel code review that catches architecture, security, performance, and style issues before merge.
+
+**Agents:**
+| Agent | Role |
+|-------|------|
+| arch-reviewer | Data flow, separation of concerns, API contracts, dependency direction, domain model integrity |
+| security-reviewer | Injection vectors, secrets exposure, input validation, SSRF, dependency risks, Docker security |
+| perf-reviewer | N+1 queries, unbounded fetches, missing caches, React re-renders, bundle bloat, BigInt misuse |
+| style-reviewer | TypeScript strictness, React patterns, Tailwind conventions, API conventions, domain correctness |
+| refactor-planner | Plans refactoring strategies before execution (standalone, not part of review fan-out) |
+
+**Skills:**
+| Skill | Purpose | Used by |
+|-------|---------|---------|
+| code-review | Orchestrator — fans out to 4 agents in parallel, merges findings into unified report | All review agents |
+
+**Execution rules:**
+- For code review, quality checks, PR review, or pre-push gates → use the `code-review` skill to run the parallel agent review
+- Simple questions about code or quick checks → answer directly without agents
+- All review agents use `model: "opus"` and are read-only (no write access)
+- Intermediate results stored in `_workspace/` directory
+- Re-reviews only re-run agents whose domain has new changes
+
+**Directory structure:**
+```
+.claude/
+├── agents/
+│   ├── arch-reviewer.md
+│   ├── security-reviewer.md
+│   ├── perf-reviewer.md
+│   ├── style-reviewer.md
+│   └── refactor-planner.md
+├── skills/
+│   └── code-review/
+│       ├── SKILL.md
+│       └── references/
+│           └── lava-domain.md
+├── commands/
+│   ├── fix-issue.md
+│   ├── fix-pr.md
+│   ├── deploy.md
+│   └── context-prime.md
+├── rules/
+│   ├── api-conventions.md
+│   ├── frontend.md
+│   ├── code-style.md
+│   ├── testing.md
+│   └── git-workflow.md
+└── hooks/
+    └── typecheck-on-edit.sh
+```
+
+**Change log:**
+| Date | Change | Target | Reason |
+|------|--------|--------|--------|
+| 2026-04-06 | Initial harness build | All agents + orchestrator | Parallel code review with domain-specific Lava rules |
+| 2026-04-06 | Replaced code-reviewer + security-auditor | agents/ | Superseded by specialized 4-agent fan-out |
+| 2026-04-06 | Removed /project:review command | commands/ | Superseded by code-review orchestrator skill |
