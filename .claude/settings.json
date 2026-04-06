@@ -14,18 +14,44 @@
       "Bash(git checkout *)",
       "Bash(git fetch *)",
       "Bash(git remote *)",
+      "Bash(git stash *)",
+      "Bash(git rebase *)",
+      "Bash(git cherry-pick *)",
+      "Bash(git show *)",
       "Bash(gh pr *)",
       "Bash(gh run *)",
       "Bash(gh api *)",
+      "Bash(gh issue *)",
       "Bash(git push *)",
       "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(wc *)",
       "Bash(curl -s http://localhost:*)",
       "WebSearch"
     ],
     "deny": [
       "Bash(rm -rf /)",
+      "Bash(rm -rf .)",
       "Bash(sudo *)",
-      "Bash(git push --force *)"
+      "Bash(git push --force *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean -f *)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/typecheck-on-edit.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "harness@harness-marketplace": true
   }
 }

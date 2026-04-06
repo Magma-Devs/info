@@ -322,12 +322,30 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 
 ## Claude Configuration
 
-See `.claude/` for team-shared settings, commands, rules, and agents:
-- `.claude/settings.json` — team permissions (committed)
+See `.claude/` for team-shared settings, commands, rules, agents, and hooks:
+
+### Settings & Permissions
+- `.claude/settings.json` — team permissions + hooks (committed)
+- `CLAUDE.local.md` — personal overrides (gitignored)
+
+### Rules (auto-loaded context)
 - `.claude/rules/api-conventions.md` — auto-loads when editing `apps/api/**`
 - `.claude/rules/frontend.md` — auto-loads when editing `apps/web/**`
 - `.claude/rules/code-style.md` — TypeScript, React, Tailwind conventions (always loaded)
 - `.claude/rules/testing.md` — Vitest patterns (always loaded)
-- `.claude/commands/` — `/project:review`, `/project:fix-issue`, `/project:deploy`
-- `.claude/agents/` — `code-reviewer`, `security-auditor`
-- `CLAUDE.local.md` — personal overrides (gitignored)
+- `.claude/rules/git-workflow.md` — Commit conventions, branching, PR workflow (always loaded)
+
+### Commands (slash commands)
+- `/project:fix-issue <number>` — Fetch GitHub issue, analyze, implement fix, run tests
+- `/project:fix-pr` — Fetch unresolved PR review comments, fix them all
+- `/project:review` — Full pre-push gate (build, security, perf, quality)
+- `/project:deploy [target]` — Pre-deploy checks + push + PR
+- `/project:context-prime` — Prime context at session start or after compaction
+
+### Agents (delegated specialists)
+- `code-reviewer` — Read-only code review (Sonnet, no write access)
+- `security-auditor` — Security vulnerability scan (Sonnet, no write/network access)
+- `refactor-planner` — Analyzes blast radius and produces refactoring plans before execution (Sonnet, read-only)
+
+### Hooks (automated checks)
+- **PostToolUse (Write|Edit)** — Runs `pnpm typecheck` on the affected package after every file edit. Catches TypeScript errors immediately instead of letting them compound.

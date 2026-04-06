@@ -1,16 +1,20 @@
 ---
-description: Fix a GitHub issue by number
-argument-hint: "<issue-number>"
+description: Fetch a GitHub issue and implement a fix with tests
 ---
 
-Fix the GitHub issue: $ARGUMENTS
+Fix issue $ARGUMENTS
 
-## Steps
+## Workflow
 
-1. Fetch issue details: `gh issue view $ARGUMENTS`
-2. Understand the bug or feature request from the description and comments
-3. Find the relevant files using search and code reading
-4. Implement the fix or feature
-5. Run `pnpm typecheck` to verify no type errors
-6. Run `pnpm test` to verify tests pass
+1. Fetch the issue details using `gh issue view <number>`
+2. Read all comments for additional context: `gh api repos/{owner}/{repo}/issues/<number>/comments`
+3. Analyze the issue to understand the root cause — read the relevant source files before proposing changes
+4. Check if there are related issues or PRs: `gh issue list --search "<keywords>"`
+5. Implement the fix:
+   - Create a feature branch if not already on one: `feat/<short-description>`
+   - Make the minimal change needed to fix the issue
+   - Add or update tests if the fix is testable
+6. Verify the fix:
+   - `pnpm typecheck` — must pass
+   - `pnpm test` — must pass
 7. Summarize what was changed and why
