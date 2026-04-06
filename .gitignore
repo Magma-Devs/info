@@ -28,8 +28,10 @@ coverage/
 # Docker
 *.pid
 
-# Claude Code
-.claude/
+# Claude Code (local-only files)
+.claude/settings.local.json
+.claude/worktrees/
+CLAUDE.local.md
 
 # pnpm store
 .pnpm-store/
