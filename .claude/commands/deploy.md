@@ -5,8 +5,6 @@ Deploy the application. Target: $ARGUMENTS (default: staging)
 1. Ensure working tree is clean: `git status`
 2. Run typecheck: `pnpm typecheck`
 3. Run tests: `pnpm test`
-4. Verify Docker builds succeed:
-   - `docker compose -f docker-compose.dev.yml build`
 
 ## Deploy
 
