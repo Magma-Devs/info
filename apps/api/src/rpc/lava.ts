@@ -122,19 +122,29 @@ export async function fetchCirculatingSupply(): Promise<bigint> {
   return circulating;
 }
 
-export async function fetchProvidersForSpec(specId: string): Promise<
-  Array<{
-    address: string;
-    moniker: string;
-    identity: string;
-    stake: { amount: string };
-    delegate_total: { amount: string };
-    delegate_commission: string;
-    geolocation: number;
-    addons: string;
-    extensions: string;
-  }>
-> {
+export interface ProviderEndpoint {
+  iPPORT: string;
+  geolocation: number;
+  apiInterfaces: string[];
+  addons: string[];
+  extensions: string[];
+}
+
+export interface ProviderForSpec {
+  address: string;
+  moniker: string;
+  identity: string;
+  stake: { amount: string };
+  delegate_total: { amount: string };
+  delegate_commission: string;
+  geolocation: number;
+  addons: string;
+  extensions: string;
+  apiInterfaces: string;
+  endpoints: ProviderEndpoint[];
+}
+
+export async function fetchProvidersForSpec(specId: string): Promise<ProviderForSpec[]> {
   const data = await fetchRest<{
     stakeEntry: Array<{
       address: string;
@@ -145,8 +155,11 @@ export async function fetchProvidersForSpec(specId: string): Promise<
       delegate_commission: string;
       geolocation: number;
       endpoints?: Array<{
+        iPPORT?: string;
+        geolocation?: number;
         addons?: string[];
         extensions?: string[];
+        api_interfaces?: string[];
       }>;
     }>;
   }>(`/lavanet/lava/pairing/providers/${specId}`);
@@ -154,10 +167,25 @@ export async function fetchProvidersForSpec(specId: string): Promise<
   return (data.stakeEntry ?? []).map((entry) => {
     const allAddons = new Set<string>();
     const allExtensions = new Set<string>();
+    const allApiInterfaces = new Set<string>();
+    const endpoints: ProviderEndpoint[] = [];
+
     for (const ep of entry.endpoints ?? []) {
       for (const a of ep.addons ?? []) if (a) allAddons.add(a);
       for (const e of ep.extensions ?? []) if (e) allExtensions.add(e);
+      for (const i of ep.api_interfaces ?? []) if (i) allApiInterfaces.add(i);
+
+      if (ep.iPPORT) {
+        endpoints.push({
+          iPPORT: ep.iPPORT,
+          geolocation: ep.geolocation ?? entry.geolocation,
+          apiInterfaces: (ep.api_interfaces ?? []).filter(Boolean),
+          addons: (ep.addons ?? []).filter(Boolean),
+          extensions: (ep.extensions ?? []).filter(Boolean),
+        });
+      }
     }
+
     return {
       address: entry.address,
       moniker: entry.moniker,
@@ -168,6 +196,8 @@ export async function fetchProvidersForSpec(specId: string): Promise<
       geolocation: entry.geolocation,
       addons: Array.from(allAddons).join(","),
       extensions: Array.from(allExtensions).join(","),
+      apiInterfaces: Array.from(allApiInterfaces).join(","),
+      endpoints,
     };
   });
 }

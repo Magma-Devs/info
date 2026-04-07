@@ -10,7 +10,6 @@ import {
   type PaginationParams,
   type ApiError,
   type HealthCheckResult,
-  type HealthProbeTask,
   type BlockchainEvent,
 } from "../index.js";
 import { IGNORED_EVENT_TYPES } from "../constants/event-types.js";
@@ -107,17 +106,6 @@ describe("type shapes (compile-time verification via runtime construction)", () 
       latency: 50,
     };
     expect(result.status).toBe("healthy");
-  });
-
-  it("HealthProbeTask shape", () => {
-    const task: HealthProbeTask = {
-      type: "health",
-      provider: "lava@test",
-      timestamp: "2024-01-01T00:00:00Z",
-      secret: "s",
-      geolocation: "US",
-    };
-    expect(task.type).toBe("health");
   });
 
   it("BlockchainEvent shape", () => {

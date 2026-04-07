@@ -7,6 +7,7 @@ import {
   fetchProviderAvatar,
   fetchDelegatorRewards,
 } from "../rpc/lava.js";
+import { readHealthForProvider, readHealthMapForProvider } from "../services/health-store.js";
 
 const EMPTY_PAGE = { nodes: [] as unknown[], totalCount: 0 };
 
@@ -133,27 +134,18 @@ export async function providerRoutes(app: FastifyInstance) {
     return { data: results.filter(Boolean) };
   });
 
-  // GET /providers/:addr/health — indexer GraphQL
+  // GET /providers/:addr/health — from Redis
   app.get<{ Params: { addr: string } }>("/:addr/health", { config: { cacheTTL: 30 } }, async (request) => {
     const { addr } = request.params;
     const { page, limit } = request.pagination;
 
-    const data = await gqlSafe<{
-      providerHealths: { nodes: unknown[]; totalCount: number };
-    }>(`query($provider: String!, $first: Int!, $offset: Int!) {
-      providerHealths(
-        filter: { provider: { equalTo: $provider } }
-        orderBy: TIMESTAMP_DESC
-        first: $first
-        offset: $offset
-      ) {
-        nodes { id provider spec status geolocation interface timestamp data }
-        totalCount
-      }
-    }`, { provider: addr, first: limit, offset: (page - 1) * limit }, { providerHealths: EMPTY_PAGE });
+    if (!app.redis) {
+      return { data: [], pagination: { total: 0, page, limit, pages: 0 } };
+    }
 
-    const total = data.providerHealths.totalCount;
-    return { data: data.providerHealths.nodes, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
+    const result = await readHealthForProvider(app.redis, addr, page, limit);
+    const total = result.total;
+    return { data: result.data, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
   });
 
   // GET /providers/:addr/events — indexer GraphQL

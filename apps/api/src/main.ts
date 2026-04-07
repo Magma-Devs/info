@@ -1,9 +1,11 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import { redisPlugin } from "./plugins/redis.js";
 import { cachePlugin } from "./plugins/cache.js";
 import { paginationPlugin } from "./plugins/pagination.js";
 import { csvPlugin } from "./plugins/csv.js";
 import { errorHandlerPlugin } from "./plugins/error-handler.js";
+import { healthProbePlugin } from "./plugins/health-probe.js";
 import { healthRoutes } from "./routes/health.js";
 import { indexRoutes } from "./routes/index.js";
 import { providerRoutes } from "./routes/providers.js";
@@ -32,6 +34,7 @@ async function main() {
 
   await app.register(cors, { origin: true });
   await app.register(errorHandlerPlugin);
+  await app.register(redisPlugin);
   await app.register(cachePlugin);
   await app.register(paginationPlugin);
   await app.register(csvPlugin);
@@ -48,6 +51,8 @@ async function main() {
   await app.register(aprRoutes);
   await app.register(searchRoutes);
   await app.register(lavaRoutes, { prefix: "/lava" });
+
+  await app.register(healthProbePlugin);
 
   await app.listen({ port: PORT, host: HOST });
   app.log.info(`API server listening on ${HOST}:${PORT}`);

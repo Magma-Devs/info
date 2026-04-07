@@ -19,7 +19,6 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       indexer: ${{ steps.filter.outputs.indexer }}
       web: ${{ steps.filter.outputs.web }}
-      health-probe: ${{ steps.filter.outputs.health-probe }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -40,9 +39,6 @@ jobs:
               - 'packages/shared/**'
             web:
               - 'apps/web/**'
-              - 'packages/shared/**'
-            health-probe:
-              - 'apps/health-probe/**'
               - 'packages/shared/**'
 
   typecheck-and-test:
@@ -72,10 +68,6 @@ jobs:
       - name: Typecheck indexer
         if: needs.changes.outputs.indexer == 'true'
         run: pnpm --filter @info/indexer typecheck
-
-      - name: Typecheck health-probe
-        if: needs.changes.outputs.health-probe == 'true'
-        run: pnpm --filter @info/health-probe typecheck
 
       - name: Test
         run: pnpm test
