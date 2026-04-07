@@ -1,24 +1,10 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { Redis } from "ioredis";
 
 declare module "fastify" {
   interface FastifyContextConfig {
     cacheTTL?: number;
   }
-}
-
-let redis: Redis | null = null;
-
-function getRedis(): Redis | null {
-  if (redis) return redis;
-  const url = process.env.REDIS_URL;
-  if (!url) return null;
-  redis = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 1 });
-  redis.connect().catch(() => {
-    redis = null;
-  });
-  return redis;
 }
 
 function buildCacheKey(request: FastifyRequest): string {
@@ -36,7 +22,7 @@ export const cachePlugin = fp(async (app: FastifyInstance) => {
     const ttl = request.routeOptions.config?.cacheTTL;
     if (!ttl) return;
 
-    const client = getRedis();
+    const client = app.redis;
     if (!client) return;
 
     const key = buildCacheKey(request);
@@ -58,7 +44,7 @@ export const cachePlugin = fp(async (app: FastifyInstance) => {
     if (reply.getHeader("X-Cache") === "HIT") return payload;
     if (reply.statusCode >= 400) return payload;
 
-    const client = getRedis();
+    const client = app.redis;
     if (!client) return payload;
 
     const key = buildCacheKey(request);

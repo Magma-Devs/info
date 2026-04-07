@@ -41,12 +41,11 @@ pnpm test         # vitest
                                  │  PostgreSQL + PostGraphile            │
                                  │  lava-indexer-test repo               │
                                  │                                       │
-                                 │  Tables (7):                          │
+                                 │  Tables (6):                          │
                                  │    relay_payments (18.8M rows)        │
                                  │    blockchain_events                  │
                                  │    provider_reports                   │
                                  │    provider_block_reports             │
-                                 │    provider_healths                   │
                                  │    conflict_votes                     │
                                  │    conflict_responses                 │
                                  │                                       │
@@ -67,10 +66,10 @@ Every API route uses exactly one data source per query. Never mix them in a sing
 
 | Source | What it provides | Access pattern |
 |--------|-----------------|----------------|
-| **Indexer GraphQL** (`INDEXER_GRAPHQL_URL`, default `http://localhost:3000`) | Historical relay data, events, reports, health, conflicts | `gql<T>(query, vars)` from `graphql/client.ts` |
+| **Indexer GraphQL** (`INDEXER_GRAPHQL_URL`, default `http://localhost:3000`) | Historical relay data, events, reports, conflicts | `gql<T>(query, vars)` from `graphql/client.ts` |
 | **Chain RPC REST** (`LAVA_REST_URL`, default `https://lava.rest.lava.build`) | Live state: specs, providers per spec, stakes, supply, subscriptions, staking pool | `fetchRest<T>(path)` from `rpc/lava.ts` |
 | **Chain RPC Tendermint** (`LAVA_RPC_URL`, default `https://lava.tendermintrpc.lava.build:443`) | Latest block height and time | Direct `fetch()` to `/status` |
-| **Redis** (`REDIS_URL`) | Response-level cache. **Not a data source.** | Automatic via `cacheTTL` in route config |
+| **Redis** (`REDIS_URL`) | Response-level cache + provider health data (from built-in gRPC probe) | Automatic via `cacheTTL` in route config; health via `services/health-store.ts` |
 | **Keybase API** | Provider avatars from identity field | `fetchProviderAvatar()` in `rpc/lava.ts` |
 
 ### Caching
@@ -116,6 +115,11 @@ apps/
       rpc/lava.ts      All chain RPC/REST calls + business logic (supply, TVL, APR, display names)
       graphql/client.ts  GraphQL client wrapper — gql<T>(query, vars)
       plugins/cache.ts   Redis cache plugin (onRequest/onSend hooks)
+      plugins/redis.ts   Shared Redis client decorator (app.redis)
+      plugins/health-probe.ts  Background gRPC health probe (ENABLE_HEALTH_PROBE=true)
+      services/grpc-probe.ts   Native gRPC Relayer.Probe() client
+      services/health-store.ts Redis read/write for health data
+      proto/relay.proto  Minimal proto for Lava Relayer.Probe RPC
   web/                 Next.js 15 App Router frontend
     src/
       app/             Pages mirror API structure (chains/, providers/, provider/[lavaid]/, etc.)
@@ -126,7 +130,6 @@ apps/
       hooks/           useApi (SWR), usePaginatedApi, useChainNames
       lib/             Utilities (api-client, chain-icons, format, cn, csv)
     public/chains/     32 SVG chain icons, convention-based: /chains/{specId}.svg
-  health-probe/        Writes provider health checks directly to indexer DB
 packages/
   shared/              Shared constants (BASE_SPECS, geolocation, block normalization)
 ```
@@ -148,7 +151,7 @@ packages/
 | `GET /providers?page=&limit=` | 300s | Chain RPC + Indexer MV | Paginated provider list. Fetches all providers from chain, enriches with 30d relay data from MV (grouped by PROVIDER). Sorted by totalStake desc. Returns: provider, moniker, identity, activeServices, totalStake, totalDelegation, commission, cuSum30d, relaySum30d |
 | `GET /providers/:addr` | 300s | Chain RPC | Provider detail. Fetches **every spec** and checks if provider is staked. Returns stakes array with: specId, stake, delegation, moniker, delegateCommission, geolocation, addons, extensions |
 | `GET /providers/:addr/stakes` | 300s | Chain RPC | Same as above but returns only the stakes array (no moniker) |
-| `GET /providers/:addr/health?page=&limit=` | 30s | Indexer GQL | Paginated health records from `providerHealths` table |
+| `GET /providers/:addr/health?page=&limit=` | 30s | Redis | Paginated health records from gRPC probe (stored in Redis with 10min TTL) |
 | `GET /providers/:addr/events?page=&limit=` | — | Indexer GQL | Paginated blockchain events filtered by provider |
 | `GET /providers/:addr/rewards?page=&limit=` | — | Indexer GQL | Paginated relay payments (raw `relayPayments` table, filtered by provider). Returns: provider, consumer, chainId, cu, rewardedCu, relayNumber, all QoS fields, timestamp |
 | `GET /providers/:addr/reports?page=&limit=` | — | Indexer GQL | Paginated provider reports: cu, errors, disconnections, epoch |
@@ -163,7 +166,7 @@ packages/
 |----------|-------|--------|-------------|
 | `GET /specs` | 300s | Chain RPC + Indexer MV | All specs (excluding base specs). Returns: specId, name (display name with proper casing), providerCount, relays30d, cu30d. Provider counts fetched per-spec from chain. 30d relay data from MV grouped by CHAIN_ID |
 | `GET /specs/:specId/stakes` | 300s | Chain RPC | Providers staked on this spec: provider, moniker, stake, delegation, delegateCommission, geolocation |
-| `GET /specs/:specId/health` | 30s | Indexer GQL | Health status distribution (grouped by STATUS, distinct count) |
+| `GET /specs/:specId/health` | 30s | Redis | Health status distribution (grouped by STATUS, from gRPC probe) |
 | `GET /specs/:specId/charts` | 300s | Indexer MV | Alltime CU/relays for this chain (grouped by CHAIN_ID) |
 | `GET /specs/:specId/tracked-info` | 300s | Chain RPC | IPRPC spec rewards (provider, iprpcCu) |
 
@@ -309,6 +312,9 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 | `REDIS_URL` | (none, cache disabled) | API |
 | `LAVA_REST_URL` | `https://lava.rest.lava.build` | API |
 | `LAVA_RPC_URL` | `https://lava.tendermintrpc.lava.build:443` | API |
+| `ENABLE_HEALTH_PROBE` | `false` | API |
+| `HEALTH_PROBE_REGION` | `Local` | API |
+| `HEALTH_PROBE_INTERVAL_MS` | `30000` | API |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | Web |
 | `NEXT_PUBLIC_API_URL_TESTNET` | same as above | Web |
 | `NODE_ENV` | `production` | Web |

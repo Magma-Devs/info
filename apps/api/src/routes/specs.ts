@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchAllSpecs, fetchProvidersForSpec, fetchIprpcSpecRewards } from "../rpc/lava.js";
+import { readHealthSummaryForSpec } from "../services/health-store.js";
 
 export async function specRoutes(app: FastifyInstance) {
   // GET /specs — chain RPC + indexer relay data
@@ -67,31 +68,16 @@ export async function specRoutes(app: FastifyInstance) {
     };
   });
 
-  // GET /specs/:specId/health — indexer GraphQL
+  // GET /specs/:specId/health — from Redis
   app.get<{ Params: { specId: string } }>("/:specId/health", { config: { cacheTTL: 30 } }, async (request) => {
     const { specId } = request.params;
 
-    const data = await gqlSafe<{
-      providerHealths: {
-        groupedAggregates: Array<{ keys: string[]; distinctCount: { id: string } }>;
-      };
-    } | null>(`query($spec: String!) {
-      providerHealths(filter: { spec: { equalTo: $spec } }) {
-        groupedAggregates(groupBy: STATUS) {
-          keys
-          distinctCount { id }
-        }
-      }
-    }`, { spec: specId }, null);
+    if (!app.redis) {
+      return { data: [] };
+    }
 
-    if (!data) return { data: [] };
-
-    return {
-      data: data.providerHealths.groupedAggregates.map((g) => ({
-        status: g.keys[0],
-        count: parseInt(g.distinctCount.id),
-      })),
-    };
+    const summary = await readHealthSummaryForSpec(app.redis, specId);
+    return { data: summary };
   });
 
   // GET /specs/:specId/charts — indexer GraphQL (materialized view)

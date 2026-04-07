@@ -43,3 +43,15 @@ export interface ProviderSpecInfo {
   interfaces: string[];
   status: ProviderStatus;
 }
+
+export interface HealthCheckResult {
+  provider: string;
+  spec: string;
+  apiInterface: string;
+  status: HealthStatus;
+  block?: number;
+  latency?: number;
+  message?: string;
+  geolocation?: string;
+  timestamp?: string;
+}

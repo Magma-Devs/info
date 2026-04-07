@@ -1,0 +1,27 @@
+syntax = "proto3";
+package lavanet.lava.pairing;
+
+service Relayer {
+    rpc Probe (ProbeRequest) returns (ProbeReply) {}
+}
+
+message ProbeRequest {
+    uint64 guid = 1;
+    string spec_id = 2;
+    string api_interface = 3;
+    bool with_verifications = 4;
+}
+
+message ProbeReply {
+    uint64 guid = 1;
+    int64 latest_block = 2;
+    bytes finalized_blocks_hashes = 3;
+    uint64 lava_epoch = 4;
+    uint64 lava_latest_block = 5;
+    repeated Verification verifications = 6;
+}
+
+message Verification {
+    string name = 1;
+    bool passed = 2;
+}
