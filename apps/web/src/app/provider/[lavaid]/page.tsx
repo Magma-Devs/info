@@ -417,7 +417,7 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
                     cy="50%"
                     innerRadius={40}
                     outerRadius={90}
-                    label={({ pct }: { pct: number }) => pct >= 3 ? `${pct.toFixed(1)}%` : ""}
+                    label={({ percent = 0 }: { percent?: number }) => percent >= 0.03 ? `${(percent * 100).toFixed(1)}%` : ""}
                     labelLine={false}
                     fontSize={11}
                     fill="#fff"
