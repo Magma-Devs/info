@@ -1,4 +1,5 @@
 import type { Redis } from "ioredis";
+import type { HealthStatus } from "@info/shared/types";
 
 export interface HealthRecord {
   id: string;
@@ -6,7 +7,7 @@ export interface HealthRecord {
   spec: string;
   interface: string;
   geolocation: string;
-  status: string;
+  status: HealthStatus;
   timestamp: string;
   data: Record<string, unknown>;
 }
@@ -31,7 +32,7 @@ export async function writeHealthStatus(
   spec: string,
   apiInterface: string,
   geolocation: string,
-  status: string,
+  status: HealthStatus,
   data: Record<string, unknown>,
 ): Promise<void> {
   const key = healthKey(provider, spec, apiInterface, geolocation);
@@ -53,6 +54,8 @@ export async function writeHealthStatus(
   await pipeline.exec();
 }
 
+const MGET_BATCH_SIZE = 200;
+
 async function readFromIndex(
   redis: Redis,
   indexKey: string,
@@ -60,16 +63,21 @@ async function readFromIndex(
   const keys = await redis.smembers(indexKey);
   if (keys.length === 0) return [];
 
-  const values = await redis.mget(...keys);
+  // Batch MGET to avoid sending huge commands
   const records: HealthRecord[] = [];
   const staleKeys: string[] = [];
 
-  for (let i = 0; i < keys.length; i++) {
-    const val = values[i];
-    if (val) {
-      records.push(JSON.parse(val) as HealthRecord);
-    } else {
-      staleKeys.push(keys[i]);
+  for (let i = 0; i < keys.length; i += MGET_BATCH_SIZE) {
+    const batch = keys.slice(i, i + MGET_BATCH_SIZE);
+    const values = await redis.mget(...batch);
+
+    for (let j = 0; j < batch.length; j++) {
+      const val = values[j];
+      if (val) {
+        records.push(JSON.parse(val) as HealthRecord);
+      } else {
+        staleKeys.push(batch[j]);
+      }
     }
   }
 
@@ -98,7 +106,7 @@ export async function readHealthForProvider(
 export interface InterfaceHealth {
   name: string;
   geolocation: string;
-  status: string;
+  status: HealthStatus;
   latencyMs: number | null;
   block: number | null;
   message: string | null;

@@ -69,7 +69,8 @@ Every API route uses exactly one data source per query. Never mix them in a sing
 | **Indexer GraphQL** (`INDEXER_GRAPHQL_URL`, default `http://localhost:3000`) | Historical relay data, events, reports, conflicts | `gql<T>(query, vars)` from `graphql/client.ts` |
 | **Chain RPC REST** (`LAVA_REST_URL`, default `https://lava.rest.lava.build`) | Live state: specs, providers per spec, stakes, supply, subscriptions, staking pool | `fetchRest<T>(path)` from `rpc/lava.ts` |
 | **Chain RPC Tendermint** (`LAVA_RPC_URL`, default `https://lava.tendermintrpc.lava.build:443`) | Latest block height and time | Direct `fetch()` to `/status` |
-| **Redis** (`REDIS_URL`) | Response-level cache + provider health data (from built-in gRPC probe) | Automatic via `cacheTTL` in route config; health via `services/health-store.ts` |
+| **Redis — cache** (`REDIS_URL`) | Response-level cache (not a data source) | Automatic via `cacheTTL` in route config |
+| **Redis — health store** (`REDIS_URL`) | Provider health probe results (gRPC Probe, 10min TTL) | `readHealthMapForProvider()` / `readHealthByProviderForSpec()` from `services/health-store.ts` |
 | **Keybase API** | Provider avatars from identity field | `fetchProviderAvatar()` in `rpc/lava.ts` |
 
 ### Caching

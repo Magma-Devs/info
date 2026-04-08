@@ -27,6 +27,18 @@ const proto = grpc.loadPackageDefinition(packageDef) as unknown as {
 
 const RelayerClient = proto.lavanet.lava.pairing.Relayer;
 
+// Reuse gRPC clients per endpoint — avoids TLS handshake per probe call
+const clientPool = new Map<string, InstanceType<grpc.ServiceClientConstructor>>();
+
+function getClient(endpoint: string): InstanceType<grpc.ServiceClientConstructor> {
+  let client = clientPool.get(endpoint);
+  if (client) return client;
+
+  client = new RelayerClient(endpoint, grpc.credentials.createSsl());
+  clientPool.set(endpoint, client);
+  return client;
+}
+
 export interface ProbeResult {
   latestBlock: number;
   lavaEpoch: number;
@@ -39,38 +51,34 @@ export async function probeProvider(
   specId: string,
   apiInterface: string,
 ): Promise<ProbeResult> {
-  const client = new RelayerClient(endpoint, grpc.credentials.createSsl());
+  const client = getClient(endpoint);
 
   const guid = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
   const start = performance.now();
 
-  try {
-    const reply = await new Promise<{
-      guid: number;
-      latestBlock: number;
-      lavaEpoch: number;
-      lavaLatestBlock: number;
-    }>((resolve, reject) => {
-      const deadline = new Date(Date.now() + PROBE_TIMEOUT_MS);
-      client.probe(
-        { guid, specId, apiInterface, withVerifications: false },
-        { deadline },
-        (err: grpc.ServiceError | null, response: unknown) => {
-          if (err) reject(err);
-          else resolve(response as { guid: number; latestBlock: number; lavaEpoch: number; lavaLatestBlock: number });
-        },
-      );
-    });
+  const reply = await new Promise<{
+    guid: number;
+    latestBlock: number;
+    lavaEpoch: number;
+    lavaLatestBlock: number;
+  }>((resolve, reject) => {
+    const deadline = new Date(Date.now() + PROBE_TIMEOUT_MS);
+    client.probe(
+      { guid, specId, apiInterface, withVerifications: false },
+      { deadline },
+      (err: grpc.ServiceError | null, response: unknown) => {
+        if (err) reject(err);
+        else resolve(response as { guid: number; latestBlock: number; lavaEpoch: number; lavaLatestBlock: number });
+      },
+    );
+  });
 
-    const latencyMs = Math.round(performance.now() - start);
+  const latencyMs = Math.round(performance.now() - start);
 
-    return {
-      latestBlock: reply.latestBlock,
-      lavaEpoch: reply.lavaEpoch,
-      lavaLatestBlock: reply.lavaLatestBlock,
-      latencyMs,
-    };
-  } finally {
-    client.close();
-  }
+  return {
+    latestBlock: reply.latestBlock,
+    lavaEpoch: reply.lavaEpoch,
+    lavaLatestBlock: reply.lavaLatestBlock,
+    latencyMs,
+  };
 }

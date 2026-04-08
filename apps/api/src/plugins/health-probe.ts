@@ -31,6 +31,9 @@ async function buildProbeTargets(): Promise<ProbeTarget[]> {
     for (const { specId, providers } of results) {
       for (const provider of providers) {
         for (const ep of provider.endpoints) {
+          // Skip endpoints targeting private/internal networks
+          if (!isPublicEndpoint(ep.iPPORT)) continue;
+
           for (const apiInterface of ep.apiInterfaces) {
             targets.push({
               address: provider.address,
@@ -45,6 +48,22 @@ async function buildProbeTargets(): Promise<ProbeTarget[]> {
   }
 
   return targets;
+}
+
+/** Reject endpoints targeting private/loopback/internal networks (SSRF mitigation) */
+function isPublicEndpoint(iPPORT: string): boolean {
+  const host = iPPORT.split(":")[0];
+  if (!host) return false;
+  if (host === "localhost" || host === "0.0.0.0") return false;
+  if (host.startsWith("127.")) return false;
+  if (host.startsWith("10.")) return false;
+  if (host.startsWith("192.168.")) return false;
+  if (host.startsWith("172.")) {
+    const second = parseInt(host.split(".")[1], 10);
+    if (second >= 16 && second <= 31) return false;
+  }
+  if (host.startsWith("169.254.")) return false;
+  return true;
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -94,32 +113,34 @@ export const healthProbePlugin = fp(async (app: FastifyInstance) => {
           const shuffled = shuffle(targets);
           app.log.info({ count: shuffled.length }, "Starting health probe cycle");
 
-          for (const target of shuffled) {
+          // Probe in batches of 5 to balance throughput vs resource usage
+          for (let i = 0; i < shuffled.length; i += 5) {
             if (!running) break;
+            const batch = shuffled.slice(i, i + 5);
 
-            const geolocation = target.endpoint.geolocation.toString();
-
-            try {
-              const result = await probeProvider(
-                target.endpoint.iPPORT,
-                target.specId,
-                target.apiInterface,
-              );
-
-              const block = normalizeBlock(target.specId, result.latestBlock);
-              await writeHealthStatus(
-                redis, target.address, target.specId, target.apiInterface, geolocation,
-                "healthy",
-                { block, latency: result.latencyMs, lavaEpoch: result.lavaEpoch },
-              );
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              await writeHealthStatus(
-                redis, target.address, target.specId, target.apiInterface, geolocation,
-                "unhealthy",
-                { message },
-              );
-            }
+            await Promise.allSettled(batch.map(async (target) => {
+              const geolocation = target.endpoint.geolocation.toString();
+              try {
+                const result = await probeProvider(
+                  target.endpoint.iPPORT,
+                  target.specId,
+                  target.apiInterface,
+                );
+                const block = normalizeBlock(target.specId, result.latestBlock);
+                await writeHealthStatus(
+                  redis, target.address, target.specId, target.apiInterface, geolocation,
+                  "healthy",
+                  { block, latency: result.latencyMs, lavaEpoch: result.lavaEpoch },
+                );
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                await writeHealthStatus(
+                  redis, target.address, target.specId, target.apiInterface, geolocation,
+                  "unhealthy",
+                  { message },
+                );
+              }
+            }));
           }
 
           if (running) await sleep(intervalMs);
