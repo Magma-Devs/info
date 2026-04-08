@@ -42,27 +42,12 @@ function geoLabel(geo?: number): string {
   return regions.length > 0 ? regions.join(", ") : String(geo);
 }
 
-interface InterfaceHealth {
-  name: string;
-  geolocation: string;
-  status: string;
-  latencyMs: number | null;
-  block: number | null;
-  message: string | null;
-  timestamp: string;
-}
-
-interface SpecHealth {
-  status: "healthy" | "unhealthy";
-  total: number;
-  unhealthy: number;
-  oldestTimestamp: string;
-  interfaces: InterfaceHealth[];
-}
+import type { InterfaceHealth, SpecHealth } from "@/lib/types";
 
 interface ProviderDetail {
   provider: string;
   moniker: string;
+  identity?: string;
   stakes: Array<{
     specId: string;
     stake: string;
@@ -123,7 +108,10 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
   const { data: events } = useApi<{ data: EventRow[]; pagination: { total: number } }>(`/providers/${lavaid}/events?limit=20`);
   const { data: blockReports } = useApi<{ data: BlockReportRow[]; pagination: { total: number } }>(`/providers/${lavaid}/block-reports?limit=20`);
   const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/providers/${lavaid}/delegator-rewards`);
-  const { data: avatarResp } = useApi<{ url: string | null }>(`/providers/${lavaid}/avatar`);
+  const avatarIdentity = provider?.identity;
+  const { data: avatarResp } = useApi<{ url: string | null }>(
+    avatarIdentity ? `/providers/${lavaid}/avatar?identity=${avatarIdentity}` : `/providers/${lavaid}/avatar`
+  );
 
   const [chartChain, setChartChain] = useState<string>("all");
   const [copied, setCopied] = useState(false);

@@ -56,23 +56,7 @@ const GEO_COLORS: Record<string, string> = {
 };
 const DEFAULT_GEO_COLOR = "bg-blue-500/15 text-blue-400 border-blue-500/30";
 
-interface InterfaceHealth {
-  name: string;
-  geolocation: string;
-  status: string;
-  latencyMs: number | null;
-  block: number | null;
-  message: string | null;
-  timestamp: string;
-}
-
-interface SpecHealth {
-  status: "healthy" | "unhealthy";
-  total: number;
-  unhealthy: number;
-  oldestTimestamp: string;
-  interfaces: InterfaceHealth[];
-}
+import type { InterfaceHealth, SpecHealth } from "@/lib/types";
 
 interface SpecStake {
   provider: string;

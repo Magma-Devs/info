@@ -90,15 +90,22 @@ export async function providerRoutes(app: FastifyInstance) {
 
     const stakes = specProviders.filter(Boolean);
     const moniker = stakes[0]?.moniker ?? "";
+    const identity = stakes.find((s) => s!.identity)?.identity ?? "";
 
-    // Attach health data from Redis
-    const healthMap = app.redis
-      ? await readHealthMapForProvider(app.redis, addr)
-      : new Map();
+    // Attach health data from Redis (best-effort — don't fail the route)
+    let healthMap = new Map<string, unknown>();
+    if (app.redis) {
+      try {
+        healthMap = await readHealthMapForProvider(app.redis, addr);
+      } catch {
+        // Redis transient error — serve without health data
+      }
+    }
 
     return {
       provider: addr,
       moniker,
+      identity,
       stakes: stakes.map((s) => {
         const health = healthMap.get(s!.specId) ?? null;
         return {
@@ -152,9 +159,13 @@ export async function providerRoutes(app: FastifyInstance) {
       return { data: [], pagination: { total: 0, page, limit, pages: 0 } };
     }
 
-    const result = await readHealthForProvider(app.redis, addr, page, limit);
-    const total = result.total;
-    return { data: result.data, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
+    try {
+      const result = await readHealthForProvider(app.redis, addr, page, limit);
+      const total = result.total;
+      return { data: result.data, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
+    } catch {
+      return { data: [], pagination: { total: 0, page, limit, pages: 0 } };
+    }
   });
 
   // GET /providers/:addr/events — indexer GraphQL

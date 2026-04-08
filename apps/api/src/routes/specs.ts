@@ -56,9 +56,14 @@ export async function specRoutes(app: FastifyInstance) {
     const { specId } = request.params;
     const providers = await fetchProvidersForSpec(specId);
 
-    const healthMap = app.redis
-      ? await readHealthByProviderForSpec(app.redis, specId)
-      : new Map();
+    let healthMap = new Map<string, unknown>();
+    if (app.redis) {
+      try {
+        healthMap = await readHealthByProviderForSpec(app.redis, specId);
+      } catch {
+        // Redis transient error — serve without health data
+      }
+    }
 
     return {
       data: providers.map((p) => ({
@@ -82,8 +87,12 @@ export async function specRoutes(app: FastifyInstance) {
       return { data: [] };
     }
 
-    const summary = await readHealthSummaryForSpec(app.redis, specId);
-    return { data: summary };
+    try {
+      const summary = await readHealthSummaryForSpec(app.redis, specId);
+      return { data: summary };
+    } catch {
+      return { data: [] };
+    }
   });
 
   // GET /specs/:specId/charts — indexer GraphQL (materialized view)
