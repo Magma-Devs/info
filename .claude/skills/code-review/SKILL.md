@@ -141,7 +141,28 @@ After merging agent findings, check whether the changes require documentation up
    **Fix:** {specific update needed}
    ```
 
-## Phase 5: Cleanup
+## Phase 5: Test coverage check
+
+After merging agent findings, verify that new code has adequate test coverage:
+
+1. Identify new/modified files that contain logic (services, utilities, plugins, route handlers)
+2. Check if corresponding `__tests__/*.test.ts` files exist and cover the new code
+3. Flag missing tests as a finding:
+   ```
+   ### [WARNING] Missing tests for new code
+   **Domain:** Testing
+   **File:** `path/to/new-module.ts`
+   **Issue:** New service/utility/route has no corresponding test file
+   **Fix:** Add tests covering: happy path, error handling, edge cases
+   ```
+
+Test coverage rules (from `.claude/rules/testing.md`):
+- Every new service or utility module MUST have tests
+- Every new API route should have at least a happy-path test
+- Security-sensitive code (input validation, SSRF filters) MUST have tests
+- Bug fixes should include a regression test
+
+## Phase 6: Cleanup
 
 - Keep `_workspace/` for re-review support (don't delete)
 - If verdict is APPROVE, congratulate briefly
