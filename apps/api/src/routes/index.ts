@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { gql } from "../graphql/client.js";
+import { gql, gqlSafe } from "../graphql/client.js";
 import { fetchLatestBlockHeight, fetchAllProviders } from "../rpc/lava.js";
 
 export async function indexRoutes(app: FastifyInstance) {
@@ -8,25 +8,23 @@ export async function indexRoutes(app: FastifyInstance) {
       .toISOString()
       .slice(0, 10);
 
+    type RelayAgg = {
+      mvRelayDailies: {
+        aggregates: { sum: { cu: string; relays: string } };
+      };
+    } | null;
+
     const [allTimeData, last30dData, latestBlock, providers] = await Promise.all([
-      gql<{
-        mvRelayDailies: {
-          aggregates: { sum: { cu: string; relays: string } };
-        };
-      }>(`{
+      gqlSafe<RelayAgg>(`{
         mvRelayDailies {
           aggregates { sum { cu relays } }
         }
-      }`),
-      gql<{
-        mvRelayDailies: {
-          aggregates: { sum: { cu: string; relays: string } };
-        };
-      }>(`query($since: Date!) {
+      }`, undefined, null),
+      gqlSafe<RelayAgg>(`query($since: Date!) {
         mvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
           aggregates { sum { cu relays } }
         }
-      }`, { since: thirtyDaysAgo }),
+      }`, { since: thirtyDaysAgo }, null),
       fetchLatestBlockHeight(),
       fetchAllProviders(),
     ]);
@@ -34,10 +32,10 @@ export async function indexRoutes(app: FastifyInstance) {
     const totalStake = providers.reduce((sum, p) => sum + BigInt(p.totalStake), 0n);
 
     return {
-      totalCu: allTimeData.mvRelayDailies.aggregates.sum.cu ?? "0",
-      totalRelays: allTimeData.mvRelayDailies.aggregates.sum.relays ?? "0",
-      cu30d: last30dData.mvRelayDailies.aggregates.sum.cu ?? "0",
-      relays30d: last30dData.mvRelayDailies.aggregates.sum.relays ?? "0",
+      totalCu: allTimeData?.mvRelayDailies.aggregates.sum.cu ?? null,
+      totalRelays: allTimeData?.mvRelayDailies.aggregates.sum.relays ?? null,
+      cu30d: last30dData?.mvRelayDailies.aggregates.sum.cu ?? null,
+      relays30d: last30dData?.mvRelayDailies.aggregates.sum.relays ?? null,
       totalStake: totalStake.toString(),
       activeProviderCount: providers.length,
       latestBlock: latestBlock.height,

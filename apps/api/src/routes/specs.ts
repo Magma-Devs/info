@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { gql } from "../graphql/client.js";
+import { gql, gqlSafe } from "../graphql/client.js";
 import { fetchAllSpecs, fetchProvidersForSpec, fetchIprpcSpecRewards } from "../rpc/lava.js";
 
 export async function specRoutes(app: FastifyInstance) {
@@ -9,23 +9,25 @@ export async function specRoutes(app: FastifyInstance) {
 
     const [specs, relayData] = await Promise.all([
       fetchAllSpecs(),
-      gql<{
+      gqlSafe<{
         mvRelayDailies: {
           groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
         };
-      }>(`query($since: Date!) {
+      } | null>(`query($since: Date!) {
         mvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
           groupedAggregates(groupBy: CHAIN_ID) {
             keys
             sum { cu relays }
           }
         }
-      }`, { since }),
+      }`, { since }, null),
     ]);
 
     const relayMap = new Map<string, { cu: string; relays: string }>();
-    for (const agg of relayData.mvRelayDailies.groupedAggregates) {
-      relayMap.set(agg.keys[0], { cu: agg.sum.cu, relays: agg.sum.relays });
+    if (relayData) {
+      for (const agg of relayData.mvRelayDailies.groupedAggregates) {
+        relayMap.set(agg.keys[0], { cu: agg.sum.cu, relays: agg.sum.relays });
+      }
     }
 
     const specProviders = await Promise.all(
@@ -37,11 +39,11 @@ export async function specRoutes(app: FastifyInstance) {
               specId: s.index,
               name: s.name,
               providerCount: ps.length,
-              relays30d: relay?.relays ?? "0",
-              cu30d: relay?.cu ?? "0",
+              relays30d: relay?.relays ?? null,
+              cu30d: relay?.cu ?? null,
             };
           })
-          .catch(() => ({ specId: s.index, name: s.name, providerCount: 0, relays30d: "0", cu30d: "0" })),
+          .catch(() => ({ specId: s.index, name: s.name, providerCount: 0, relays30d: null as string | null, cu30d: null as string | null })),
       ),
     );
 

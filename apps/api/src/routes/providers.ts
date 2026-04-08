@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { gql } from "../graphql/client.js";
+import { gql, gqlSafe } from "../graphql/client.js";
 import {
   fetchAllProviders,
   fetchProvidersForSpec,
@@ -19,26 +19,28 @@ export async function providerRoutes(app: FastifyInstance) {
 
     const [providers, relayData] = await Promise.all([
       fetchAllProviders(),
-      gql<{
+      gqlSafe<{
         mvRelayDailies: {
           groupedAggregates: Array<{
             keys: string[];
             sum: { cu: string; relays: string };
           }>;
         };
-      }>(`query($since: Date!) {
+      } | null>(`query($since: Date!) {
         mvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
           groupedAggregates(groupBy: PROVIDER) {
             keys
             sum { cu relays }
           }
         }
-      }`, { since }),
+      }`, { since }, null),
     ]);
 
     const relayMap = new Map<string, { cu: string; relays: string }>();
-    for (const agg of relayData.mvRelayDailies.groupedAggregates) {
-      relayMap.set(agg.keys[0], { cu: agg.sum.cu, relays: agg.sum.relays });
+    if (relayData) {
+      for (const agg of relayData.mvRelayDailies.groupedAggregates) {
+        relayMap.set(agg.keys[0], { cu: agg.sum.cu, relays: agg.sum.relays });
+      }
     }
 
     const total = providers.length;
@@ -59,8 +61,8 @@ export async function providerRoutes(app: FastifyInstance) {
           totalStake: p.totalStake,
           totalDelegation: p.totalDelegation,
           commission: p.commission,
-          cuSum30d: relay?.cu ?? "0",
-          relaySum30d: relay?.relays ?? "0",
+          cuSum30d: relay?.cu ?? null,
+          relaySum30d: relay?.relays ?? null,
         };
       }),
       pagination: { total, page, limit, pages: Math.ceil(total / limit) },
