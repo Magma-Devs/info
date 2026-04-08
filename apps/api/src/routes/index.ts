@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { gql, gqlSafe } from "../graphql/client.js";
+import { gqlSafe } from "../graphql/client.js";
 import { fetchLatestBlockHeight, fetchAllProviders } from "../rpc/lava.js";
 
 export async function indexRoutes(app: FastifyInstance) {
@@ -44,18 +44,20 @@ export async function indexRoutes(app: FastifyInstance) {
   });
 
   app.get("/top-chains", { config: { cacheTTL: 300 } }, async () => {
-    const data = await gql<{
+    const data = await gqlSafe<{
       mvRelayDailies: {
         groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
       };
-    }>(`{
+    } | null>(`{
       mvRelayDailies {
         groupedAggregates(groupBy: CHAIN_ID) {
           keys
           sum { cu relays }
         }
       }
-    }`);
+    }`, undefined, null);
+
+    if (!data) return { data: [] };
 
     const chains = data.mvRelayDailies.groupedAggregates
       .map((g) => ({ specId: g.keys[0], totalCu: g.sum.cu, totalRelays: g.sum.relays }))
@@ -64,9 +66,6 @@ export async function indexRoutes(app: FastifyInstance) {
     return { data: chains.slice(0, 20) };
   });
 
-  // GET /index/charts?from=&to= — daily time-series of CU/relays per chain
-  // MV is already aggregated by (date, chain_id, provider), so we just re-aggregate
-  // by (date, chain_id) to collapse the provider dimension.
   app.get("/charts", { config: { cacheTTL: 300 } }, async (request) => {
     const q = request.query as Record<string, string>;
     const to = q.to ? q.to : new Date().toISOString().slice(0, 10);
@@ -74,20 +73,14 @@ export async function indexRoutes(app: FastifyInstance) {
       ? q.from
       : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    const data = await gql<{
+    const data = await gqlSafe<{
       mvRelayDailies: {
         nodes: Array<{
-          date: string;
-          chainId: string;
-          cu: string;
-          relays: string;
-          qosSyncW: number | null;
-          qosAvailW: number | null;
-          qosLatencyW: number | null;
-          qosWeight: string;
+          date: string; chainId: string; cu: string; relays: string;
+          qosSyncW: number | null; qosAvailW: number | null; qosLatencyW: number | null; qosWeight: string;
         }>;
       };
-    }>(`query($from: Date!, $to: Date!) {
+    } | null>(`query($from: Date!, $to: Date!) {
       mvRelayDailies(
         filter: {
           date: { greaterThanOrEqualTo: $from, lessThanOrEqualTo: $to }
@@ -96,9 +89,10 @@ export async function indexRoutes(app: FastifyInstance) {
       ) {
         nodes { date chainId cu relays qosSyncW qosAvailW qosLatencyW qosWeight }
       }
-    }`, { from, to });
+    }`, { from, to }, null);
 
-    // Collapse provider dimension: aggregate by (date, chainId)
+    if (!data) return { data: [] };
+
     const byDayChain = new Map<string, {
       cu: bigint; relays: bigint;
       qosSyncW: number; qosAvailW: number; qosLatW: number; qosWeight: number;

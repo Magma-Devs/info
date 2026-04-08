@@ -1,9 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { gql, gqlSafe } from "../graphql/client.js";
+import { gqlSafe } from "../graphql/client.js";
 import { fetchSubscriptionList } from "../rpc/lava.js";
 
+const EMPTY_PAGE = { nodes: [] as unknown[], totalCount: 0 };
+
 export async function consumerRoutes(app: FastifyInstance) {
-  // GET /consumers — from indexer GraphQL (aggregated relay payments)
+  // GET /consumers — indexer GraphQL + chain RPC
   app.get("/", { config: { cacheTTL: 60 } }, async (request) => {
     const { page, limit } = request.pagination;
 
@@ -38,26 +40,26 @@ export async function consumerRoutes(app: FastifyInstance) {
     return { data: paged, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
   });
 
-  // GET /consumers/:addr — from indexer GraphQL
+  // GET /consumers/:addr — indexer GraphQL
   app.get<{ Params: { addr: string } }>("/:addr", { config: { cacheTTL: 30 } }, async (request) => {
     const { addr } = request.params;
 
-    const data = await gql<{
+    const data = await gqlSafe<{
       mvConsumerRelayDailies: { aggregates: { sum: { cu: string; relays: string } } };
-    }>(`query($consumer: String!) {
+    } | null>(`query($consumer: String!) {
       mvConsumerRelayDailies(filter: { consumer: { equalTo: $consumer } }) {
         aggregates { sum { cu relays } }
       }
-    }`, { consumer: addr });
+    }`, { consumer: addr }, null);
 
     return {
       consumer: addr,
-      totalCu: data.mvConsumerRelayDailies.aggregates.sum.cu ?? "0",
-      totalRelays: data.mvConsumerRelayDailies.aggregates.sum.relays ?? "0",
+      totalCu: data?.mvConsumerRelayDailies.aggregates.sum.cu ?? null,
+      totalRelays: data?.mvConsumerRelayDailies.aggregates.sum.relays ?? null,
     };
   });
 
-  // GET /consumers/:addr/subscriptions — from chain RPC
+  // GET /consumers/:addr/subscriptions — chain RPC
   app.get<{ Params: { addr: string } }>("/:addr/subscriptions", { config: { cacheTTL: 300 } }, async (request) => {
     const { addr } = request.params;
     const allSubs = await fetchSubscriptionList();
@@ -65,12 +67,12 @@ export async function consumerRoutes(app: FastifyInstance) {
     return { data: filtered };
   });
 
-  // GET /consumers/:addr/events — from indexer GraphQL
+  // GET /consumers/:addr/events — indexer GraphQL
   app.get<{ Params: { addr: string } }>("/:addr/events", async (request) => {
     const { addr } = request.params;
     const { page, limit } = request.pagination;
 
-    const data = await gql<{
+    const data = await gqlSafe<{
       blockchainEvents: { nodes: unknown[]; totalCount: number };
     }>(`query($consumer: String!, $first: Int!, $offset: Int!) {
       blockchainEvents(
@@ -82,17 +84,17 @@ export async function consumerRoutes(app: FastifyInstance) {
         nodes { id eventType consumer specId blockHeight timestamp data }
         totalCount
       }
-    }`, { consumer: addr, first: limit, offset: (page - 1) * limit });
+    }`, { consumer: addr, first: limit, offset: (page - 1) * limit }, { blockchainEvents: EMPTY_PAGE });
 
     const total = data.blockchainEvents.totalCount;
     return { data: data.blockchainEvents.nodes, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
   });
 
-  // GET /consumers/:addr/conflicts — from indexer GraphQL
+  // GET /consumers/:addr/conflicts — indexer GraphQL
   app.get<{ Params: { addr: string } }>("/:addr/conflicts", { config: { cacheTTL: 10 } }, async (request) => {
     const { addr } = request.params;
 
-    const data = await gql<{
+    const data = await gqlSafe<{
       conflictResponses: { nodes: unknown[] };
     }>(`query($consumer: String!) {
       conflictResponses(
@@ -102,12 +104,12 @@ export async function consumerRoutes(app: FastifyInstance) {
       ) {
         nodes { id consumer specId voteId requestBlock apiInterface blockHeight timestamp }
       }
-    }`, { consumer: addr });
+    }`, { consumer: addr }, { conflictResponses: { nodes: [] } });
 
     return { data: data.conflictResponses.nodes };
   });
 
-  // GET /consumers/:addr/charts?from=&to=&chain= — time-series from indexer GraphQL
+  // GET /consumers/:addr/charts — indexer GraphQL (materialized view)
   app.get<{ Params: { addr: string } }>("/:addr/charts", { config: { cacheTTL: 300 } }, async (request) => {
     const { addr } = request.params;
     const query = request.query as Record<string, string>;
@@ -131,35 +133,37 @@ export async function consumerRoutes(app: FastifyInstance) {
       vars.chain = chain;
     }
 
-    const data = await gql<{
+    const data = await gqlSafe<{
       mvConsumerRelayDailies: {
         nodes: Array<{
           date: string; chainId: string; cu: string; relays: string;
           qosSyncW: number | null; qosAvailW: number | null; qosLatencyW: number | null; qosWeight: string;
         }>;
       };
-    }>(`query(${varDefs.join(", ")}) {
+    } | null>(`query(${varDefs.join(", ")}) {
       mvConsumerRelayDailies(
         filter: { ${filterParts.join(", ")} }
         orderBy: DATE_ASC
       ) {
         nodes { date chainId cu relays qosSyncW qosAvailW qosLatencyW qosWeight }
       }
-    }`, vars);
+    }`, vars, null);
 
-    const result = data.mvConsumerRelayDailies.nodes.map((n) => {
-      const w = Number(n.qosWeight);
-      return {
-        date: n.date,
-        chainId: n.chainId,
-        cu: n.cu,
-        relays: n.relays,
-        qosSync: w > 0 ? (n.qosSyncW ?? 0) / w : null,
-        qosAvailability: w > 0 ? (n.qosAvailW ?? 0) / w : null,
-        qosLatency: w > 0 ? (n.qosLatencyW ?? 0) / w : null,
-      };
-    });
+    if (!data) return { data: [] };
 
-    return { data: result };
+    return {
+      data: data.mvConsumerRelayDailies.nodes.map((n) => {
+        const w = Number(n.qosWeight);
+        return {
+          date: n.date,
+          chainId: n.chainId,
+          cu: n.cu,
+          relays: n.relays,
+          qosSync: w > 0 ? (n.qosSyncW ?? 0) / w : null,
+          qosAvailability: w > 0 ? (n.qosAvailW ?? 0) / w : null,
+          qosLatency: w > 0 ? (n.qosLatencyW ?? 0) / w : null,
+        };
+      }),
+    };
   });
 }

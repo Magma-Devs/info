@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import { gql, gqlSafe } from "../graphql/client.js";
+import { gqlSafe } from "../graphql/client.js";
 import { fetchAllSpecs, fetchProvidersForSpec, fetchIprpcSpecRewards } from "../rpc/lava.js";
 
 export async function specRoutes(app: FastifyInstance) {
-  // GET /specs — from chain RPC + 30d relay data from MV
+  // GET /specs — chain RPC + indexer relay data
   app.get("/", { config: { cacheTTL: 300 } }, async () => {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
@@ -50,7 +50,7 @@ export async function specRoutes(app: FastifyInstance) {
     return { data: specProviders.sort((a, b) => b.providerCount - a.providerCount) };
   });
 
-  // GET /specs/:specId/stakes — from chain RPC
+  // GET /specs/:specId/stakes — chain RPC
   app.get<{ Params: { specId: string } }>("/:specId/stakes", { config: { cacheTTL: 300 } }, async (request) => {
     const { specId } = request.params;
     const providers = await fetchProvidersForSpec(specId);
@@ -67,22 +67,24 @@ export async function specRoutes(app: FastifyInstance) {
     };
   });
 
-  // GET /specs/:specId/health — from indexer GraphQL
+  // GET /specs/:specId/health — indexer GraphQL
   app.get<{ Params: { specId: string } }>("/:specId/health", { config: { cacheTTL: 30 } }, async (request) => {
     const { specId } = request.params;
 
-    const data = await gql<{
+    const data = await gqlSafe<{
       providerHealths: {
         groupedAggregates: Array<{ keys: string[]; distinctCount: { id: string } }>;
       };
-    }>(`query($spec: String!) {
+    } | null>(`query($spec: String!) {
       providerHealths(filter: { spec: { equalTo: $spec } }) {
         groupedAggregates(groupBy: STATUS) {
           keys
           distinctCount { id }
         }
       }
-    }`, { spec: specId });
+    }`, { spec: specId }, null);
+
+    if (!data) return { data: [] };
 
     return {
       data: data.providerHealths.groupedAggregates.map((g) => ({
@@ -92,22 +94,24 @@ export async function specRoutes(app: FastifyInstance) {
     };
   });
 
-  // GET /specs/:specId/charts — from indexer GraphQL (materialized view)
+  // GET /specs/:specId/charts — indexer GraphQL (materialized view)
   app.get<{ Params: { specId: string } }>("/:specId/charts", { config: { cacheTTL: 300 } }, async (request) => {
     const { specId } = request.params;
 
-    const data = await gql<{
+    const data = await gqlSafe<{
       mvRelayDailies: {
         groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
       };
-    }>(`query($chainId: String!) {
+    } | null>(`query($chainId: String!) {
       mvRelayDailies(filter: { chainId: { equalTo: $chainId } }) {
         groupedAggregates(groupBy: CHAIN_ID) {
           keys
           sum { cu relays }
         }
       }
-    }`, { chainId: specId });
+    }`, { chainId: specId }, null);
+
+    if (!data) return { data: [] };
 
     return {
       data: data.mvRelayDailies.groupedAggregates.map((g) => ({
@@ -118,7 +122,7 @@ export async function specRoutes(app: FastifyInstance) {
     };
   });
 
-  // GET /specs/:specId/tracked-info — from chain RPC
+  // GET /specs/:specId/tracked-info — chain RPC
   app.get<{ Params: { specId: string } }>("/:specId/tracked-info", { config: { cacheTTL: 300 } }, async (request) => {
     const { specId } = request.params;
     const rewards = await fetchIprpcSpecRewards(specId);

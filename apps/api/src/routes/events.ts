@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
-import { gql } from "../graphql/client.js";
+import { gqlSafe } from "../graphql/client.js";
+
+const EMPTY_PAGE = { nodes: [] as unknown[], totalCount: 0 };
 
 export async function eventRoutes(app: FastifyInstance) {
   // GET /events?type=events|rewards|reports
@@ -10,42 +12,42 @@ export async function eventRoutes(app: FastifyInstance) {
     const offset = (page - 1) * limit;
 
     if (type === "rewards") {
-      const data = await gql<{
+      const data = await gqlSafe<{
         relayPayments: { nodes: unknown[]; totalCount: number };
       }>(`query($first: Int!, $offset: Int!) {
         relayPayments(orderBy: TIMESTAMP_DESC, first: $first, offset: $offset) {
           nodes { id provider consumer chainId cu rewardedCu relayNumber qosScore qosSync qosAvailability qosLatency excellenceQosSync excellenceQosAvailability excellenceQosLatency timestamp }
           totalCount
         }
-      }`, { first: limit, offset });
+      }`, { first: limit, offset }, { relayPayments: EMPTY_PAGE });
 
       const total = data.relayPayments.totalCount;
       return { data: data.relayPayments.nodes, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
     }
 
     if (type === "reports") {
-      const data = await gql<{
+      const data = await gqlSafe<{
         providerReports: { nodes: unknown[]; totalCount: number };
       }>(`query($first: Int!, $offset: Int!) {
         providerReports(orderBy: BLOCK_HEIGHT_DESC, first: $first, offset: $offset) {
           nodes { id provider chainId cu errors disconnections epoch blockHeight timestamp }
           totalCount
         }
-      }`, { first: limit, offset });
+      }`, { first: limit, offset }, { providerReports: EMPTY_PAGE });
 
       const total = data.providerReports.totalCount;
       return { data: data.providerReports.nodes, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
     }
 
     // Default: blockchain events
-    const data = await gql<{
+    const data = await gqlSafe<{
       blockchainEvents: { nodes: unknown[]; totalCount: number };
     }>(`query($first: Int!, $offset: Int!) {
       blockchainEvents(orderBy: BLOCK_HEIGHT_DESC, first: $first, offset: $offset) {
         nodes { id eventType provider consumer specId amount blockHeight timestamp data }
         totalCount
       }
-    }`, { first: limit, offset });
+    }`, { first: limit, offset }, { blockchainEvents: EMPTY_PAGE });
 
     const total = data.blockchainEvents.totalCount;
     return { data: data.blockchainEvents.nodes, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
