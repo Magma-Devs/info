@@ -1,7 +1,7 @@
 {
   "name": "info",
   "private": true,
-  "packageManager": "pnpm@10.8.0",
+  "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22"
   },
@@ -13,6 +13,7 @@
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
-    "vitest": "2"
+    "vite": "^6.0.0",
+    "vitest": "4"
   }
 }
