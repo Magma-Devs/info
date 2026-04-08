@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchAllSpecs, fetchProvidersForSpec, fetchIprpcSpecRewards } from "../rpc/lava.js";
-import { readHealthSummaryForSpec } from "../services/health-store.js";
+import { readHealthSummaryForSpec, readHealthByProviderForSpec } from "../services/health-store.js";
 
 export async function specRoutes(app: FastifyInstance) {
   // GET /specs — chain RPC + indexer relay data
@@ -51,19 +51,25 @@ export async function specRoutes(app: FastifyInstance) {
     return { data: specProviders.sort((a, b) => b.providerCount - a.providerCount) };
   });
 
-  // GET /specs/:specId/stakes — chain RPC
+  // GET /specs/:specId/stakes — chain RPC + health from Redis
   app.get<{ Params: { specId: string } }>("/:specId/stakes", { config: { cacheTTL: 300 } }, async (request) => {
     const { specId } = request.params;
     const providers = await fetchProvidersForSpec(specId);
+
+    const healthMap = app.redis
+      ? await readHealthByProviderForSpec(app.redis, specId)
+      : new Map();
 
     return {
       data: providers.map((p) => ({
         provider: p.address,
         moniker: p.moniker,
+        identity: p.identity,
         stake: p.stake?.amount ?? "0",
         delegation: p.delegate_total?.amount ?? "0",
         delegateCommission: p.delegate_commission,
         geolocation: p.geolocation,
+        health: healthMap.get(p.address) ?? null,
       })),
     };
   });

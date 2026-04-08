@@ -97,6 +97,7 @@ export async function readHealthForProvider(
 
 export interface InterfaceHealth {
   name: string;
+  geolocation: string;
   status: string;
   latencyMs: number | null;
   block: number | null;
@@ -129,6 +130,7 @@ export async function readHealthMapForProvider(
   for (const [spec, recs] of bySpec) {
     const interfaces: InterfaceHealth[] = recs.map((r) => ({
       name: r.interface,
+      geolocation: r.geolocation,
       status: r.status,
       latencyMs: r.status === "healthy" ? (r.data.latency as number) ?? null : null,
       block: r.status === "healthy" ? (r.data.block as number) ?? null : null,
@@ -143,6 +145,49 @@ export async function readHealthMapForProvider(
     );
 
     result.set(spec, {
+      status: unhealthyCount > 0 ? "unhealthy" : "healthy",
+      total: interfaces.length,
+      unhealthy: unhealthyCount,
+      oldestTimestamp,
+      interfaces,
+    });
+  }
+
+  return result;
+}
+
+export async function readHealthByProviderForSpec(
+  redis: Redis,
+  spec: string,
+): Promise<Map<string, SpecHealth>> {
+  const records = await readFromIndex(redis, specIndexKey(spec));
+  const byProvider = new Map<string, HealthRecord[]>();
+
+  for (const r of records) {
+    const existing = byProvider.get(r.provider) ?? [];
+    existing.push(r);
+    byProvider.set(r.provider, existing);
+  }
+
+  const result = new Map<string, SpecHealth>();
+  for (const [provider, recs] of byProvider) {
+    const interfaces: InterfaceHealth[] = recs.map((r) => ({
+      name: r.interface,
+      geolocation: r.geolocation,
+      status: r.status,
+      latencyMs: r.status === "healthy" ? (r.data.latency as number) ?? null : null,
+      block: r.status === "healthy" ? (r.data.block as number) ?? null : null,
+      message: r.status !== "healthy" ? (r.data.message as string) ?? null : null,
+      timestamp: r.timestamp,
+    }));
+
+    const unhealthyCount = interfaces.filter((i) => i.status !== "healthy").length;
+    const oldestTimestamp = recs.reduce(
+      (oldest, r) => (r.timestamp < oldest ? r.timestamp : oldest),
+      recs[0].timestamp,
+    );
+
+    result.set(provider, {
       status: unhealthyCount > 0 ? "unhealthy" : "healthy",
       total: interfaces.length,
       unhealthy: unhealthyCount,
