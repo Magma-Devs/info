@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useMemo } from "react";
+import React, { use, useState, useMemo } from "react";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
@@ -44,6 +44,7 @@ function geoLabel(geo?: number): string {
 
 interface InterfaceHealth {
   name: string;
+  geolocation: string;
   status: string;
   latencyMs: number | null;
   block: number | null;
@@ -126,7 +127,7 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
 
   const [chartChain, setChartChain] = useState<string>("all");
   const [copied, setCopied] = useState(false);
-  const [stakeFilter, setStakeFilter] = useState<"active" | "all">("active");
+  const [stakeFilter, setStakeFilter] = useState<"healthy" | "unhealthy" | "all">("all");
 
   // 30-day CU/relays from the time-series data (default 90d range, filter to last 30d)
   const thirtyDaysAgo = useMemo(() => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), []);
@@ -240,7 +241,7 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
     { id: "geolocation", header: "Location", accessorFn: (r: Stake) => r.geolocation ?? 0, cell: ({ row }: { row: { original: Stake } }) => {
       const regions = geoLabel(row.original.geolocation);
       if (regions === "—") return "—";
-      return <div className="flex flex-wrap gap-1">{regions.split(", ").map((r) => <span key={r} className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30">{r}</span>)}</div>;
+      return <div className="flex flex-wrap gap-1">{regions.split(", ").map((r) => <span key={r} className={`px-2 py-0.5 rounded-full text-xs font-medium border ${GEO_COLORS[r] ?? DEFAULT_GEO_COLOR}`}>{r}</span>)}</div>;
     }},
     { id: "addonsExtensions", header: "Addons/Extensions", accessorFn: (r: Stake) => `${r.addons || ""} ${r.extensions || ""}`.trim(), cell: ({ row }: { row: { original: Stake } }) => {
       const addons = (row.original.addons || "").split(",").filter(Boolean);
@@ -255,35 +256,69 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
     }},
   ] as ColumnDef<Stake, unknown>[], []);
 
+  // Interfaces — takes on amber/orange
+  const INTERFACE_COLORS: Record<string, string> = {
+    jsonrpc: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+    rest: "bg-amber-600/15 text-amber-300 border-amber-600/30",
+    grpc: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+    tendermintrpc: "bg-orange-600/15 text-orange-300 border-orange-600/30",
+  };
+  const DEFAULT_IFACE_COLOR = "bg-amber-500/15 text-amber-400 border-amber-500/30";
+
+  // Geolocation — takes on blue
+  const GEO_COLORS: Record<string, string> = {
+    "US-Center": "bg-blue-500/15 text-blue-400 border-blue-500/30",
+    "Europe": "bg-blue-600/15 text-blue-300 border-blue-600/30",
+    "US-East": "bg-blue-400/15 text-blue-300 border-blue-400/30",
+    "US-West": "bg-sky-500/15 text-sky-400 border-sky-500/30",
+    "Africa": "bg-sky-600/15 text-sky-300 border-sky-600/30",
+    "Asia": "bg-blue-700/15 text-blue-200 border-blue-700/30",
+    "AU/NZ": "bg-sky-400/15 text-sky-300 border-sky-400/30",
+  };
+  const DEFAULT_GEO_COLOR = "bg-blue-500/15 text-blue-400 border-blue-500/30";
+
   const renderStakeSubRow = (row: Row<Stake>) => {
     const h = row.original.health;
     if (!h?.interfaces?.length) return null;
     return (
-      <div className="grid gap-2">
-        {h.interfaces.map((iface) => {
+      <div className="grid grid-cols-[100px_90px_90px_70px_110px_1fr] gap-x-4 gap-y-2 text-xs items-center">
+        <span className="text-muted-foreground font-medium">Interface</span>
+        <span className="text-muted-foreground font-medium">Region</span>
+        <span className="text-muted-foreground font-medium">Status</span>
+        <span className="text-muted-foreground font-medium">Latency</span>
+        <span className="text-muted-foreground font-medium">Block</span>
+        <span className="text-muted-foreground font-medium text-right">Last checked</span>
+
+        {h.interfaces.map((iface, idx) => {
           const isHealthy = iface.status === "healthy";
+          const ifaceColor = INTERFACE_COLORS[iface.name.toLowerCase()] ?? DEFAULT_IFACE_COLOR;
+          const geoStr = geoLabel(Number(iface.geolocation));
+          const geoColor = GEO_COLORS[geoStr] ?? DEFAULT_GEO_COLOR;
+          const key = `${iface.name}-${iface.geolocation}-${idx}`;
           return (
-            <div key={iface.name} className="flex items-center gap-3 text-xs">
-              <span className="px-2 py-0.5 rounded-full font-medium bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 min-w-[70px] text-center">
+            <React.Fragment key={key}>
+              <span className={`px-2 py-0.5 rounded-full font-medium border text-center ${ifaceColor}`}>
                 {iface.name}
               </span>
-              <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
-              <span className={`font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>
-                {iface.status}
+              <span className={`px-2 py-0.5 rounded-full font-medium border text-center truncate ${geoColor}`} title={geoStr}>
+                {geoStr}
               </span>
-              {isHealthy && iface.latencyMs != null && (
-                <span className="text-muted-foreground">{iface.latencyMs}ms</span>
-              )}
-              {isHealthy && iface.block != null && (
-                <span className="text-muted-foreground">blk {formatNumber(iface.block)}</span>
-              )}
-              {!isHealthy && iface.message && (
-                <span className="text-red-400/70 truncate max-w-[300px]">{iface.message}</span>
-              )}
-              <span className="text-muted-foreground ml-auto">
+              <span className="flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
+                <span className={`font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>
+                  {iface.status}
+                </span>
+              </span>
+              <span className="text-muted-foreground">
+                {isHealthy && iface.latencyMs != null ? `${iface.latencyMs}ms` : "—"}
+              </span>
+              <span className="text-muted-foreground font-mono">
+                {isHealthy && iface.block != null ? iface.block.toLocaleString() : !isHealthy && iface.message ? <span className="text-red-400/70 truncate block max-w-[200px] font-sans" title={iface.message}>{iface.message}</span> : "—"}
+              </span>
+              <span className="text-right">
                 <TimeTooltip datetime={iface.timestamp} />
               </span>
-            </div>
+            </React.Fragment>
           );
         })}
       </div>
@@ -314,10 +349,12 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
 
   const filteredStakes = useMemo(() => {
     if (!provider) return [];
-    return stakeFilter === "active"
-      ? provider.stakes.filter(s => !s.status || s.status === "active" || s.status === "Active")
-      : provider.stakes;
+    if (stakeFilter === "all") return provider.stakes;
+    return provider.stakes.filter(s => s.health?.status === stakeFilter);
   }, [provider, stakeFilter]);
+
+  const healthyCnt = useMemo(() => provider?.stakes.filter(s => s.health?.status === "healthy").length ?? 0, [provider]);
+  const unhealthyCnt = useMemo(() => provider?.stakes.filter(s => s.health?.status === "unhealthy").length ?? 0, [provider]);
 
   if (isLoading) return <Loading />;
 
@@ -515,14 +552,16 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
           <CardTitle>Services</CardTitle>
           <div className="flex items-center gap-3">
             <div className="flex gap-1">
-              <button onClick={() => setStakeFilter("active")}
-                className={`px-2 py-1 text-xs rounded ${stakeFilter === "active" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted border border-border"}`}>
-                Active ({provider.stakes.filter(s => !s.status || s.status === "active" || s.status === "Active").length})
-              </button>
-              <button onClick={() => setStakeFilter("all")}
-                className={`px-2 py-1 text-xs rounded ${stakeFilter === "all" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted border border-border"}`}>
-                All ({provider.stakes.length})
-              </button>
+              {([
+                { key: "all" as const, label: "All", count: provider.stakes.length },
+                { key: "healthy" as const, label: "Healthy", count: healthyCnt },
+                { key: "unhealthy" as const, label: "Unhealthy", count: unhealthyCnt },
+              ]).map((f) => (
+                <button key={f.key} onClick={() => setStakeFilter(f.key)}
+                  className={`px-2 py-1 text-xs rounded ${stakeFilter === f.key ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted border border-border"}`}>
+                  {f.label} ({f.count})
+                </button>
+              ))}
             </div>
             <button onClick={() => downloadCsv(provider.stakes.map(s => ({ chain: s.specId, stake: s.stake, delegation: s.delegation, commission: s.delegateCommission ?? "", geolocation: s.geolocation ?? "", addons: s.addons ?? "", extensions: s.extensions ?? "" })), `provider-${lavaid}-stakes.csv`)}
               className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">

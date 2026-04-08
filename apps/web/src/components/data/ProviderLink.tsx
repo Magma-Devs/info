@@ -8,10 +8,12 @@ interface ProviderLinkProps {
   moniker?: string;
   identity?: string;
   showAvatar?: boolean;
+  /** Show moniker on top with full address below (like ChainLink showName) */
+  showAddress?: boolean;
 }
 
 /** Provider address as link with optional avatar, shows moniker if available */
-export function ProviderLink({ address, moniker, identity, showAvatar = false }: ProviderLinkProps) {
+export function ProviderLink({ address, moniker, identity, showAvatar = false, showAddress = false }: ProviderLinkProps) {
   const display = moniker || `${address.slice(0, 16)}...`;
   const avatarUrl = showAvatar && identity
     ? `/providers/${address}/avatar?identity=${identity}`
@@ -39,7 +41,14 @@ export function ProviderLink({ address, moniker, identity, showAvatar = false }:
           </span>
         )
       )}
-      {display}
+      {showAddress && moniker ? (
+        <div className="flex flex-col leading-tight">
+          <span className="text-sm font-medium">{moniker}</span>
+          <span className="text-xs text-muted-foreground font-mono">{address}</span>
+        </div>
+      ) : (
+        display
+      )}
     </Link>
   );
 }

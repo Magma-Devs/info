@@ -1,21 +1,22 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import React, { use, useMemo, useState } from "react";
 import Link from "next/link";
-import { type ColumnDef } from "@tanstack/react-table";
+import { type ColumnDef, type Row } from "@tanstack/react-table";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
 import { StatCard } from "@/components/data/StatCard";
-import { StatusBadge } from "@/components/data/StatusBadge";
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
+import { TimeTooltip } from "@/components/data/TimeTooltip";
 import { SortableTable } from "@/components/data/SortableTable";
 import { Chart } from "@/components/data/Chart";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { formatNumber, formatNumberKMB, formatLava } from "@/lib/format";
-import { Users, Coins, Box, Shield, Activity, BarChart3 } from "lucide-react";
+import { formatNumberKMB } from "@/lib/format";
+import { Users, Coins, Box, Activity, BarChart3, ChevronRight, Download } from "lucide-react";
 import { useChainNames } from "@/hooks/use-chain-names";
 import { getChainIcon } from "@/lib/chain-icons";
+import { downloadCsv } from "@/lib/csv";
 
 function geoLabel(geo?: number): string {
   if (geo == null || geo === 0) return "—";
@@ -35,22 +36,57 @@ function toBigInt(v: string | undefined): bigint {
   try { return BigInt(v ?? "0"); } catch { return 0n; }
 }
 
-const specStakeColumns: ColumnDef<SpecStake, unknown>[] = [
-  { id: "provider", header: "Provider", accessorFn: (r) => r.moniker || r.provider, cell: ({ row }) => <ProviderLink address={row.original.provider} moniker={row.original.moniker} /> },
-  { id: "stake", header: "Stake", sortingFn: (a, b) => Number(toBigInt(a.original.stake) - toBigInt(b.original.stake)), cell: ({ row }) => <LavaAmount amount={row.original.stake} /> },
-  { id: "delegation", header: "Delegation", sortingFn: (a, b) => Number(toBigInt(a.original.delegation) - toBigInt(b.original.delegation)), cell: ({ row }) => <LavaAmount amount={row.original.delegation} /> },
-  { id: "total", header: "Total", sortingFn: (a, b) => Number((toBigInt(a.original.stake) + toBigInt(a.original.delegation)) - (toBigInt(b.original.stake) + toBigInt(b.original.delegation))), cell: ({ row }) => <LavaAmount amount={String(toBigInt(row.original.stake) + toBigInt(row.original.delegation))} /> },
-  { id: "commission", header: "Commission", accessorFn: (r) => Number(r.delegateCommission || "0"), cell: ({ row }) => `${Number(row.original.delegateCommission || "0")}%` },
-  { id: "cuSum30d", header: "CU (30d)", sortingFn: (a, b) => Number(toBigInt(a.original.cuSum30d) - toBigInt(b.original.cuSum30d)), cell: ({ row }) => formatNumberKMB(row.original.cuSum30d ?? "0") },
-  { id: "relaySum30d", header: "Relays (30d)", sortingFn: (a, b) => Number(toBigInt(a.original.relaySum30d) - toBigInt(b.original.relaySum30d)), cell: ({ row }) => formatNumberKMB(row.original.relaySum30d ?? "0") },
-  { id: "geolocation", header: "Location", accessorFn: (r) => r.geolocation, cell: ({ row }) => geoLabel(row.original.geolocation) },
-];
+// Badge color maps — same as provider page
+const INTERFACE_COLORS: Record<string, string> = {
+  jsonrpc: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  rest: "bg-amber-600/15 text-amber-300 border-amber-600/30",
+  grpc: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  tendermintrpc: "bg-orange-600/15 text-orange-300 border-orange-600/30",
+};
+const DEFAULT_IFACE_COLOR = "bg-amber-500/15 text-amber-400 border-amber-500/30";
+
+const GEO_COLORS: Record<string, string> = {
+  "US-Center": "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  "Europe": "bg-blue-600/15 text-blue-300 border-blue-600/30",
+  "US-East": "bg-blue-400/15 text-blue-300 border-blue-400/30",
+  "US-West": "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  "Africa": "bg-sky-600/15 text-sky-300 border-sky-600/30",
+  "Asia": "bg-blue-700/15 text-blue-200 border-blue-700/30",
+  "AU/NZ": "bg-sky-400/15 text-sky-300 border-sky-400/30",
+};
+const DEFAULT_GEO_COLOR = "bg-blue-500/15 text-blue-400 border-blue-500/30";
+
+interface InterfaceHealth {
+  name: string;
+  geolocation: string;
+  status: string;
+  latencyMs: number | null;
+  block: number | null;
+  message: string | null;
+  timestamp: string;
+}
+
+interface SpecHealth {
+  status: "healthy" | "unhealthy";
+  total: number;
+  unhealthy: number;
+  oldestTimestamp: string;
+  interfaces: InterfaceHealth[];
+}
 
 interface SpecStake {
-  provider: string; moniker: string; stake: string; delegation: string; geolocation: number;
-  delegateCommission?: string; cuSum30d?: string; relaySum30d?: string;
+  provider: string;
+  moniker: string;
+  identity?: string;
+  stake: string;
+  delegation: string;
+  geolocation: number;
+  delegateCommission?: string;
+  cuSum30d?: string;
+  relaySum30d?: string;
+  health?: SpecHealth | null;
 }
-interface HealthEntry { status: string; count: number; }
+
 interface ChartSummary { chainId: string; cu: string; relays: string; }
 interface TimeSeriesEntry {
   date: string; cu: string; relays: string;
@@ -60,12 +96,13 @@ interface TimeSeriesEntry {
 export default function ChainPage({ params }: { params: Promise<{ specid: string }> }) {
   const { specid } = use(params);
   const { data: stakesResp, isLoading } = useApi<{ data: SpecStake[] }>(`/specs/${specid}/stakes`);
-  const { data: healthResp } = useApi<{ data: HealthEntry[] }>(`/specs/${specid}/health`);
   const { data: summaryResp } = useApi<{ data: ChartSummary }>(`/specs/${specid}/charts`);
   const [rangeDays, setRangeDays] = useState(90);
   const chartFrom = rangeDays > 0 ? new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : "";
   const { data: tsResp } = useApi<{ data: TimeSeriesEntry[] }>(`/specs/${specid}/charts${chartFrom ? `?from=${chartFrom}` : ""}`);
   const { getName } = useChainNames();
+
+  const [stakeFilter, setStakeFilter] = useState<"healthy" | "unhealthy" | "all">("all");
 
   const chartData = useMemo(() => {
     if (!tsResp?.data) return [];
@@ -79,10 +116,126 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
     }));
   }, [tsResp]);
 
+  const stakes = useMemo(() => stakesResp?.data ?? [], [stakesResp]);
+  const totalStake = useMemo(() => stakes.reduce((sum, s) => sum + toBigInt(s.stake), 0n), [stakes]);
+  const totalDelegation = useMemo(() => stakes.reduce((sum, s) => sum + toBigInt(s.delegation), 0n), [stakes]);
+  const healthyCnt = useMemo(() => stakes.filter(s => s.health?.status === "healthy").length, [stakes]);
+  const unhealthyCnt = useMemo(() => stakes.filter(s => s.health?.status === "unhealthy").length, [stakes]);
+  const notProbedCnt = useMemo(() => stakes.filter(s => !s.health).length, [stakes]);
+
+  const filteredStakes = useMemo(() => {
+    if (stakeFilter === "all") return stakes;
+    return stakes.filter(s => s.health?.status === stakeFilter);
+  }, [stakes, stakeFilter]);
+
+  const stakeCols: ColumnDef<SpecStake, unknown>[] = useMemo(() => [
+    {
+      id: "provider", header: "Provider",
+      accessorFn: (r) => r.moniker || r.provider,
+      cell: ({ row }: { row: { original: SpecStake } }) => (
+        <ProviderLink address={row.original.provider} moniker={row.original.moniker} identity={row.original.identity} showAvatar showAddress />
+      ),
+    },
+    {
+      id: "health", header: "Health",
+      accessorFn: (r: SpecStake) => r.health?.status ?? "unknown",
+      cell: ({ row }: { row: Row<SpecStake> }) => {
+        const h = row.original.health;
+        if (!h) {
+          return (
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
+              <span className="text-xs">No data</span>
+            </div>
+          );
+        }
+        const isHealthy = h.status === "healthy";
+        return (
+          <button type="button" onClick={() => row.toggleExpanded()} className="flex items-center gap-1.5 group cursor-pointer">
+            <ChevronRight size={12} className={`text-muted-foreground transition-transform ${row.getIsExpanded() ? "rotate-90" : ""}`} />
+            <span className={`w-2 h-2 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
+            <span className={`text-xs font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>
+              {isHealthy ? "Healthy" : `${h.unhealthy}/${h.total} Down`}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              <TimeTooltip datetime={h.oldestTimestamp} />
+            </span>
+          </button>
+        );
+      },
+    },
+    { id: "total", header: "Total Stake", accessorFn: (r: SpecStake) => Number(toBigInt(r.stake) + toBigInt(r.delegation)), cell: ({ row }: { row: { original: SpecStake } }) => <LavaAmount amount={String(toBigInt(row.original.stake) + toBigInt(row.original.delegation))} /> },
+    { id: "stake", header: "Self Stake", accessorFn: (r: SpecStake) => Number(toBigInt(r.stake)), cell: ({ row }: { row: { original: SpecStake } }) => <LavaAmount amount={row.original.stake} /> },
+    { id: "delegation", header: "Delegation", accessorFn: (r: SpecStake) => Number(toBigInt(r.delegation)), cell: ({ row }: { row: { original: SpecStake } }) => <LavaAmount amount={row.original.delegation} /> },
+    { id: "commission", header: "Commission", accessorFn: (r: SpecStake) => Number(r.delegateCommission || "0"), cell: ({ row }: { row: { original: SpecStake } }) => `${Number(row.original.delegateCommission || "0")}%` },
+    { id: "cuSum30d", header: "CU (30d)", accessorFn: (r: SpecStake) => Number(toBigInt(r.cuSum30d)), cell: ({ row }: { row: { original: SpecStake } }) => row.original.cuSum30d != null ? formatNumberKMB(row.original.cuSum30d) : "—" },
+    { id: "relaySum30d", header: "Relays (30d)", accessorFn: (r: SpecStake) => Number(toBigInt(r.relaySum30d)), cell: ({ row }: { row: { original: SpecStake } }) => row.original.relaySum30d != null ? formatNumberKMB(row.original.relaySum30d) : "—" },
+    {
+      id: "geolocation", header: "Location",
+      accessorFn: (r) => r.geolocation,
+      cell: ({ row }: { row: { original: SpecStake } }) => {
+        const regions = geoLabel(row.original.geolocation);
+        if (regions === "—") return "—";
+        return (
+          <div className="flex flex-wrap gap-1">
+            {regions.split(", ").map((r) => (
+              <span key={r} className={`px-2 py-0.5 rounded-full text-xs font-medium border ${GEO_COLORS[r] ?? DEFAULT_GEO_COLOR}`}>{r}</span>
+            ))}
+          </div>
+        );
+      },
+    },
+  ] as ColumnDef<SpecStake, unknown>[], []);
+
+  const renderSubRow = (row: Row<SpecStake>) => {
+    const h = row.original.health;
+    if (!h?.interfaces?.length) return null;
+    return (
+      <div className="grid grid-cols-[100px_90px_90px_70px_110px_1fr] gap-x-4 gap-y-2 text-xs items-center">
+        <span className="text-muted-foreground font-medium">Interface</span>
+        <span className="text-muted-foreground font-medium">Region</span>
+        <span className="text-muted-foreground font-medium">Status</span>
+        <span className="text-muted-foreground font-medium">Latency</span>
+        <span className="text-muted-foreground font-medium">Block</span>
+        <span className="text-muted-foreground font-medium text-right">Last checked</span>
+
+        {h.interfaces.map((iface, idx) => {
+          const isHealthy = iface.status === "healthy";
+          const ifaceColor = INTERFACE_COLORS[iface.name.toLowerCase()] ?? DEFAULT_IFACE_COLOR;
+          const geoStr = geoLabel(Number(iface.geolocation));
+          const geoColor = GEO_COLORS[geoStr] ?? DEFAULT_GEO_COLOR;
+          const key = `${iface.name}-${iface.geolocation}-${idx}`;
+          return (
+            <React.Fragment key={key}>
+              <span className={`px-2 py-0.5 rounded-full font-medium border text-center ${ifaceColor}`}>
+                {iface.name}
+              </span>
+              <span className={`px-2 py-0.5 rounded-full font-medium border text-center truncate ${geoColor}`} title={geoStr}>
+                {geoStr}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
+                <span className={`font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>
+                  {iface.status}
+                </span>
+              </span>
+              <span className="text-muted-foreground">
+                {isHealthy && iface.latencyMs != null ? `${iface.latencyMs}ms` : "—"}
+              </span>
+              <span className="text-muted-foreground font-mono">
+                {isHealthy && iface.block != null ? iface.block.toLocaleString() : !isHealthy && iface.message ? <span className="text-red-400/70 truncate block max-w-[200px] font-sans" title={iface.message}>{iface.message}</span> : "—"}
+              </span>
+              <span className="text-right">
+                <TimeTooltip datetime={iface.timestamp} />
+              </span>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  };
+
   if (isLoading) return <Loading />;
-  const stakes = stakesResp?.data ?? [];
-  const totalStake = stakes.reduce((sum, s) => sum + BigInt(s.stake || "0"), 0n);
-  const totalDelegation = stakes.reduce((sum, s) => sum + BigInt(s.delegation || "0"), 0n);
   const chainName = getName(specid);
 
   return (
@@ -97,34 +250,28 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
       <div style={{ marginTop: "5px" }} />
 
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-4">
-        <StatCard label="Active Providers" value={stakes.length} icon={<Users className="h-4 w-4 text-muted-foreground" />} />
+        <StatCard label="Providers" icon={<Users className="h-4 w-4 text-muted-foreground" />} value={
+          <div>
+            <span>{stakes.length}</span>
+            {stakes.length > 0 && (
+              <>
+                <div className="flex w-full h-1.5 rounded-full overflow-hidden mt-2 bg-muted">
+                  {healthyCnt > 0 && <div className="bg-green-500 transition-all" style={{ width: `${healthyCnt / stakes.length * 100}%` }} />}
+                  {unhealthyCnt > 0 && <div className="bg-red-500 transition-all" style={{ width: `${unhealthyCnt / stakes.length * 100}%` }} />}
+                </div>
+                <div className="flex items-center gap-3 mt-1.5 text-[11px] font-normal">
+                  <span className="flex items-center gap-1 text-green-400"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />{healthyCnt} healthy</span>
+                  {unhealthyCnt > 0 && <span className="flex items-center gap-1 text-red-400"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />{unhealthyCnt} down</span>}
+                  {notProbedCnt > 0 && <span className="flex items-center gap-1 text-muted-foreground"><span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" />{notProbedCnt} pending</span>}
+                </div>
+              </>
+            )}
+          </div>
+        } />
         <StatCard label="Total CU" value={formatNumberKMB(summaryResp?.data?.cu ?? "0")} icon={<Box className="h-4 w-4 text-muted-foreground" />} />
         <StatCard label="Total Relays" value={formatNumberKMB(summaryResp?.data?.relays ?? "0")} icon={<Activity className="h-4 w-4 text-muted-foreground" />} />
         <StatCard label="Total Stake" value={<LavaAmount amount={totalStake.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
       </div>
-
-      <div style={{ marginTop: "25px" }} />
-
-      {/* Endpoint health */}
-      <Card>
-        <CardHeader><CardTitle>Endpoint Health</CardTitle></CardHeader>
-        <CardContent>
-          {healthResp?.data && healthResp.data.length > 0 ? (
-            <div className="flex gap-4 flex-wrap">
-              {healthResp.data.map((h) => (
-                <div key={h.status} className="border border-border rounded-lg px-4 py-2 text-sm">
-                  <StatusBadge status={h.status} />
-                  <span className="font-semibold ml-2">{h.count}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-sm flex items-center gap-2">
-              <Shield className="h-4 w-4" /> Endpoint health data requires the health probe service.
-            </p>
-          )}
-        </CardContent>
-      </Card>
 
       <div style={{ marginTop: "25px" }} />
 
@@ -174,17 +321,33 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
 
       <div style={{ marginTop: "25px" }} />
 
-      {/* Providers (stakes) table */}
+      {/* Providers table */}
       <Card>
-        <CardHeader><CardTitle>Providers on {specid} ({stakes.length})</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Providers</CardTitle>
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1">
+              {([
+                { key: "all" as const, label: "All", count: stakes.length },
+                { key: "healthy" as const, label: "Healthy", count: healthyCnt },
+                { key: "unhealthy" as const, label: "Unhealthy", count: unhealthyCnt },
+              ]).map((f) => (
+                <button key={f.key} onClick={() => setStakeFilter(f.key)}
+                  className={`px-2 py-1 text-xs rounded ${stakeFilter === f.key ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted border border-border"}`}>
+                  {f.label} ({f.count})
+                </button>
+              ))}
+            </div>
+            <button onClick={() => downloadCsv(stakes.map(s => ({ provider: s.provider, moniker: s.moniker, stake: s.stake, delegation: s.delegation, commission: s.delegateCommission ?? "", geolocation: s.geolocation ?? "", health: s.health?.status ?? "" })), `chain-${specid}-providers.csv`)}
+              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+              <Download size={14} /> CSV
+            </button>
+          </div>
+        </CardHeader>
         <CardContent>
-          <SortableTable data={stakes} columns={specStakeColumns} defaultSort={[{ id: "stake", desc: true }]} />
+          <SortableTable data={filteredStakes} columns={stakeCols} defaultSort={[{ id: "total", desc: true }]} pageSize={20} renderSubRow={renderSubRow} />
         </CardContent>
       </Card>
     </>
   );
-}
-
-function ninetyDaysAgo(): string {
-  return new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
