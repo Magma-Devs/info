@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { gql } from "../graphql/client.js";
+import { gql, gqlSafe } from "../graphql/client.js";
 import { fetchSubscriptionList } from "../rpc/lava.js";
 
 export async function consumerRoutes(app: FastifyInstance) {
@@ -8,26 +8,28 @@ export async function consumerRoutes(app: FastifyInstance) {
     const { page, limit } = request.pagination;
 
     const [data, subs] = await Promise.all([
-      gql<{
+      gqlSafe<{
         mvConsumerRelayDailies: {
           groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
         };
-      }>(`{
+      } | null>(`{
         mvConsumerRelayDailies(filter: { consumer: { notEqualTo: "" } }) {
           groupedAggregates(groupBy: CONSUMER) {
             keys
             sum { cu relays }
           }
         }
-      }`),
+      }`, undefined, null),
       fetchSubscriptionList(),
     ]);
     const subsMap = new Map<string, string>(subs.map((s) => [s.consumer, s.plan]));
 
-    const consumers = data.mvConsumerRelayDailies.groupedAggregates
-      .map((g) => ({ consumer: g.keys[0], totalCu: g.sum.cu, totalRelays: g.sum.relays, plan: subsMap.get(g.keys[0]) ?? "" }))
-      .filter((c) => c.consumer)
-      .sort((a, b) => Number(BigInt(b.totalCu) - BigInt(a.totalCu)));
+    const consumers = data
+      ? data.mvConsumerRelayDailies.groupedAggregates
+          .map((g) => ({ consumer: g.keys[0], totalCu: g.sum.cu, totalRelays: g.sum.relays, plan: subsMap.get(g.keys[0]) ?? "" }))
+          .filter((c) => c.consumer)
+          .sort((a, b) => Number(BigInt(b.totalCu) - BigInt(a.totalCu)))
+      : subs.map((s) => ({ consumer: s.consumer, totalCu: null as string | null, totalRelays: null as string | null, plan: s.plan }));
 
     const total = consumers.length;
     const offset = (page - 1) * limit;
