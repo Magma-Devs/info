@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
   getPaginationRowModel,
+  getExpandedRowModel,
   flexRender,
   type ColumnDef,
   type SortingState,
+  type Row,
 } from "@tanstack/react-table";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 
@@ -17,10 +19,11 @@ interface SortableTableProps<T> {
   columns: ColumnDef<T, unknown>[];
   defaultSort?: SortingState;
   pageSize?: number;
+  renderSubRow?: (row: Row<T>) => ReactNode;
 }
 
 /**
- * Client-side sortable table with optional pagination.
+ * Client-side sortable table with optional pagination and expandable sub-rows.
  * All columns are sortable by clicking the header.
  */
 export function SortableTable<T>({
@@ -28,6 +31,7 @@ export function SortableTable<T>({
   columns,
   defaultSort = [],
   pageSize,
+  renderSubRow,
 }: SortableTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>(defaultSort);
 
@@ -38,6 +42,7 @@ export function SortableTable<T>({
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    ...(renderSubRow ? { getExpandedRowModel: getExpandedRowModel() } : {}),
     ...(pageSize
       ? { getPaginationRowModel: getPaginationRowModel(), initialState: { pagination: { pageSize } } }
       : {}),
@@ -84,13 +89,22 @@ export function SortableTable<T>({
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3 text-foreground">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
+              <>
+                <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="px-4 py-3 text-foreground">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+                {renderSubRow && row.getIsExpanded() && (
+                  <tr key={`${row.id}-sub`} className="bg-muted/20">
+                    <td colSpan={row.getVisibleCells().length} className="px-4 py-3">
+                      {renderSubRow(row)}
+                    </td>
+                  </tr>
+                )}
+              </>
             ))}
           </tbody>
         </table>

@@ -91,19 +91,28 @@ export async function providerRoutes(app: FastifyInstance) {
     const stakes = specProviders.filter(Boolean);
     const moniker = stakes[0]?.moniker ?? "";
 
+    // Attach health data from Redis
+    const healthMap = app.redis
+      ? await readHealthMapForProvider(app.redis, addr)
+      : new Map();
+
     return {
       provider: addr,
       moniker,
-      stakes: stakes.map((s) => ({
-        specId: s!.specId,
-        stake: s!.stake?.amount ?? "0",
-        delegation: s!.delegate_total?.amount ?? "0",
-        moniker: s!.moniker,
-        delegateCommission: s!.delegate_commission,
-        geolocation: s!.geolocation,
-        addons: s!.addons,
-        extensions: s!.extensions,
-      })),
+      stakes: stakes.map((s) => {
+        const health = healthMap.get(s!.specId) ?? null;
+        return {
+          specId: s!.specId,
+          stake: s!.stake?.amount ?? "0",
+          delegation: s!.delegate_total?.amount ?? "0",
+          moniker: s!.moniker,
+          delegateCommission: s!.delegate_commission,
+          geolocation: s!.geolocation,
+          addons: s!.addons,
+          extensions: s!.extensions,
+          health,
+        };
+      }),
     };
   });
 

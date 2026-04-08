@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
 import { StatCard } from "@/components/data/StatCard";
-import { StatusBadge } from "@/components/data/StatusBadge";
 import { ChainLink } from "@/components/data/ChainLink";
 import { getChainIcon } from "@/lib/chain-icons";
 import { ProviderLink } from "@/components/data/ProviderLink";
@@ -14,11 +13,11 @@ import { TimeTooltip } from "@/components/data/TimeTooltip";
 import { Chart } from "@/components/data/Chart";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { SortableTable } from "@/components/data/SortableTable";
-import { type ColumnDef } from "@tanstack/react-table";
+import { type ColumnDef, type Row } from "@tanstack/react-table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { formatNumber, formatNumberKMB, formatLava } from "@/lib/format";
 import { downloadCsv } from "@/lib/csv";
-import { Coins, Shield, MonitorCog, ArrowUpNarrowWide, Award, BarChart3, Percent, Copy, ExternalLink, Download } from "lucide-react";
+import { Coins, MonitorCog, ArrowUpNarrowWide, Award, BarChart3, Percent, Copy, ExternalLink, Download, ChevronRight } from "lucide-react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -43,6 +42,23 @@ function geoLabel(geo?: number): string {
   return regions.length > 0 ? regions.join(", ") : String(geo);
 }
 
+interface InterfaceHealth {
+  name: string;
+  status: string;
+  latencyMs: number | null;
+  block: number | null;
+  message: string | null;
+  timestamp: string;
+}
+
+interface SpecHealth {
+  status: "healthy" | "unhealthy";
+  total: number;
+  unhealthy: number;
+  oldestTimestamp: string;
+  interfaces: InterfaceHealth[];
+}
+
 interface ProviderDetail {
   provider: string;
   moniker: string;
@@ -56,6 +72,7 @@ interface ProviderDetail {
     addons?: string;
     extensions?: string;
     status?: string;
+    health?: SpecHealth | null;
   }>;
 }
 
@@ -90,10 +107,6 @@ interface BlockReportRow {
   blockHeight: string; timestamp: string;
 }
 
-interface HealthRow {
-  spec: string; status: string; geolocation: string; timestamp: string; interface: string;
-}
-
 interface DelegatorReward {
   denom: string; amount: string;
 }
@@ -108,7 +121,6 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
   const { data: reports } = useApi<{ data: ReportRow[]; pagination: { total: number } }>(`/providers/${lavaid}/reports?limit=20`);
   const { data: events } = useApi<{ data: EventRow[]; pagination: { total: number } }>(`/providers/${lavaid}/events?limit=20`);
   const { data: blockReports } = useApi<{ data: BlockReportRow[]; pagination: { total: number } }>(`/providers/${lavaid}/block-reports?limit=20`);
-  const { data: healthData } = useApi<{ data: HealthRow[] }>(`/providers/${lavaid}/health?limit=50`);
   const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/providers/${lavaid}/delegator-rewards`);
   const { data: avatarResp } = useApi<{ url: string | null }>(`/providers/${lavaid}/avatar`);
 
@@ -193,6 +205,34 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
   type Stake = ProviderDetail["stakes"][number];
   const stakeCols: ColumnDef<Stake, unknown>[] = useMemo(() => [
     { id: "specId", header: "Chain", accessorFn: (r: Stake) => r.specId, cell: ({ row }: { row: { original: Stake } }) => <ChainLink chainId={row.original.specId} showName /> },
+    { id: "health", header: "Health", accessorFn: (r: Stake) => r.health?.status ?? "unknown", cell: ({ row }: { row: Row<Stake> }) => {
+      const h = row.original.health;
+      if (!h) {
+        return (
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
+            <span className="text-xs">No data</span>
+          </div>
+        );
+      }
+      const isHealthy = h.status === "healthy";
+      return (
+        <button
+          type="button"
+          onClick={() => row.toggleExpanded()}
+          className="flex items-center gap-1.5 group cursor-pointer"
+        >
+          <ChevronRight size={12} className={`text-muted-foreground transition-transform ${row.getIsExpanded() ? "rotate-90" : ""}`} />
+          <span className={`w-2 h-2 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
+          <span className={`text-xs font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>
+            {isHealthy ? "Healthy" : `${h.unhealthy}/${h.total} Down`}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            <TimeTooltip datetime={h.oldestTimestamp} />
+          </span>
+        </button>
+      );
+    }},
     { id: "total", header: "Total Stake", accessorFn: (r: Stake) => Number(BigInt(r.stake || "0") + BigInt(r.delegation || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={String(BigInt(row.original.stake || "0") + BigInt(row.original.delegation || "0"))} /> },
     { id: "stake", header: "Self Stake", accessorFn: (r: Stake) => Number(BigInt(r.stake || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={row.original.stake} /> },
     { id: "delegation", header: "Delegation", accessorFn: (r: Stake) => Number(BigInt(r.delegation || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={row.original.delegation} /> },
@@ -214,6 +254,41 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
       );
     }},
   ] as ColumnDef<Stake, unknown>[], []);
+
+  const renderStakeSubRow = (row: Row<Stake>) => {
+    const h = row.original.health;
+    if (!h?.interfaces?.length) return null;
+    return (
+      <div className="grid gap-2">
+        {h.interfaces.map((iface) => {
+          const isHealthy = iface.status === "healthy";
+          return (
+            <div key={iface.name} className="flex items-center gap-3 text-xs">
+              <span className="px-2 py-0.5 rounded-full font-medium bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 min-w-[70px] text-center">
+                {iface.name}
+              </span>
+              <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
+              <span className={`font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>
+                {iface.status}
+              </span>
+              {isHealthy && iface.latencyMs != null && (
+                <span className="text-muted-foreground">{iface.latencyMs}ms</span>
+              )}
+              {isHealthy && iface.block != null && (
+                <span className="text-muted-foreground">blk {formatNumber(iface.block)}</span>
+              )}
+              {!isHealthy && iface.message && (
+                <span className="text-red-400/70 truncate max-w-[300px]">{iface.message}</span>
+              )}
+              <span className="text-muted-foreground ml-auto">
+                <TimeTooltip datetime={iface.timestamp} />
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   const reportCols: ColumnDef<ReportRow, unknown>[] = useMemo(() => [
     { id: "chainId", header: "Chain", accessorFn: (r: ReportRow) => r.chainId, cell: ({ row }: { row: { original: ReportRow } }) => <ChainLink chainId={row.original.chainId} /> },
@@ -434,37 +509,7 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
 
       <div style={{ marginBottom: "20px" }} />
 
-      {/* Health status */}
-      <Card>
-        <CardHeader><CardTitle>Health Status</CardTitle></CardHeader>
-        <CardContent>
-          {healthData?.data && healthData.data.length > 0 ? (
-            <div className="divide-y divide-border">
-              {healthData.data.map((h, i) => (
-                <div key={i} className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-2">
-                    <ChainLink chainId={h.spec} />
-                    {h.interface && <span className="text-xs text-muted-foreground">({h.interface})</span>}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">{h.geolocation}</span>
-                    <StatusBadge status={h.status} />
-                    {h.timestamp && <TimeTooltip datetime={h.timestamp} />}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-sm flex items-center gap-2">
-              <Shield className="h-4 w-4" /> Health data requires the health probe service.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <div style={{ marginBottom: "20px" }} />
-
-      {/* Stakes */}
+      {/* Services (with inline health) */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Services</CardTitle>
@@ -486,7 +531,7 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
           </div>
         </CardHeader>
         <CardContent>
-          <SortableTable data={filteredStakes} columns={stakeCols} defaultSort={[{ id: "total", desc: true }]} />
+          <SortableTable data={filteredStakes} columns={stakeCols} defaultSort={[{ id: "total", desc: true }]} renderSubRow={renderStakeSubRow} />
         </CardContent>
       </Card>
 
