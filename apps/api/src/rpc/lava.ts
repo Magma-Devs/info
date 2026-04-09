@@ -274,38 +274,172 @@ export async function fetchCommunityTax(): Promise<number> {
   return parseFloat(data.params.community_tax);
 }
 
-export async function computeTVL(): Promise<{ tvl: string }> {
-  const specs = await fetchAllSpecs();
+// Reward pools that count toward TVL (iprpc_pool excluded)
+const TVL_REWARD_POOLS = [
+  "validators_rewards_distribution_pool",
+  "validators_rewards_allocation_pool",
+  "providers_rewards_distribution_pool",
+  "providers_rewards_allocation_pool",
+];
 
-  let totalStake = 0n;
-  let totalDelegation = 0n;
+async function fetchLavaUsdPrice(): Promise<number> {
+  const res = await fetch(
+    "https://api.coingecko.com/api/v3/simple/price?ids=lava-network&vs_currencies=usd",
+  );
+  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+  const data = (await res.json()) as { "lava-network"?: { usd?: number } };
+  const price = data["lava-network"]?.usd;
+  if (!price || price <= 0) throw new Error("Invalid LAVA price from CoinGecko");
+  return price;
+}
 
-  // Fetch in batches of 5 to avoid rate limiting
-  const specProviders: Array<Array<{ stake?: { amount: string }; delegate_total?: { amount: string } }>> = [];
-  for (let i = 0; i < specs.length; i += 5) {
-    const batch = specs.slice(i, i + 5);
-    const results = await Promise.all(
-      batch.map((s) => fetchProvidersForSpec(s.index).catch(() => [])),
-    );
-    specProviders.push(...results);
-  }
-
-  for (const providers of specProviders) {
-    for (const p of providers) {
-      totalStake += BigInt(p.stake?.amount ?? "0");
-      totalDelegation += BigInt(p.delegate_total?.amount ?? "0");
+async function fetchTvlRewardPoolsUlava(): Promise<bigint> {
+  const data = await fetchRest<{
+    pools: Array<{ name: string; balance: Array<{ denom: string; amount: string }> }>;
+  }>("/lavanet/lava/rewards/pools");
+  let total = 0n;
+  for (const pool of data.pools ?? []) {
+    if (TVL_REWARD_POOLS.includes(pool.name)) {
+      for (const coin of pool.balance ?? []) {
+        if (coin.denom === "ulava") total += BigInt(coin.amount);
+      }
     }
   }
+  return total;
+}
 
-  // TVL = provider self-stakes + delegations, converted from ulava to LAVA
-  const tvlUlava = totalStake + totalDelegation;
-  const whole = tvlUlava / 1_000_000n;
-  const frac = tvlUlava % 1_000_000n;
-  const tvlLava = frac > 0n
-    ? `${whole}.${frac.toString().padStart(6, "0").replace(/0+$/, "")}`
-    : whole.toString();
+async function fetchSubscriptionCreditsUlava(): Promise<bigint> {
+  try {
+    const data = await fetchRest<{
+      subs_info: Array<{ credit: { amount: string; denom: string } }>;
+    }>("/lavanet/lava/subscription/list");
+    let total = 0n;
+    for (const sub of data.subs_info ?? []) {
+      if (sub.credit?.denom === "ulava") {
+        const amount = BigInt(sub.credit.amount || "0");
+        if (amount > 0n) total += amount;
+      }
+    }
+    return total;
+  } catch {
+    return 0n;
+  }
+}
 
-  return { tvl: tvlLava };
+async function fetchOsmosisLavaUlava(): Promise<bigint> {
+  try {
+    const input = JSON.stringify({
+      json: {
+        limit: 10, search: null, denoms: ["LAVA"],
+        types: ["weighted", "stable", "concentrated", "cosmwasm-transmuter",
+                "cosmwasm", "cosmwasm-astroport-pcl", "cosmwasm-whitewhale"],
+        incentiveTypes: ["superfluid", "osmosis", "boost", "none"],
+        sort: { keyPath: "market.volume24hUsd", direction: "desc" },
+        minLiquidityUsd: 1000, cursor: 0,
+      },
+      meta: { values: { search: ["undefined"] } },
+    });
+    const res = await fetch(
+      `https://app.osmosis.zone/api/edge-trpc-pools/pools.getPools?input=${encodeURIComponent(input)}`,
+    );
+    if (!res.ok) return 0n;
+    const data = (await res.json()) as {
+      result: { data: { json: { items: Array<{
+        reserveCoins: Array<{ currency: { coinDenom: string }; amount: string }>;
+      }> } } };
+    };
+    let total = 0n;
+    for (const pool of data.result?.data?.json?.items ?? []) {
+      for (const coin of pool.reserveCoins ?? []) {
+        if (coin.currency?.coinDenom?.toLowerCase() === "lava") {
+          total += BigInt(Math.round(parseFloat(coin.amount || "0")));
+        }
+      }
+    }
+    return total;
+  } catch {
+    return 0n;
+  }
+}
+
+async function fetchBaseDexUsd(): Promise<number> {
+  try {
+    const res = await fetch(
+      "https://api.geckoterminal.com/api/v2/search/pools?query=lava",
+    );
+    if (!res.ok) return 0;
+    const data = (await res.json()) as {
+      data: Array<{ id: string; attributes: { reserve_in_usd: string } }>;
+    };
+    const basePool = data.data?.find((p: { id: string }) => p.id.startsWith("base_"));
+    return basePool ? parseFloat(basePool.attributes.reserve_in_usd || "0") : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function fetchArbitrumDexUsd(): Promise<number> {
+  try {
+    const res = await fetch("https://interface.gateway.uniswap.org/v1/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://app.uniswap.org",
+      },
+      body: JSON.stringify({
+        query: `query($chain: Chain!, $address: String) {
+          token(chain: $chain, address: $address) {
+            market(currency: USD) { totalValueLocked { value } }
+          }
+        }`,
+        variables: {
+          address: "0x11e969e9b3f89cb16d686a03cd8508c9fc0361af",
+          chain: "ARBITRUM",
+        },
+      }),
+    });
+    if (!res.ok) return 0;
+    const data = (await res.json()) as {
+      data?: { token?: { market?: { totalValueLocked?: { value?: number } } } };
+    };
+    return data.data?.token?.market?.totalValueLocked?.value ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * TVL (USD) = bonded tokens + 4 reward pools + subscriptions + DEX liquidity
+ * Matches jsinfo formula: all components converted to USD via CoinGecko LAVA price.
+ */
+export async function computeTVL(): Promise<{ tvl: string }> {
+  const [lavaPrice, pool, rewardPools, subscriptions, osmosis, baseUsd, arbitrumUsd] =
+    await Promise.all([
+      fetchLavaUsdPrice(),
+      fetchStakingPool(),
+      fetchTvlRewardPoolsUlava(),
+      fetchSubscriptionCreditsUlava(),
+      fetchOsmosisLavaUlava(),
+      fetchBaseDexUsd(),
+      fetchArbitrumDexUsd(),
+    ]);
+
+  const bondedTokens = BigInt(pool.bonded_tokens);
+
+  // Convert DEX USD values to ulava to match jsinfo round-trip
+  const baseUlava = lavaPrice > 0
+    ? BigInt(Math.round((baseUsd / lavaPrice) * 1_000_000))
+    : 0n;
+  const arbitrumUlava = lavaPrice > 0
+    ? BigInt(Math.round((arbitrumUsd / lavaPrice) * 1_000_000))
+    : 0n;
+
+  // Sum all components in ulava, then convert to USD
+  const totalUlava = bondedTokens + rewardPools + subscriptions
+    + osmosis + baseUlava + arbitrumUlava;
+  const tvlUsd = Number(totalUlava) * (lavaPrice / 1_000_000);
+
+  return { tvl: tvlUsd.toFixed(4) };
 }
 
 export async function computeAPR(): Promise<{

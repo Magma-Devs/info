@@ -19,7 +19,7 @@ async function buildApp() {
 }
 
 describe("GET /tvl", () => {
-  it("returns TVL computed from RPC", async () => {
+  it("returns TVL in USD computed from multiple sources", async () => {
     (computeTVL as ReturnType<typeof vi.fn>).mockResolvedValue({
       tvl: "13521853.7995",
     });
@@ -29,7 +29,7 @@ describe("GET /tvl", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.tvl).toBe("13521853.7995");
-    expect(body).not.toHaveProperty("bondedTokens");
+    expect(body).toEqual({ tvl: expect.any(String) });
   });
 
   it("handles RPC error gracefully", async () => {
