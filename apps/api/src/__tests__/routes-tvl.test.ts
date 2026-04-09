@@ -21,20 +21,15 @@ async function buildApp() {
 describe("GET /tvl", () => {
   it("returns TVL computed from RPC", async () => {
     (computeTVL as ReturnType<typeof vi.fn>).mockResolvedValue({
-      tvl: "100000000000",
-      providerStakes: "30000000000",
-      delegation: "20000000000",
-      bondedTokens: "50000000000",
+      tvl: "13521853.7995",
     });
 
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/tvl" });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.tvl).toBe("100000000000");
-    expect(body.providerStakes).toBe("30000000000");
-    expect(body.delegation).toBe("20000000000");
-    expect(body.bondedTokens).toBe("50000000000");
+    expect(body.tvl).toBe("13521853.7995");
+    expect(body).not.toHaveProperty("bondedTokens");
   });
 
   it("handles RPC error gracefully", async () => {

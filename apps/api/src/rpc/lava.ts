@@ -274,16 +274,8 @@ export async function fetchCommunityTax(): Promise<number> {
   return parseFloat(data.params.community_tax);
 }
 
-export async function computeTVL(): Promise<{
-  tvl: string;
-  providerStakes: string;
-  delegation: string;
-  bondedTokens: string;
-}> {
-  const [specs, pool] = await Promise.all([
-    fetchAllSpecs(),
-    fetchStakingPool(),
-  ]);
+export async function computeTVL(): Promise<{ tvl: string }> {
+  const specs = await fetchAllSpecs();
 
   let totalStake = 0n;
   let totalDelegation = 0n;
@@ -305,15 +297,15 @@ export async function computeTVL(): Promise<{
     }
   }
 
-  const bondedTokens = BigInt(pool.bonded_tokens);
-  const tvl = totalStake + totalDelegation + bondedTokens;
+  // TVL = provider self-stakes + delegations, converted from ulava to LAVA
+  const tvlUlava = totalStake + totalDelegation;
+  const whole = tvlUlava / 1_000_000n;
+  const frac = tvlUlava % 1_000_000n;
+  const tvlLava = frac > 0n
+    ? `${whole}.${frac.toString().padStart(6, "0").replace(/0+$/, "")}`
+    : whole.toString();
 
-  return {
-    tvl: tvl.toString(),
-    providerStakes: totalStake.toString(),
-    delegation: totalDelegation.toString(),
-    bondedTokens: pool.bonded_tokens,
-  };
+  return { tvl: tvlLava };
 }
 
 export async function computeAPR(): Promise<{
