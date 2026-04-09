@@ -328,7 +328,10 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
   if (!provider) {
     return (
       <>
-        <Link href="/providers" className="orangelinks text-sm">&larr; Back to Providers</Link>
+        <Link href="/providers"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md border border-border hover:bg-muted/50 transition-colors">
+          &larr; Providers
+        </Link>
         <h1 className="text-2xl font-bold mt-4 mb-4">Provider Not Found</h1>
         <p className="text-muted-foreground">No data available for provider: {lavaid}</p>
       </>
@@ -339,44 +342,44 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
 
   return (
     <>
-      <Link href="/providers" className="orangelinks text-sm">&larr; Back to Providers</Link>
-      <div style={{ marginBottom: "5px" }} />
-
-      {/* Moniker + address header */}
-      <div style={{ marginLeft: "23px" }} className="flex items-center gap-3">
-        {avatarResp?.url && (
-          <img src={avatarResp.url} alt="" className="w-10 h-10 rounded-full" />
-        )}
-        <div>
-          <h1 className="text-3xl font-bold mb-1">{provider.moniker || "Unknown Provider"}</h1>
-          <div className="flex items-center gap-2">
-            <p className="text-sm text-muted-foreground font-mono">{provider.provider}</p>
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard.writeText(provider.provider);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              }}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="Copy address"
-            >
-              {copied ? <span className="text-xs text-green-500">Copied!</span> : <Copy className="h-4 w-4" />}
-            </button>
-            <a
-              href={`https://lava.explorers.guru/account/${provider.provider}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="View in explorer"
-            >
-              <ExternalLink className="h-4 w-4" />
-            </a>
+      <div className="flex items-center gap-4 mb-6">
+        <Link href="/providers"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md border border-border hover:bg-muted/50 transition-colors shrink-0">
+          &larr; Providers
+        </Link>
+        <div className="flex items-center gap-3 min-w-0">
+          {avatarResp?.url && (
+            <img src={avatarResp.url} alt="" className="w-10 h-10 rounded-full shrink-0" />
+          )}
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold leading-tight truncate">{provider.moniker || "Unknown Provider"}</h1>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-sm text-muted-foreground font-mono truncate">{provider.provider}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(provider.provider);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+                className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                title="Copy address"
+              >
+                {copied ? <span className="text-xs text-green-500">Copied!</span> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+              <a
+                href={`https://lava.explorers.guru/account/${provider.provider}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                title="View in explorer"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
           </div>
         </div>
       </div>
-
-      <div style={{ marginTop: "15px" }} />
 
       {/* Pie chart + cards grid */}
       <div className="grid grid-cols-1 lg:grid-cols-[350px_1fr] gap-4">
