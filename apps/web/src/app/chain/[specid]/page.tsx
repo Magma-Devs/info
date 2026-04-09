@@ -246,14 +246,16 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
 
   return (
     <>
-      <Link href="/chains" className="orangelinks text-sm">&larr; Back to Chains</Link>
-
-      <div style={{ marginLeft: "23px" }} className="flex items-center gap-3">
-        <img src={getChainIcon(specid)} alt="" className="w-8 h-8 rounded-md" onError={(e) => (e.currentTarget.style.display = "none")} />
-        <h1 className="text-3xl font-bold mb-4">{chainName !== specid ? `${chainName} (${specid})` : specid}</h1>
+      <div className="flex items-center gap-4 mb-6">
+        <Link href="/chains"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md border border-border hover:bg-muted/50 transition-colors">
+          &larr; Chains
+        </Link>
+        <div className="flex items-center gap-3">
+          <img src={getChainIcon(specid)} alt="" className="w-8 h-8 rounded-md shrink-0" onError={(e) => (e.currentTarget.style.display = "none")} />
+          <h1 className="text-2xl font-bold leading-tight">{chainName !== specid ? `${chainName} (${specid})` : specid}</h1>
+        </div>
       </div>
-
-      <div style={{ marginTop: "5px" }} />
 
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-4">
         <StatCard label="Providers" icon={<Users className="h-4 w-4 text-muted-foreground" />} value={
