@@ -1,6 +1,6 @@
 # Info — Lava Network Explorer
 
-Blockchain explorer for [Lava Network](https://lavanet.xyz). Tracks providers, chains (specs), consumers, relay payments, staking, and supply across Mainnet and Testnet.
+Blockchain explorer for [Lava Network](https://lavanet.xyz). Tracks providers, chains (specs), relay payments, staking, and supply across Mainnet and Testnet.
 
 ## Quick Start
 
@@ -112,7 +112,7 @@ MVs are auto-created by PostgreSQL event triggers in `lava-indexer-test/docker/i
 apps/
   api/                 Fastify 5 REST API (port 8080)
     src/
-      routes/          One file per resource (index, providers, specs, consumers, events, etc.)
+      routes/          One file per resource (index, providers, specs, events, etc.)
       rpc/lava.ts      All chain RPC/REST calls + business logic (supply, TVL, APR, display names)
       graphql/client.ts  GraphQL client wrapper — gql<T>(query, vars)
       plugins/cache.ts   Redis cache plugin (onRequest/onSend hooks)
@@ -171,17 +171,6 @@ packages/
 | `GET /specs/:specId/charts` | 300s | Indexer MV | Alltime CU/relays for this chain (grouped by CHAIN_ID) |
 | `GET /specs/:specId/tracked-info` | 300s | Chain RPC | IPRPC spec rewards (provider, iprpcCu) |
 
-### Consumers (`/consumers`)
-
-| Endpoint | Cache | Source | Description |
-|----------|-------|--------|-------------|
-| `GET /consumers?page=&limit=` | 60s | Indexer MV + Chain RPC | All consumers from `mvConsumerRelayDailies` (grouped by CONSUMER, excluding empty). Enriched with subscription plan from chain. Sorted by totalCu desc. Paginated client-side |
-| `GET /consumers/:addr` | 30s | Indexer MV | Consumer alltime totals (cu, relays) from `mvConsumerRelayDailies` |
-| `GET /consumers/:addr/subscriptions` | 300s | Chain RPC | Active subscriptions (filters full subscription list by consumer address) |
-| `GET /consumers/:addr/events?page=&limit=` | — | Indexer GQL | Paginated blockchain events filtered by consumer |
-| `GET /consumers/:addr/conflicts` | 10s | Indexer GQL | Last 100 conflict responses |
-| `GET /consumers/:addr/charts?from=&to=&chain=` | 300s | Indexer MV | Daily time-series with QoS from `mvConsumerRelayDailies`. Default 90 days. Optional chain filter |
-
 ### Events (`/events`)
 
 | Endpoint | Cache | Source | Description |
@@ -203,7 +192,7 @@ packages/
 |----------|-------|--------|-------------|
 | `GET /health` | — | — | Returns `{ health: "ok" }` |
 | `GET /health/status` | 10s | Chain RPC | Block height + staleness check (>5 min = degraded). Returns 503 on RPC error |
-| `GET /search?q=` | 600s | Chain RPC | Searches providers (by address/moniker), consumers (from subscriptions), specs (by specId/name). Case-insensitive substring match. Returns all if no query |
+| `GET /search?q=` | 600s | Chain RPC | Searches providers (by address/moniker) and specs (by specId/name). Case-insensitive substring match. Returns all if no query |
 | `GET /tvl` | 300s | Chain RPC | Total value locked = provider stakes + delegations + bonded tokens. Fetches all specs in batches of 5 |
 | `GET /apr` | 300s | Chain RPC | APR = `annualProvisions * (1 - communityTax) / bondedTokens` |
 | `GET /validators` | 300s | Chain RPC | Staking pool info (bonded/not_bonded tokens). Validator list is placeholder `[]` |
@@ -252,7 +241,6 @@ The API provides pagination via `request.pagination` (Fastify plugin). Frontend 
 | Concept | Description |
 |---------|-------------|
 | **Provider** | Node operator staked on one or more chains (specs). Identified by `lava@...` address. Has moniker, identity (Keybase), stake per spec, delegation, commission |
-| **Consumer** | Application that uses Lava to relay requests. Identified by `lava@...` address. Has subscription plan |
 | **Spec (Chain)** | A supported blockchain network (e.g., ETH1 = Ethereum Mainnet). Has specId (uppercase) and display name |
 | **Relay** | A single RPC request routed through Lava from consumer → provider. Tracked with CU (compute units) cost |
 | **CU (Compute Units)** | Weight of a relay. Different RPC methods cost different CU amounts |
@@ -298,7 +286,6 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 | `next dev` + standalone | `output: "standalone"` crashes `next dev`. Docker dev mounts `next.config.dev.ts` without it |
 | Provider detail perf | Queries every spec on chain — inherently slow. Cache is essential (300s TTL) |
 | `delegate_commission` | API returns camelCase `delegateCommission`, not snake_case |
-| Consumer filter | Use `consumer: { notEqualTo: "" }` not `isNull: false` — MV stores empty string for null |
 | Batch size for RPC | Fetch provider data in batches of 5 specs to avoid rate limiting on public RPC |
 | Reward pools | Exactly 5 named pools. If Lava adds more, `fetchRewardPoolsAmount()` needs updating |
 | Vesting calculation | ContinuousVesting uses linear interpolation between start/end time. PeriodicVesting sums future periods. Must paginate through ~53K accounts |
