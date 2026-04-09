@@ -1,15 +1,78 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Wrench } from "lucide-react";
 import { MobileNav } from "./MobileNav";
 import { SearchBar } from "./SearchBar";
 import { LastUpdateBadge } from "./LastUpdateBadge";
+import { api } from "@/lib/api-client";
 
 const TESTNET_URL = process.env.NEXT_PUBLIC_TESTNET_URL ?? "https://info-testnet.lavanet.xyz";
 const MAINNET_URL = process.env.NEXT_PUBLIC_MAINNET_URL ?? "https://info.lavanet.xyz";
 const IS_TESTNET = process.env.NEXT_PUBLIC_NETWORK === "testnet";
+const IS_DEV = process.env.NODE_ENV === "development";
+
+function DevToolsMenu() {
+  const [open, setOpen] = useState(false);
+  const [cacheState, setCacheState] = useState<"idle" | "clearing" | "done">("idle");
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const handleClearCache = useCallback(async () => {
+    setCacheState("clearing");
+    try {
+      await api.delete("/cache");
+      setCacheState("done");
+      setTimeout(() => setCacheState("idle"), 1500);
+    } catch {
+      setCacheState("idle");
+    }
+  }, []);
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center justify-center w-8 h-8 rounded-md border border-dashed border-yellow-600/50 text-yellow-500 hover:bg-yellow-500/10 transition-colors"
+        title="Dev Tools"
+      >
+        <Wrench size={14} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-48 rounded-lg border border-border bg-card shadow-lg z-50">
+          <div className="px-3 py-2 border-b border-border">
+            <span className="text-xs font-medium text-yellow-500">Dev Tools</span>
+          </div>
+          <div className="p-1">
+            <button
+              onClick={handleClearCache}
+              disabled={cacheState === "clearing"}
+              className="w-full text-left text-sm px-3 py-2 rounded-md hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              {cacheState === "clearing"
+                ? "Clearing..."
+                : cacheState === "done"
+                  ? "Cache cleared"
+                  : "Reset cache"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Header() {
   const pathname = usePathname();
@@ -55,24 +118,18 @@ export function Header() {
         <Link href="/chains" className={`nav-link ${isActive("/chain") ? "nav-link-selected" : ""}`}>
           Chains
         </Link>
-        <Link href="/consumers" className={`nav-link ${isActive("/consumer") ? "nav-link-selected" : ""}`}>
-          Consumers
-        </Link>
         <a href="https://rewards.lavanet.xyz" className="nav-link" target="_blank" rel="noopener noreferrer">
           Rewards
         </a>
-        <a href="https://stats.lavanet.xyz" className="nav-link" target="_blank" rel="noopener noreferrer">
-          <span className="whitespace-nowrap">Network Stats</span>
-        </a>
-        <Link href="/usage" className={`nav-link ${isActive("/usage") ? "nav-link-selected" : ""}`}>
+<Link href="/usage" className={`nav-link ${isActive("/usage") ? "nav-link-selected" : ""}`}>
           Usage
         </Link>
       </nav>
 
-      <div className="flex w-full items-center gap-4 md:ml-auto md:gap-2 lg:gap-4">
-        {/* Mainnet / Testnet toggle — pill style matching jsinfo-ui */}
+      <div className="flex items-center gap-4 ml-auto md:gap-2 lg:gap-4">
+        {/* Mainnet / Testnet toggle — hidden on mobile (shown in MobileNav instead) */}
         <div
-          className="flex items-center gap-1 rounded-full p-1 bg-muted cursor-pointer hover:bg-muted/80 transition-all duration-300 ease-in-out hover:shadow-md shrink-0"
+          className="hidden md:flex items-center gap-1 rounded-full p-1 bg-muted cursor-pointer hover:bg-muted/80 transition-all duration-300 ease-in-out hover:shadow-md shrink-0"
           onClick={() => { window.location.href = IS_TESTNET ? MAINNET_URL : TESTNET_URL; }}
         >
           <div className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
@@ -92,6 +149,7 @@ export function Header() {
         </div>
         <LastUpdateBadge />
         <SearchBar />
+        {IS_DEV && <DevToolsMenu />}
       </div>
     </header>
   );

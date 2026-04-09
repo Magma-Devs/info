@@ -9,7 +9,6 @@ import { healthProbePlugin } from "./plugins/health-probe.js";
 import { healthRoutes } from "./routes/health.js";
 import { indexRoutes } from "./routes/index.js";
 import { providerRoutes } from "./routes/providers.js";
-import { consumerRoutes } from "./routes/consumers.js";
 import { specRoutes } from "./routes/specs.js";
 import { eventRoutes } from "./routes/events.js";
 import { validatorRoutes } from "./routes/validators.js";
@@ -32,7 +31,7 @@ async function main() {
     },
   });
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: true, methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"] });
   await app.register(errorHandlerPlugin);
   await app.register(redisPlugin);
   await app.register(cachePlugin);
@@ -42,7 +41,6 @@ async function main() {
   await app.register(healthRoutes);
   await app.register(indexRoutes, { prefix: "/index" });
   await app.register(providerRoutes, { prefix: "/providers" });
-  await app.register(consumerRoutes, { prefix: "/consumers" });
   await app.register(specRoutes, { prefix: "/specs" });
   await app.register(eventRoutes, { prefix: "/events" });
   await app.register(validatorRoutes, { prefix: "/validators" });

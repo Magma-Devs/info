@@ -26,6 +26,17 @@ export function formatLava(ulava: string | bigint | number): string {
   }
 }
 
+/** Convert ulava to LAVA with K/M/B shorthand */
+export function formatLavaKMB(ulava: string | bigint | number): string {
+  try {
+    const value = typeof ulava === "bigint" ? ulava : BigInt(String(ulava).replace(/ulava$/, ""));
+    const lava = Number(value / BigInt(1e6));
+    return formatNumberKMB(lava);
+  } catch {
+    return "0";
+  }
+}
+
 /** Format time difference as relative string */
 export function formatTimeDifference(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;

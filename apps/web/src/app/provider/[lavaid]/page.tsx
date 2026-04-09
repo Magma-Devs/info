@@ -14,10 +14,8 @@ import { Chart } from "@/components/data/Chart";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { SortableTable } from "@/components/data/SortableTable";
 import { type ColumnDef, type Row } from "@tanstack/react-table";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { formatNumber, formatNumberKMB, formatLava } from "@/lib/format";
-import { downloadCsv } from "@/lib/csv";
-import { Coins, MonitorCog, ArrowUpNarrowWide, Award, BarChart3, Percent, Copy, ExternalLink, Download, ChevronRight } from "lucide-react";
+import { Coins, MonitorCog, ArrowUpNarrowWide, Award, BarChart3, Percent, Copy, ExternalLink, ChevronRight } from "lucide-react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -41,6 +39,25 @@ function geoLabel(geo?: number): string {
   if (geo & 0x40) regions.push("AU/NZ");
   return regions.length > 0 ? regions.join(", ") : String(geo);
 }
+
+const INTERFACE_COLORS: Record<string, string> = {
+  jsonrpc: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  rest: "bg-amber-600/15 text-amber-300 border-amber-600/30",
+  grpc: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  tendermintrpc: "bg-orange-600/15 text-orange-300 border-orange-600/30",
+};
+const DEFAULT_IFACE_COLOR = "bg-amber-500/15 text-amber-400 border-amber-500/30";
+
+const GEO_COLORS: Record<string, string> = {
+  "US-Center": "bg-blue-500/15 text-blue-400 border-blue-500/30",
+  "Europe": "bg-blue-600/15 text-blue-300 border-blue-600/30",
+  "US-East": "bg-blue-400/15 text-blue-300 border-blue-400/30",
+  "US-West": "bg-sky-500/15 text-sky-400 border-sky-500/30",
+  "Africa": "bg-sky-600/15 text-sky-300 border-sky-600/30",
+  "Asia": "bg-blue-700/15 text-blue-200 border-blue-700/30",
+  "AU/NZ": "bg-sky-400/15 text-sky-300 border-sky-400/30",
+};
+const DEFAULT_GEO_COLOR = "bg-blue-500/15 text-blue-400 border-blue-500/30";
 
 import type { InterfaceHealth, SpecHealth } from "@/lib/types";
 
@@ -78,20 +95,6 @@ interface TimeSeriesEntry {
   qosLatency: number | null;
 }
 
-interface ReportRow {
-  id: string; provider: string; chainId: string; errors: number; disconnections: number;
-  epoch: string; blockHeight: string; timestamp: string;
-}
-
-interface EventRow {
-  id: string; eventType: string; provider: string; specId: string;
-  amount: string; blockHeight: string; timestamp: string; data: string;
-}
-
-interface BlockReportRow {
-  id: string; provider: string; chainId: string; chainBlockHeight: string;
-  blockHeight: string; timestamp: string;
-}
 
 interface DelegatorReward {
   denom: string; amount: string;
@@ -104,10 +107,7 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
   const [rangeDays, setRangeDays] = useState(90);
   const chartFrom = rangeDays > 0 ? new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : "";
   const { data: tsData } = useApi<{ data: TimeSeriesEntry[] }>(`/providers/${lavaid}/charts${chartFrom ? `?from=${chartFrom}` : ""}`);
-  const { data: reports } = useApi<{ data: ReportRow[]; pagination: { total: number } }>(`/providers/${lavaid}/reports?limit=20`);
-  const { data: events } = useApi<{ data: EventRow[]; pagination: { total: number } }>(`/providers/${lavaid}/events?limit=20`);
-  const { data: blockReports } = useApi<{ data: BlockReportRow[]; pagination: { total: number } }>(`/providers/${lavaid}/block-reports?limit=20`);
-  const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/providers/${lavaid}/delegator-rewards`);
+const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/providers/${lavaid}/delegator-rewards`);
   const avatarIdentity = provider?.identity;
   const { data: avatarResp } = useApi<{ url: string | null }>(
     avatarIdentity ? `/providers/${lavaid}/avatar?identity=${avatarIdentity}` : `/providers/${lavaid}/avatar`
@@ -116,6 +116,7 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
   const [chartChain, setChartChain] = useState<string>("all");
   const [copied, setCopied] = useState(false);
   const [stakeFilter, setStakeFilter] = useState<"healthy" | "unhealthy" | "all">("all");
+  const [geoFilter, setGeoFilter] = useState<string>("all");
 
   // 30-day CU/relays from the time-series data (default 90d range, filter to last 30d)
   const thirtyDaysAgo = useMemo(() => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), []);
@@ -223,15 +224,15 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
       );
     }},
     { id: "total", header: "Total Stake", accessorFn: (r: Stake) => Number(BigInt(r.stake || "0") + BigInt(r.delegation || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={String(BigInt(row.original.stake || "0") + BigInt(row.original.delegation || "0"))} /> },
-    { id: "stake", header: "Self Stake", accessorFn: (r: Stake) => Number(BigInt(r.stake || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={row.original.stake} /> },
-    { id: "delegation", header: "Delegation", accessorFn: (r: Stake) => Number(BigInt(r.delegation || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={row.original.delegation} /> },
-    { id: "commission", header: "Commission", accessorFn: (r: Stake) => Number(r.delegateCommission || "0"), cell: ({ row }: { row: { original: Stake } }) => `${Number(row.original.delegateCommission || "0")}%` },
-    { id: "geolocation", header: "Location", accessorFn: (r: Stake) => r.geolocation ?? 0, cell: ({ row }: { row: { original: Stake } }) => {
+    { id: "stake", header: "Self Stake", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => Number(BigInt(r.stake || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={row.original.stake} /> },
+    { id: "delegation", header: "Delegation", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => Number(BigInt(r.delegation || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={row.original.delegation} /> },
+    { id: "commission", header: "Commission", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => Number(r.delegateCommission || "0"), cell: ({ row }: { row: { original: Stake } }) => `${Number(row.original.delegateCommission || "0")}%` },
+    { id: "geolocation", header: "Location", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => r.geolocation ?? 0, cell: ({ row }: { row: { original: Stake } }) => {
       const regions = geoLabel(row.original.geolocation);
       if (regions === "—") return "—";
       return <div className="flex flex-wrap gap-1">{regions.split(", ").map((r) => <span key={r} className={`px-2 py-0.5 rounded-full text-xs font-medium border ${GEO_COLORS[r] ?? DEFAULT_GEO_COLOR}`}>{r}</span>)}</div>;
     }},
-    { id: "addonsExtensions", header: "Addons/Extensions", accessorFn: (r: Stake) => `${r.addons || ""} ${r.extensions || ""}`.trim(), cell: ({ row }: { row: { original: Stake } }) => {
+    { id: "addonsExtensions", header: "Addons/Extensions", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => `${r.addons || ""} ${r.extensions || ""}`.trim(), cell: ({ row }: { row: { original: Stake } }) => {
       const addons = (row.original.addons || "").split(",").filter(Boolean);
       const extensions = (row.original.extensions || "").split(",").filter(Boolean);
       if (addons.length === 0 && extensions.length === 0) return "—";
@@ -243,27 +244,6 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
       );
     }},
   ] as ColumnDef<Stake, unknown>[], []);
-
-  // Interfaces — takes on amber/orange
-  const INTERFACE_COLORS: Record<string, string> = {
-    jsonrpc: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-    rest: "bg-amber-600/15 text-amber-300 border-amber-600/30",
-    grpc: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-    tendermintrpc: "bg-orange-600/15 text-orange-300 border-orange-600/30",
-  };
-  const DEFAULT_IFACE_COLOR = "bg-amber-500/15 text-amber-400 border-amber-500/30";
-
-  // Geolocation — takes on blue
-  const GEO_COLORS: Record<string, string> = {
-    "US-Center": "bg-blue-500/15 text-blue-400 border-blue-500/30",
-    "Europe": "bg-blue-600/15 text-blue-300 border-blue-600/30",
-    "US-East": "bg-blue-400/15 text-blue-300 border-blue-400/30",
-    "US-West": "bg-sky-500/15 text-sky-400 border-sky-500/30",
-    "Africa": "bg-sky-600/15 text-sky-300 border-sky-600/30",
-    "Asia": "bg-blue-700/15 text-blue-200 border-blue-700/30",
-    "AU/NZ": "bg-sky-400/15 text-sky-300 border-sky-400/30",
-  };
-  const DEFAULT_GEO_COLOR = "bg-blue-500/15 text-blue-400 border-blue-500/30";
 
   const renderStakeSubRow = (row: Row<Stake>) => {
     const h = row.original.health;
@@ -313,33 +293,32 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
     );
   };
 
-  const reportCols: ColumnDef<ReportRow, unknown>[] = useMemo(() => [
-    { id: "chainId", header: "Chain", accessorFn: (r: ReportRow) => r.chainId, cell: ({ row }: { row: { original: ReportRow } }) => <ChainLink chainId={row.original.chainId} /> },
-    { id: "errors", header: "Errors", accessorFn: (r: ReportRow) => r.errors },
-    { id: "disconnections", header: "Disconnections", accessorFn: (r: ReportRow) => r.disconnections },
-    { id: "epoch", header: "Epoch", accessorFn: (r: ReportRow) => r.epoch, cell: ({ row }: { row: { original: ReportRow } }) => <span className="text-muted-foreground">{row.original.epoch}</span> },
-    { id: "timestamp", header: "Time", accessorFn: (r: ReportRow) => r.timestamp, cell: ({ row }: { row: { original: ReportRow } }) => row.original.timestamp ? <TimeTooltip datetime={row.original.timestamp} /> : "—" },
-  ] as ColumnDef<ReportRow, unknown>[], []);
+  const allStakes = useMemo(() => provider?.stakes ?? [], [provider]);
 
-  const eventCols: ColumnDef<EventRow, unknown>[] = useMemo(() => [
-    { id: "blockHeight", header: "Block", accessorFn: (r: EventRow) => Number(r.blockHeight), cell: ({ row }: { row: { original: EventRow } }) => <span className="text-xs">{row.original.blockHeight}</span> },
-    { id: "eventType", header: "Type", accessorFn: (r: EventRow) => r.eventType, cell: ({ row }: { row: { original: EventRow } }) => <span className="text-xs">{row.original.eventType}</span> },
-    { id: "specId", header: "Chain", accessorFn: (r: EventRow) => r.specId, cell: ({ row }: { row: { original: EventRow } }) => row.original.specId ? <ChainLink chainId={row.original.specId} /> : "—" },
-    { id: "timestamp", header: "Time", accessorFn: (r: EventRow) => r.timestamp, cell: ({ row }: { row: { original: EventRow } }) => row.original.timestamp ? <TimeTooltip datetime={row.original.timestamp} /> : "—" },
-  ] as ColumnDef<EventRow, unknown>[], []);
+  const availableRegions = useMemo(() => {
+    const regions = new Set<string>();
+    for (const s of allStakes) {
+      for (const r of geoLabel(s.geolocation).split(", ")) {
+        if (r !== "—") regions.add(r);
+      }
+    }
+    return Array.from(regions).sort();
+  }, [allStakes]);
 
-  const blockReportCols: ColumnDef<BlockReportRow, unknown>[] = useMemo(() => [
-    { id: "chainId", header: "Chain", accessorFn: (r: BlockReportRow) => r.chainId, cell: ({ row }: { row: { original: BlockReportRow } }) => <ChainLink chainId={row.original.chainId} /> },
-    { id: "chainBlockHeight", header: "Chain Block Height", accessorFn: (r: BlockReportRow) => Number(r.chainBlockHeight), cell: ({ row }: { row: { original: BlockReportRow } }) => formatNumber(row.original.chainBlockHeight) },
-    { id: "blockHeight", header: "Lava Block", accessorFn: (r: BlockReportRow) => Number(r.blockHeight), cell: ({ row }: { row: { original: BlockReportRow } }) => formatNumber(row.original.blockHeight) },
-    { id: "timestamp", header: "Time", accessorFn: (r: BlockReportRow) => r.timestamp, cell: ({ row }: { row: { original: BlockReportRow } }) => row.original.timestamp ? <TimeTooltip datetime={row.original.timestamp} /> : "—" },
-  ] as ColumnDef<BlockReportRow, unknown>[], []);
+  const healthFiltered = useMemo(() => {
+    if (stakeFilter === "all") return allStakes;
+    return allStakes.filter(s => s.health?.status === stakeFilter);
+  }, [allStakes, stakeFilter]);
+
+  const geoFiltered = useMemo(() => {
+    if (geoFilter === "all") return allStakes;
+    return allStakes.filter(s => geoLabel(s.geolocation).includes(geoFilter));
+  }, [allStakes, geoFilter]);
 
   const filteredStakes = useMemo(() => {
-    if (!provider) return [];
-    if (stakeFilter === "all") return provider.stakes;
-    return provider.stakes.filter(s => s.health?.status === stakeFilter);
-  }, [provider, stakeFilter]);
+    if (geoFilter === "all") return healthFiltered;
+    return healthFiltered.filter(s => geoLabel(s.geolocation).includes(geoFilter));
+  }, [healthFiltered, geoFilter]);
 
   const healthyCnt = useMemo(() => provider?.stakes.filter(s => s.health?.status === "healthy").length ?? 0, [provider]);
   const unhealthyCnt = useMemo(() => provider?.stakes.filter(s => s.health?.status === "unhealthy").length ?? 0, [provider]);
@@ -400,79 +379,82 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
       <div style={{ marginTop: "15px" }} />
 
       {/* Pie chart + cards grid */}
-      <div className="grid grid-cols-1 md:grid-cols-[350px_1fr] gap-4">
-        {pieData.length > 0 && (
-          <Card>
-            <CardHeader className="items-center pb-0">
-              <CardTitle className="text-sm">Relays per Spec</CardTitle>
-            </CardHeader>
-            <CardContent className="pb-2">
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={40}
-                    outerRadius={90}
-                    label={({ percent = 0 }: { percent?: number }) => percent >= 0.03 ? `${(percent * 100).toFixed(1)}%` : ""}
-                    labelLine={false}
-                    fontSize={11}
-                    fill="#fff"
-                  >
-                    {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (!active || !payload?.[0]) return null;
-                      const d = payload[0].payload as { name: string; value: number; pct: number };
-                      return (
-                        <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-xl text-sm">
-                          <div className="flex items-center gap-2 font-medium text-foreground mb-1">
-                            <img src={getChainIcon(d.name)} alt="" className="w-4 h-4 rounded-sm" onError={(e) => (e.currentTarget.style.display = "none")} />
-                            {d.name}
+      <div className="grid grid-cols-1 lg:grid-cols-[350px_1fr] gap-4">
+        <Card>
+          <CardHeader className="items-center pb-0">
+            <CardTitle className="text-sm">Relays per Spec</CardTitle>
+          </CardHeader>
+          <CardContent className="pb-2">
+            {pieData.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={40}
+                      outerRadius={90}
+                      label={({ percent = 0 }: { percent?: number }) => percent >= 0.03 ? `${(percent * 100).toFixed(1)}%` : ""}
+                      labelLine={false}
+                      fontSize={11}
+                      fill="#fff"
+                    >
+                      {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.[0]) return null;
+                        const d = payload[0].payload as { name: string; value: number; pct: number };
+                        return (
+                          <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-xl text-sm">
+                            <div className="flex items-center gap-2 font-medium text-foreground mb-1">
+                              <img src={getChainIcon(d.name)} alt="" className="w-4 h-4 rounded-sm" onError={(e) => (e.currentTarget.style.display = "none")} />
+                              {d.name}
+                            </div>
+                            <div className="text-muted-foreground">
+                              {d.value.toLocaleString()} relays
+                              <span className="ml-1.5 text-foreground font-medium">({d.pct.toFixed(1)}%)</span>
+                            </div>
                           </div>
-                          <div className="text-muted-foreground">
-                            {d.value.toLocaleString()} relays
-                            <span className="ml-1.5 text-foreground font-medium">({d.pct.toFixed(1)}%)</span>
-                          </div>
-                        </div>
-                      );
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              {/* Legend */}
-              <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5 px-2">
-                {pieData.map((d, i) => (
-                  <div key={d.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                    {d.name}
-                  </div>
-                ))}
+                        );
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5 px-2">
+                  {pieData.map((d, i) => (
+                    <div key={d.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                      {d.name}
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-[250px] text-muted-foreground">
+                <BarChart3 className="h-10 w-10 mb-3 opacity-20" />
+                <span className="text-sm">No relay data available</span>
+                <span className="text-xs opacity-60 mt-1">Requires indexer connection</span>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
 
-        <div className="space-y-3">
-          <div className="flex gap-3">
-            <div className="flex-1"><StatCard label="Relays (30d)" value={formatNumberKMB(relays30d.toString())} icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />} /></div>
-            <div className="flex-1"><StatCard label="CU (30d)" value={formatNumberKMB(cu30d.toString())} icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />} /></div>
-          </div>
-          <div className="flex gap-3">
-            <div className="flex-1"><StatCard label="Total Stake" value={<LavaAmount amount={(totalStake + totalDelegation).toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} /></div>
-            <div className="flex-1"><StatCard label="Self Stake" value={<LavaAmount amount={totalStake.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} /></div>
-            <div className="flex-1"><StatCard label="Delegation" value={<LavaAmount amount={totalDelegation.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} /></div>
-            {commissionDisplay && (
-              <div className="flex-1"><StatCard label="Commission" value={commissionDisplay} icon={<Percent className="h-4 w-4 text-muted-foreground" />} /></div>
-            )}
-            {claimableRewards && (
-              <div className="flex-1"><StatCard label="Claimable Rewards" value={<LavaAmount amount={claimableRewards.amount} />} icon={<Award className="h-4 w-4 text-muted-foreground" />} /></div>
-            )}
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <StatCard label="Relays (30d)" value={formatNumberKMB(relays30d.toString())} fullValue={relays30d.toLocaleString()} icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard label="CU (30d)" value={formatNumberKMB(cu30d.toString())} fullValue={cu30d.toLocaleString()} icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard label="Total Stake" value={<LavaAmount amount={(totalStake + totalDelegation).toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard label="Self Stake" value={<LavaAmount amount={totalStake.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard label="Delegation" value={<LavaAmount amount={totalDelegation.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
+          {commissionDisplay && (
+            <StatCard label="Commission" value={commissionDisplay} icon={<Percent className="h-4 w-4 text-muted-foreground" />} />
+          )}
+          {claimableRewards && (
+            <StatCard label="Claimable Rewards" value={<LavaAmount amount={claimableRewards.amount} />} icon={<Award className="h-4 w-4 text-muted-foreground" />} />
+          )}
         </div>
       </div>
 
@@ -536,25 +518,83 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
 
       {/* Services (with inline health) */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Services</CardTitle>
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1">
-              {([
-                { key: "all" as const, label: "All", count: provider.stakes.length },
-                { key: "healthy" as const, label: "Healthy", count: healthyCnt },
-                { key: "unhealthy" as const, label: "Unhealthy", count: unhealthyCnt },
-              ]).map((f) => (
-                <button key={f.key} onClick={() => setStakeFilter(f.key)}
-                  className={`px-2 py-1 text-xs rounded ${stakeFilter === f.key ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted border border-border"}`}>
-                  {f.label} ({f.count})
-                </button>
-              ))}
+        <CardHeader className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-baseline gap-2">
+              <CardTitle>Services</CardTitle>
+              {filteredStakes.length !== allStakes.length
+                ? <span className="text-sm text-muted-foreground">{filteredStakes.length} of {allStakes.length}</span>
+                : <span className="text-sm text-muted-foreground">{allStakes.length}</span>
+              }
             </div>
-            <button onClick={() => downloadCsv(provider.stakes.map(s => ({ chain: s.specId, stake: s.stake, delegation: s.delegation, commission: s.delegateCommission ?? "", geolocation: s.geolocation ?? "", addons: s.addons ?? "", extensions: s.extensions ?? "" })), `provider-${lavaid}-stakes.csv`)}
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-              <Download size={14} /> CSV
-            </button>
+          </div>
+
+          <div className="flex gap-4 flex-wrap">
+            {/* Status */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Status</span>
+              <div className="flex gap-1">
+                {([
+                  { key: "all" as const, label: "All", count: geoFiltered.length, dot: null, activeClass: "bg-muted text-foreground border-border" },
+                  { key: "healthy" as const, label: "Healthy", count: geoFiltered.filter(s => s.health?.status === "healthy").length, dot: "bg-green-500", activeClass: "bg-green-500/10 text-green-400 border-green-500/30" },
+                  { key: "unhealthy" as const, label: "Down", count: geoFiltered.filter(s => s.health?.status === "unhealthy").length, dot: "bg-red-500", activeClass: "bg-red-500/10 text-red-400 border-red-500/30" },
+                ] as const).map((f) => (
+                  <button key={f.key} onClick={() => setStakeFilter(f.key)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors duration-150 ${
+                      stakeFilter === f.key
+                        ? f.activeClass
+                        : "border-border/50 text-muted-foreground hover:text-foreground hover:border-border"
+                    }`}>
+                    {f.dot && <span className={`w-1.5 h-1.5 rounded-full ${f.dot}`} />}
+                    {f.label}
+                    <span className="text-[10px] opacity-50">{f.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Region */}
+            {availableRegions.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Region</span>
+                <div className="flex gap-1 flex-wrap">
+                  <button onClick={() => setGeoFilter("all")}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors duration-150 ${
+                      geoFilter === "all"
+                        ? "bg-muted text-foreground border-border"
+                        : "border-border/50 text-muted-foreground hover:text-foreground hover:border-border"
+                    }`}>
+                    All
+                    <span className="text-[10px] opacity-50">{healthFiltered.length}</span>
+                  </button>
+                  {availableRegions.map((region) => {
+                    const count = healthFiltered.filter(s => geoLabel(s.geolocation).includes(region)).length;
+                    return (
+                      <button key={region} onClick={() => setGeoFilter(region)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors duration-150 ${
+                          geoFilter === region
+                            ? GEO_COLORS[region] ?? DEFAULT_GEO_COLOR
+                            : "border-border/50 text-muted-foreground hover:text-foreground hover:border-border"
+                        }`}>
+                        {region}
+                        <span className="text-[10px] opacity-50">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {(stakeFilter !== "all" || geoFilter !== "all") && (
+              <div className="flex items-end pb-0.5">
+                <button
+                  onClick={() => { setStakeFilter("all"); setGeoFilter("all"); }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border border-accent/30 text-accent bg-accent/5 hover:bg-accent/15 transition-colors duration-150"
+                >
+                  &times; Reset
+                </button>
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -562,45 +602,6 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
         </CardContent>
       </Card>
 
-      <div style={{ marginBottom: "5px" }} />
-
-      <CardHeader>
-        <CardTitle>Full Provider Details</CardTitle>
-        <CardDescription>Comprehensive information about the provider&apos;s performance and metrics</CardDescription>
-      </CardHeader>
-
-      <div style={{ marginBottom: "5px" }} />
-
-      {/* Tabs: Reports / Events / Block Reports */}
-      <Card>
-        <Tabs defaultValue="reports">
-          <CardHeader>
-            <TabsList>
-              <TabsTrigger value="reports">Reports ({reports?.pagination?.total ?? 0})</TabsTrigger>
-              <TabsTrigger value="events">Events ({events?.pagination?.total ?? 0})</TabsTrigger>
-              <TabsTrigger value="block-reports">Block Reports ({blockReports?.pagination?.total ?? 0})</TabsTrigger>
-            </TabsList>
-          </CardHeader>
-
-          <TabsContent value="reports">
-            <CardContent className="p-0">
-              <SortableTable data={reports?.data ?? []} columns={reportCols} />
-            </CardContent>
-          </TabsContent>
-
-          <TabsContent value="events">
-            <CardContent className="p-0">
-              <SortableTable data={events?.data ?? []} columns={eventCols} />
-            </CardContent>
-          </TabsContent>
-
-          <TabsContent value="block-reports">
-            <CardContent className="p-0">
-              <SortableTable data={blockReports?.data ?? []} columns={blockReportCols} />
-            </CardContent>
-          </TabsContent>
-        </Tabs>
-      </Card>
     </>
   );
 }

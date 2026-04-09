@@ -4,8 +4,6 @@ import { Suspense, useState } from "react";
 import { usePaginatedApi } from "@/hooks/use-paginated-api";
 import { Loading } from "@/components/data/Loading";
 import { PaginationControls } from "@/components/data/PaginationControls";
-import { downloadCsv } from "@/lib/csv";
-import { Download } from "lucide-react";
 import Link from "next/link";
 
 type TabType = "events" | "rewards" | "reports";
@@ -43,10 +41,6 @@ function EventsContent() {
         <div className="rounded-xl border border-border bg-card shadow">
           <div className="p-4 border-b border-border text-sm text-muted-foreground flex items-center justify-between">
             <span>{fmt(pagination.total)} total records</span>
-            <button onClick={() => downloadCsv(data as Record<string, unknown>[], `events-${tab}.csv`)}
-              className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-              <Download size={14} /> CSV
-            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -64,7 +58,6 @@ function EventsContent() {
                   {tab === "rewards" && (
                     <>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Provider</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">Consumer</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Chain</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">CU</th>
                       <th className="px-4 py-3 text-right font-medium text-muted-foreground">Relays</th>
@@ -112,13 +105,6 @@ function EventsContent() {
                           {row.provider ? (
                             <Link href={`/provider/${row.provider}`} className="text-accent hover:underline text-xs font-mono">
                               {String(row.provider).slice(0, 16)}...
-                            </Link>
-                          ) : "—"}
-                        </td>
-                        <td className="px-4 py-2">
-                          {row.consumer ? (
-                            <Link href={`/consumer/${row.consumer}`} className="text-accent hover:underline text-xs font-mono">
-                              {String(row.consumer).slice(0, 16)}...
                             </Link>
                           ) : "—"}
                         </td>

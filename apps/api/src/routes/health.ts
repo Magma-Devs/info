@@ -6,6 +6,24 @@ export async function healthRoutes(app: FastifyInstance) {
     return { health: "ok" };
   });
 
+  if (process.env.NODE_ENV !== "production") {
+    app.delete("/cache", async (_request, reply) => {
+      const client = app.redis;
+      if (!client) {
+        reply.status(404);
+        return { error: "Redis not connected" };
+      }
+
+      const cacheKeys = await client.keys("cache:*");
+      const healthKeys = await client.keys("health:*");
+      const allKeys = [...cacheKeys, ...healthKeys];
+      if (allKeys.length > 0) {
+        await client.del(...allKeys);
+      }
+      return { cleared: allKeys.length };
+    });
+  }
+
   app.get("/health/status", { config: { cacheTTL: 10 } }, async (_request, reply) => {
     try {
       const block = await fetchLatestBlockHeight();

@@ -27,6 +27,7 @@ services:
     volumes:
       - ./apps/api/src:/app/apps/api/src
     environment:
+      NODE_ENV: development
       API_PORT: "8080"
       API_HOST: "0.0.0.0"
       INDEXER_GRAPHQL_URL: ${INDEXER_GRAPHQL_URL:-http://host.docker.internal:3000}
