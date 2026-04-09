@@ -1,17 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { Redis } from "ioredis";
 import { fetchLatestBlockHeight } from "../rpc/lava.js";
-
-async function scanKeys(client: Redis, pattern: string): Promise<string[]> {
-  const keys: string[] = [];
-  let cursor = "0";
-  do {
-    const [next, batch] = await client.scan(cursor, "MATCH", pattern, "COUNT", 100);
-    cursor = next;
-    keys.push(...batch);
-  } while (cursor !== "0");
-  return keys;
-}
 
 export async function healthRoutes(app: FastifyInstance) {
   app.get("/health", async () => {
@@ -26,13 +14,8 @@ export async function healthRoutes(app: FastifyInstance) {
         return { error: "Redis not connected" };
       }
 
-      const cacheKeys = await scanKeys(client, "cache:*");
-      const healthKeys = await scanKeys(client, "health:*");
-      const allKeys = [...cacheKeys, ...healthKeys];
-      if (allKeys.length > 0) {
-        await client.del(...allKeys);
-      }
-      return { cleared: allKeys.length };
+      await client.flushdb();
+      return { cleared: true };
     });
   }
 
