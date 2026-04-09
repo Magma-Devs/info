@@ -3,19 +3,21 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, Home, Server, Link2, Users, Gift, BarChart3, Activity, ExternalLink } from "lucide-react";
+import { Menu, X, Home, Server, Link2, Gift, Activity, ExternalLink } from "lucide-react";
+
+const TESTNET_URL = process.env.NEXT_PUBLIC_TESTNET_URL ?? "https://info-testnet.lavanet.xyz";
+const MAINNET_URL = process.env.NEXT_PUBLIC_MAINNET_URL ?? "https://info.lavanet.xyz";
+const IS_TESTNET = process.env.NEXT_PUBLIC_NETWORK === "testnet";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/providers", label: "Providers", icon: Server },
   { href: "/chains", label: "Chains", icon: Link2 },
-  { href: "/consumers", label: "Consumers", icon: Users },
   { href: "/usage", label: "Usage", icon: Activity },
 ];
 
 const EXTERNAL_ITEMS = [
   { href: "https://rewards.lavanet.xyz", label: "Rewards", icon: Gift },
-  { href: "https://stats.lavanet.xyz", label: "Network Stats", icon: BarChart3 },
 ];
 
 export function MobileNav() {
@@ -57,6 +59,27 @@ export function MobileNav() {
         style={{ backgroundColor: "var(--navbar-background-color, hsl(0 0% 3.9%))" }}
       >
         <nav className="flex flex-col p-4 gap-1">
+          {/* Mainnet / Testnet toggle */}
+          <div
+            className="flex items-center gap-1 rounded-full p-1 bg-muted cursor-pointer mb-3"
+            onClick={() => { window.location.href = IS_TESTNET ? MAINNET_URL : TESTNET_URL; }}
+          >
+            <div className={`flex-1 text-center px-3 py-1.5 rounded-full text-sm transition-all duration-300 ${
+              !IS_TESTNET
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground"
+            }`}>
+              Mainnet
+            </div>
+            <div className={`flex-1 text-center px-3 py-1.5 rounded-full text-sm transition-all duration-300 ${
+              IS_TESTNET
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground"
+            }`}>
+              Testnet
+            </div>
+          </div>
+
           <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Explorer
           </div>

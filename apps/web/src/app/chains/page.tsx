@@ -12,13 +12,10 @@ import {
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
-import { StatCard } from "@/components/data/StatCard";
 import { ChainLink } from "@/components/data/ChainLink";
-import { formatNumber, formatNumberKMB } from "@/lib/format";
-import { Box, Layers } from "lucide-react";
+import { formatNumberKMB } from "@/lib/format";
 
 interface Spec { specId: string; name: string; providerCount: number; relays30d: string; cu30d: string; }
-interface IndexStats { latestBlock: number; }
 
 function toBigInt(v: string | undefined): bigint {
   try { return BigInt(v ?? "0"); } catch { return 0n; }
@@ -45,12 +42,14 @@ const columns: ColumnDef<Spec, unknown>[] = [
   {
     id: "relays30d",
     header: "Relays (30d)",
+    meta: { hideOnMobile: true },
     accessorFn: (row) => Number(toBigInt(row.relays30d)),
     cell: ({ row }) => formatNumberKMB(row.original.relays30d),
   },
   {
     id: "cu30d",
     header: "CU (30d)",
+    meta: { hideOnMobile: true },
     accessorFn: (row) => Number(toBigInt(row.cu30d)),
     cell: ({ row }) => formatNumberKMB(row.original.cu30d),
   },
@@ -58,7 +57,6 @@ const columns: ColumnDef<Spec, unknown>[] = [
 
 export default function ChainsPage() {
   const { data: specsResp, isLoading } = useApi<{ data: Spec[] }>("/specs");
-  const { data: stats } = useApi<IndexStats>("/index/stats");
   const specs = useMemo(() => specsResp?.data ?? [], [specsResp]);
 
   const [sorting, setSorting] = useState<SortingState>([
@@ -78,20 +76,7 @@ export default function ChainsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard
-          label="Lava Latest Block"
-          value={formatNumber(stats?.latestBlock ?? 0)}
-          icon={<Box className="h-4 w-4 text-muted-foreground" />}
-        />
-        <StatCard
-          label="Active Chain Count"
-          value={specs.length}
-          icon={<Layers className="h-4 w-4 text-muted-foreground" />}
-        />
-      </div>
-
-      <div className="rounded-xl border border-border bg-card shadow">
+<div className="rounded-xl border border-border bg-card shadow">
         <div className="p-6 border-b border-border">
           <h2 className="text-lg font-semibold">
             Active Chains ({specs.length})
@@ -108,7 +93,9 @@ export default function ChainsPage() {
                       return (
                         <th
                           key={header.id}
-                          className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground"
+                          className={`px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground${
+                            (header.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
+                          }`}
                           onClick={header.column.getToggleSortingHandler()}
                         >
                           <div className="flex items-center gap-1">
@@ -131,7 +118,9 @@ export default function ChainsPage() {
                 {table.getRowModel().rows.map((row) => (
                   <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-3 text-foreground">
+                      <td key={cell.id} className={`px-4 py-3 text-foreground${
+                        (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
+                      }`}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}

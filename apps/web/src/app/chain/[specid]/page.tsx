@@ -13,10 +13,9 @@ import { SortableTable } from "@/components/data/SortableTable";
 import { Chart } from "@/components/data/Chart";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { formatNumberKMB } from "@/lib/format";
-import { Users, Coins, Box, Activity, BarChart3, ChevronRight, Download } from "lucide-react";
+import { Users, Coins, Box, Activity, BarChart3, ChevronRight } from "lucide-react";
 import { useChainNames } from "@/hooks/use-chain-names";
 import { getChainIcon } from "@/lib/chain-icons";
-import { downloadCsv } from "@/lib/csv";
 
 function geoLabel(geo?: number): string {
   if (geo == null || geo === 0) return "—";
@@ -87,6 +86,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
   const { getName } = useChainNames();
 
   const [stakeFilter, setStakeFilter] = useState<"healthy" | "unhealthy" | "all">("all");
+  const [geoFilter, setGeoFilter] = useState<string>("all");
 
   const chartData = useMemo(() => {
     if (!tsResp?.data) return [];
@@ -107,10 +107,31 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
   const unhealthyCnt = useMemo(() => stakes.filter(s => s.health?.status === "unhealthy").length, [stakes]);
   const notProbedCnt = useMemo(() => stakes.filter(s => !s.health).length, [stakes]);
 
-  const filteredStakes = useMemo(() => {
+  const availableRegions = useMemo(() => {
+    const regions = new Set<string>();
+    for (const s of stakes) {
+      for (const r of geoLabel(s.geolocation).split(", ")) {
+        if (r !== "—") regions.add(r);
+      }
+    }
+    return Array.from(regions).sort();
+  }, [stakes]);
+
+  // Intermediate filtered sets for cross-filter counts
+  const healthFiltered = useMemo(() => {
     if (stakeFilter === "all") return stakes;
     return stakes.filter(s => s.health?.status === stakeFilter);
   }, [stakes, stakeFilter]);
+
+  const geoFiltered = useMemo(() => {
+    if (geoFilter === "all") return stakes;
+    return stakes.filter(s => geoLabel(s.geolocation).includes(geoFilter));
+  }, [stakes, geoFilter]);
+
+  const filteredStakes = useMemo(() => {
+    if (geoFilter === "all") return healthFiltered;
+    return healthFiltered.filter(s => geoLabel(s.geolocation).includes(geoFilter));
+  }, [healthFiltered, geoFilter]);
 
   const stakeCols: ColumnDef<SpecStake, unknown>[] = useMemo(() => [
     {
@@ -157,6 +178,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
     {
       id: "geolocation", header: "Location",
       accessorFn: (r) => r.geolocation,
+      enableSorting: false,
       cell: ({ row }: { row: { original: SpecStake } }) => {
         const regions = geoLabel(row.original.geolocation);
         if (regions === "—") return "—";
@@ -307,25 +329,85 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
 
       {/* Providers table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Providers</CardTitle>
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1">
-              {([
-                { key: "all" as const, label: "All", count: stakes.length },
-                { key: "healthy" as const, label: "Healthy", count: healthyCnt },
-                { key: "unhealthy" as const, label: "Unhealthy", count: unhealthyCnt },
-              ]).map((f) => (
-                <button key={f.key} onClick={() => setStakeFilter(f.key)}
-                  className={`px-2 py-1 text-xs rounded ${stakeFilter === f.key ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted border border-border"}`}>
-                  {f.label} ({f.count})
-                </button>
-              ))}
+        <CardHeader className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-baseline gap-2">
+              <CardTitle>Providers</CardTitle>
+              {filteredStakes.length !== stakes.length
+                ? <span className="text-sm text-muted-foreground">{filteredStakes.length} of {stakes.length}</span>
+                : <span className="text-sm text-muted-foreground">{stakes.length}</span>
+              }
             </div>
-            <button onClick={() => downloadCsv(stakes.map(s => ({ provider: s.provider, moniker: s.moniker, stake: s.stake, delegation: s.delegation, commission: s.delegateCommission ?? "", geolocation: s.geolocation ?? "", health: s.health?.status ?? "" })), `chain-${specid}-providers.csv`)}
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-              <Download size={14} /> CSV
-            </button>
+          </div>
+
+          {/* Filters */}
+          <div className="flex gap-4 flex-wrap">
+            {/* Health group */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Status</span>
+              <div className="flex gap-1">
+                {([
+                  { key: "all" as const, label: "All", count: geoFiltered.length, dot: null, activeClass: "bg-muted text-foreground border-border" },
+                  { key: "healthy" as const, label: "Healthy", count: geoFiltered.filter(s => s.health?.status === "healthy").length, dot: "bg-green-500", activeClass: "bg-green-500/10 text-green-400 border-green-500/30" },
+                  { key: "unhealthy" as const, label: "Down", count: geoFiltered.filter(s => s.health?.status === "unhealthy").length, dot: "bg-red-500", activeClass: "bg-red-500/10 text-red-400 border-red-500/30" },
+                ] as const).map((f) => (
+                  <button key={f.key} onClick={() => setStakeFilter(f.key)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors duration-150 ${
+                      stakeFilter === f.key
+                        ? f.activeClass
+                        : "border-border/50 text-muted-foreground hover:text-foreground hover:border-border"
+                    }`}>
+                    {f.dot && <span className={`w-1.5 h-1.5 rounded-full ${f.dot}`} />}
+                    {f.label}
+                    <span className="text-[10px] opacity-50">{f.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Region group */}
+            {availableRegions.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Region</span>
+                <div className="flex gap-1 flex-wrap">
+                  <button onClick={() => setGeoFilter("all")}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors duration-150 ${
+                      geoFilter === "all"
+                        ? "bg-muted text-foreground border-border"
+                        : "border-border/50 text-muted-foreground hover:text-foreground hover:border-border"
+                    }`}>
+                    All
+                    <span className="text-[10px] opacity-50">{healthFiltered.length}</span>
+                  </button>
+                  {availableRegions.map((region) => {
+                    const count = healthFiltered.filter(s => geoLabel(s.geolocation).includes(region)).length;
+                    return (
+                      <button key={region} onClick={() => setGeoFilter(region)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors duration-150 ${
+                          geoFilter === region
+                            ? GEO_COLORS[region] ?? DEFAULT_GEO_COLOR
+                            : "border-border/50 text-muted-foreground hover:text-foreground hover:border-border"
+                        }`}>
+                        {region}
+                        <span className="text-[10px] opacity-50">{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Clear */}
+            {(stakeFilter !== "all" || geoFilter !== "all") && (
+              <div className="flex items-end pb-0.5">
+                <button
+                  onClick={() => { setStakeFilter("all"); setGeoFilter("all"); }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border border-accent/30 text-accent bg-accent/5 hover:bg-accent/15 transition-colors"
+                >
+                  &times; Reset
+                </button>
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent>

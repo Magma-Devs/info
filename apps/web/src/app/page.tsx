@@ -13,7 +13,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/button";
 import { SortableTable } from "@/components/data/SortableTable";
 import { type ColumnDef } from "@tanstack/react-table";
-import { formatNumber, formatNumberKMB, formatLava } from "@/lib/format";
+import { formatNumber, formatNumberKMB, formatLava, formatLavaKMB } from "@/lib/format";
 import { ArrowUpNarrowWide, CalendarArrowUp, Landmark, Users, ArrowUpRight } from "lucide-react";
 
 interface IndexStats {
@@ -121,7 +121,11 @@ export default function DashboardPage() {
     {
       id: "moniker", header: "Moniker",
       accessorFn: (row) => row.moniker || row.provider,
-      cell: ({ row }) => <ProviderLink address={row.original.provider} moniker={row.original.moniker} identity={row.original.identity} showAvatar />,
+      cell: ({ row }) => (
+        <div className="min-w-0">
+          <ProviderLink address={row.original.provider} moniker={row.original.moniker} identity={row.original.identity} showAvatar />
+        </div>
+      ),
     },
     { id: "activeServices", header: "Active Services", accessorFn: (row) => row.activeServices },
     {
@@ -154,28 +158,30 @@ export default function DashboardPage() {
   return (
     <>
       {/* Stat Cards */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-4">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-5">
         <StatCard
           label="Relays (All Time)"
-          value={
-            <span title={formatNumber(stats?.totalRelays ?? 0)} style={{ whiteSpace: "nowrap" }}>
-              {formatNumberKMB(stats?.totalRelays ?? 0)}
-            </span>
-          }
+          value={formatNumberKMB(stats?.totalRelays ?? 0)}
+          fullValue={formatNumber(stats?.totalRelays ?? 0)}
           icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
-          tooltip="Total relays for all chains on lava."
         />
         <StatCard
           label="Relays (30 days)"
           value={formatNumberKMB(stats?.relays30d ?? 0)}
+          fullValue={formatNumber(stats?.relays30d ?? 0)}
           icon={<CalendarArrowUp className="h-4 w-4 text-muted-foreground" />}
-          tooltip="Total relays for all chains on lava in the last 30 days."
         />
         <StatCard
-          label="Stake"
-          value={`${formatLava(stats?.totalStake ?? "0")} LAVA`}
+          label="CU (30 days)"
+          value={formatNumberKMB(stats?.cu30d ?? 0)}
+          fullValue={formatNumber(stats?.cu30d ?? 0)}
+          icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
+        />
+        <StatCard
+          label="Total Stake"
+          value={`${formatLavaKMB(stats?.totalStake ?? "0")} LAVA`}
+          fullValue={`${formatLava(stats?.totalStake ?? "0")} LAVA`}
           icon={<Landmark className="h-4 w-4 text-muted-foreground" />}
-          tooltip="Total stake and total delegations for all providers of all chains on lava."
         />
         <StatCard
           label="Active Providers"
@@ -243,7 +249,7 @@ export default function DashboardPage() {
               <CardTitle>Providers</CardTitle>
               <CardDescription>Top providers by stake</CardDescription>
             </div>
-            <Button asChild size="sm" className="ml-auto gap-1">
+            <Button asChild size="sm" variant="outline" className="ml-auto gap-1">
               <Link href="/providers">
                 View All
                 <ArrowUpRight className="h-4 w-4" />
@@ -262,7 +268,7 @@ export default function DashboardPage() {
               <CardTitle>Chains</CardTitle>
               <CardDescription>Top chains by relays (30d)</CardDescription>
             </div>
-            <Button asChild size="sm" className="ml-auto gap-1">
+            <Button asChild size="sm" variant="outline" className="ml-auto gap-1">
               <Link href="/chains">
                 View All
                 <ArrowUpRight className="h-4 w-4" />

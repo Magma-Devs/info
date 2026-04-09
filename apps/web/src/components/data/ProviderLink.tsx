@@ -24,7 +24,7 @@ export function ProviderLink({ address, moniker, identity, showAvatar = false, s
   return (
     <Link
       href={`/provider/${address}`}
-      className="inline-flex items-center gap-1.5 text-accent hover:underline"
+      className="inline-flex items-center gap-1.5 text-accent hover:underline max-w-full overflow-hidden"
       title={address}
     >
       {showAvatar && (
@@ -42,12 +42,12 @@ export function ProviderLink({ address, moniker, identity, showAvatar = false, s
         )
       )}
       {showAddress && moniker ? (
-        <div className="flex flex-col leading-tight">
-          <span className="text-sm font-medium">{moniker}</span>
-          <span className="text-xs text-muted-foreground font-mono">{address}</span>
+        <div className="flex flex-col leading-tight min-w-0">
+          <span className="text-sm font-medium truncate">{moniker}</span>
+          <span className="text-xs text-muted-foreground font-mono truncate">{address}</span>
         </div>
       ) : (
-        display
+        <span className="truncate">{display}</span>
       )}
     </Link>
   );

@@ -13,6 +13,7 @@ import {
   Legend,
   Brush,
 } from "recharts";
+import { BarChart3, Loader2 } from "lucide-react";
 
 interface ChartSeries {
   key: string;
@@ -55,16 +56,19 @@ export function Chart({ data, series, xKey, height = 300, isLoading, brushable =
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center text-muted-foreground" style={{ height }}>
-        Loading chart...
+      <div className="flex flex-col items-center justify-center text-muted-foreground" style={{ height }}>
+        <Loader2 className="h-8 w-8 mb-3 opacity-30 animate-spin" />
+        <span className="text-sm">Loading chart data...</span>
       </div>
     );
   }
 
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center text-muted-foreground" style={{ height }}>
-        No chart data
+      <div className="flex flex-col items-center justify-center text-muted-foreground" style={{ height }}>
+        <BarChart3 className="h-10 w-10 mb-3 opacity-20" />
+        <span className="text-sm">No chart data available</span>
+        <span className="text-xs opacity-60 mt-1">Requires indexer connection</span>
       </div>
     );
   }

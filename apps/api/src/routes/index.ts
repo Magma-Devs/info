@@ -29,7 +29,10 @@ export async function indexRoutes(app: FastifyInstance) {
       fetchAllProviders(),
     ]);
 
-    const totalStake = providers.reduce((sum, p) => sum + BigInt(p.totalStake), 0n);
+    const totalStake = providers.reduce(
+      (sum, p) => sum + BigInt(p.totalStake) + BigInt(p.totalDelegation),
+      0n,
+    );
 
     return {
       totalCu: allTimeData?.mvRelayDailies.aggregates.sum.cu ?? null,

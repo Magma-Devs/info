@@ -1,12 +1,13 @@
 import type { FastifyInstance } from "fastify";
-import { fetchAllProviders, fetchAllSpecs, fetchSubscriptionList } from "../rpc/lava.js";
+import { fetchAllProviders, fetchAllSpecs } from "../rpc/lava.js";
 
 interface SearchResult {
   id: string;
   name: string;
-  type: "provider" | "consumer" | "spec";
+  type: "provider" | "spec";
   link: string;
   moniker: string;
+  identity?: string;
 }
 
 export async function searchRoutes(app: FastifyInstance) {
@@ -15,10 +16,9 @@ export async function searchRoutes(app: FastifyInstance) {
     const query = request.query as Record<string, string>;
     const q = query.q?.toLowerCase() ?? "";
 
-    const [providers, specs, subs] = await Promise.all([
+    const [providers, specs] = await Promise.all([
       fetchAllProviders(),
       fetchAllSpecs(),
-      fetchSubscriptionList(),
     ]);
 
     const results: SearchResult[] = [];
@@ -28,19 +28,9 @@ export async function searchRoutes(app: FastifyInstance) {
         id: `provider-${p.address}`,
         name: p.address,
         type: "provider",
-        link: `/providers/${p.address}`,
+        link: `/provider/${p.address}`,
         moniker: p.moniker,
-      });
-    }
-
-    const consumers = [...new Set(subs.map((s) => s.consumer))];
-    for (const c of consumers) {
-      results.push({
-        id: `consumer-${c}`,
-        name: c,
-        type: "consumer",
-        link: `/consumers/${c}`,
-        moniker: "",
+        identity: p.identity || undefined,
       });
     }
 
@@ -49,7 +39,7 @@ export async function searchRoutes(app: FastifyInstance) {
         id: `spec-${s.index}`,
         name: s.index,
         type: "spec",
-        link: `/chains/${s.index}`,
+        link: `/chain/${s.index}`,
         moniker: s.name,
       });
     }

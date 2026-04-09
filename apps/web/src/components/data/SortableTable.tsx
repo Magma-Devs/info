@@ -68,7 +68,9 @@ export function SortableTable<T>({
                   return (
                     <th
                       key={header.id}
-                      className="px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground"
+                      className={`px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground${
+                        (header.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
+                      }`}
                       onClick={header.column.getToggleSortingHandler()}
                     >
                       <div className="flex items-center gap-1">
@@ -92,7 +94,9 @@ export function SortableTable<T>({
               <>
                 <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-4 py-3 text-foreground">
+                    <td key={cell.id} className={`px-4 py-3 text-foreground${
+                      (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
+                    }`}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}

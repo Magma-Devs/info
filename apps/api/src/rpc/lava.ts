@@ -458,18 +458,6 @@ export async function fetchAllProviders(): Promise<
   }));
 }
 
-export async function fetchSubscriptionList(): Promise<
-  Array<{ consumer: string; plan: string }>
-> {
-  const data = await fetchRest<{
-    subs_info: Array<{ consumer: string; plan: { index: string } }>;
-  }>("/lavanet/lava/subscription/list");
-  return (data.subs_info ?? []).map((s) => ({
-    consumer: s.consumer,
-    plan: s.plan?.index ?? "",
-  }));
-}
-
 export async function fetchIprpcSpecRewards(specId: string): Promise<
   Array<{ provider: string; iprpcCu: string }>
 > {
