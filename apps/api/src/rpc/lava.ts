@@ -572,7 +572,8 @@ async function processRewardTokens(
     const conversion = DENOM_CONVERSIONS[rawDenom];
     if (!conversion) continue;
 
-    const baseAmount = parseFloat(amount) / conversion.factor;
+    const displayAmount = divideByFactor(amount, conversion.factor);
+    const baseAmount = parseFloat(displayAmount);
     if (!isFinite(baseAmount) || baseAmount <= 0) continue;
 
     const price = await fetchTokenUsdPrice(conversion.baseDenom);
@@ -581,24 +582,42 @@ async function processRewardTokens(
 
     tokens.push({
       source_denom: denom,
-      resolved_amount: amount,
+      resolved_amount: formatTokenStr(amount),
       resolved_denom: resolvedDenom,
       display_denom: conversion.baseDenom,
-      display_amount: formatTokenAmount(baseAmount),
-      value_usd: `$${formatTokenAmount(usd)}`,
+      display_amount: displayAmount,
+      value_usd: `$${formatTokenStr(usd.toFixed(20))}`,
     });
   }
 
   return { totalUsd, tokens };
 }
 
-/** Format number: strip trailing zeros after decimal */
-function formatTokenAmount(n: number): string {
-  const s = n.toFixed(20);
+/** Strip trailing zeros from a decimal string (matching jsinfo FormatTokenAmount) */
+function formatTokenStr(s: string): string {
   const [whole, frac] = s.split(".");
   if (!frac) return whole;
   const trimmed = frac.replace(/0+$/, "");
   return trimmed ? `${whole}.${trimmed}` : whole;
+}
+
+/** String-based division to avoid floating-point noise for token amounts.
+ *  Shifts the decimal point left by the number of digits in `divisor`.
+ *  e.g. divideStr("23584370", 1_000_000) → "23.584370" → "23.58437" */
+function divideByFactor(raw: string, factor: number): string {
+  // Strip any existing decimal (RPC may return "123.000000000000000000")
+  const cleaned = formatTokenStr(raw);
+  const digits = Math.round(Math.log10(factor));
+  const [intPart, decPart = ""] = cleaned.split(".");
+  const combined = intPart + decPart;
+  const shiftedDecPos = combined.length - digits - decPart.length;
+
+  // Pad with leading zeros if the number is smaller than the factor
+  const padded = shiftedDecPos <= 0
+    ? "0." + "0".repeat(-shiftedDecPos) + combined
+    : combined.slice(0, shiftedDecPos) + "." + combined.slice(shiftedDecPos);
+
+  return formatTokenStr(padded || "0");
 }
 
 /** Fetch estimated rewards for a provider/validator — returns USD total + token breakdown */
@@ -613,6 +632,74 @@ async function fetchEstimatedRewards(
     return await processRewardTokens(data.total ?? []);
   } catch {
     return { totalUsd: 0, tokens: [] };
+  }
+}
+
+/**
+ * Fetch a provider's actual earned rewards (no benchmark amount) and group by spec.
+ * Matches jsinfo's rewards_last_month: calls estimated_provider_rewards/{addr}/
+ * then splits "Boost: ETH1", "Pools: ETH1", "Subscription: ETH1" into per-spec groups.
+ */
+async function fetchRewardsBySpec(
+  address: string,
+  specNameMap: Map<string, string>,
+): Promise<RewardsBySpecEntry[]> {
+  try {
+    const data = await fetchRest<EstimatedRewardsResponse>(
+      `/lavanet/lava/subscription/estimated_provider_rewards/${address}/`,
+    );
+
+    // Group info entries by spec (collapse Boost/Pools/Subscription sources)
+    const bySpec = new Map<string, { tokens: Map<string, { amount: number; denom: string }>; totalUsd: number }>();
+
+    for (const entry of data.info ?? []) {
+      const parts = (entry.source as string).split(": ");
+      const spec = parts.length > 1 ? parts[1] : parts[0];
+      if (!spec) continue;
+
+      const key = spec.toLowerCase();
+      const group = bySpec.get(key) ?? { tokens: new Map(), totalUsd: 0 };
+
+      const amounts = Array.isArray(entry.amount) ? entry.amount : [entry.amount];
+      for (const coin of amounts) {
+        if (TEST_DENOMS.has(coin.denom)) continue;
+        const existing = group.tokens.get(coin.denom);
+        const amt = parseFloat(coin.amount) || 0;
+        if (existing) {
+          existing.amount += amt;
+        } else {
+          group.tokens.set(coin.denom, { amount: amt, denom: coin.denom });
+        }
+      }
+
+      bySpec.set(key, group);
+    }
+
+    // Convert to output format with USD values
+    const results: RewardsBySpecEntry[] = [];
+    for (const [specKey, group] of bySpec) {
+      const tokens: RewardToken[] = [];
+      let specUsd = 0;
+
+      for (const [, coin] of group.tokens) {
+        const processed = await processRewardTokens([
+          { denom: coin.denom, amount: coin.amount.toString() },
+        ]);
+        tokens.push(...processed.tokens);
+        specUsd += processed.totalUsd;
+      }
+
+      results.push({
+        chain: specNameMap.get(specKey.toUpperCase()) ?? specKey.toUpperCase(),
+        spec: specKey.toUpperCase(),
+        tokens,
+        total_usd: specUsd,
+      });
+    }
+
+    return results;
+  } catch {
+    return [];
   }
 }
 
@@ -814,6 +901,25 @@ function formatCommission(commission: string): string {
   return `${n.toFixed(1)}%`;
 }
 
+interface ProviderSpecEntry {
+  chain: string;
+  spec: string;
+  stakestatus: string;
+  stake: string;
+  addons: string;
+  extensions: string;
+  delegateCommission: string;
+  delegateTotal: string;
+  moniker: string;
+}
+
+interface RewardsBySpecEntry {
+  chain: string;
+  spec: string;
+  tokens: RewardToken[];
+  total_usd: number;
+}
+
 export interface AllProviderAprEntry {
   address: string;
   moniker: string;
@@ -822,13 +928,75 @@ export interface AllProviderAprEntry {
   "30_days_cu_served": string;
   "30_days_relays_served": string;
   rewards_10k_lava_delegation: RewardToken[];
+  rewards_last_month: RewardsBySpecEntry[];
+  specs: ProviderSpecEntry[];
+  stake: string;
+  stakestatus: string;
+  addons: string;
+  extensions: string;
+  delegateTotal: string;
+  avatar: string | null;
+}
+
+/** Build per-provider spec data + address list + spec name map from chain RPC */
+async function fetchProvidersWithSpecs(): Promise<{
+  providers: Map<string, { moniker: string; identity: string; commission: string; specs: ProviderSpecEntry[] }>;
+  specNames: Map<string, string>;
+}> {
+  const allSpecs = await fetchAllSpecs();
+  const specNames = new Map(allSpecs.map((s) => [s.index, s.name]));
+  const byAddress = new Map<
+    string,
+    { moniker: string; identity: string; commission: string; specs: ProviderSpecEntry[] }
+  >();
+
+  for (let i = 0; i < allSpecs.length; i += 5) {
+    const batch = allSpecs.slice(i, i + 5);
+    const results = await Promise.all(
+      batch.map((s) => fetchProvidersForSpec(s.index)
+        .then((ps) => ps.map((p) => ({ ...p, specId: s.index, specName: s.name })))
+        .catch(() => [] as Array<ProviderForSpec & { specId: string; specName: string }>)),
+    );
+
+    for (const providers of results) {
+      for (const p of providers) {
+        const existing = byAddress.get(p.address);
+        const specEntry: ProviderSpecEntry = {
+          chain: p.specName,
+          spec: p.specId,
+          stakestatus: "Active",
+          stake: p.stake?.amount ?? "0",
+          addons: p.addons,
+          extensions: p.extensions,
+          delegateCommission: p.delegate_commission,
+          delegateTotal: p.delegate_total?.amount ?? "0",
+          moniker: p.moniker,
+        };
+
+        if (existing) {
+          existing.specs.push(specEntry);
+          if (!existing.commission && p.delegate_commission) existing.commission = p.delegate_commission;
+          if (!existing.identity && p.identity) existing.identity = p.identity;
+        } else {
+          byAddress.set(p.address, {
+            moniker: p.moniker ?? "",
+            identity: p.identity ?? "",
+            commission: p.delegate_commission ?? "",
+            specs: [specEntry],
+          });
+        }
+      }
+    }
+  }
+
+  return { providers: byAddress, specNames };
 }
 
 /**
  * Compute per-provider APR data matching jsinfo `/all_providers_apr`.
  *
  * Returns array of provider objects with APR, commission, 30d relay data,
- * and per-token reward breakdown for a 10k LAVA delegation benchmark.
+ * per-token reward breakdown, specs, and avatar.
  */
 export async function computeAllProvidersApr(
   relay30d: Map<string, { cu: string; relays: string }>,
@@ -837,37 +1005,55 @@ export async function computeAllProvidersApr(
   const lavaPrice = await fetchTokenUsdPrice("lava");
   const investedUsd = APR_BENCHMARK_LAVA * lavaPrice;
 
-  const providers = await fetchAllProviders();
+  const { providers: providerMap, specNames } = await fetchProvidersWithSpecs();
+  const addresses = Array.from(providerMap.keys());
   const results: AllProviderAprEntry[] = [];
 
-  for (let i = 0; i < providers.length; i += 5) {
-    const batch = providers.slice(i, i + 5);
-    const rewardResults = await Promise.all(
-      batch.map((p) => fetchEstimatedRewards("provider", p.address)),
-    );
+  for (let i = 0; i < addresses.length; i += 5) {
+    const batch = addresses.slice(i, i + 5);
+    const [rewardResults, rewardsLastMonthResults, avatarResults] = await Promise.all([
+      Promise.all(batch.map((addr) => fetchEstimatedRewards("provider", addr))),
+      Promise.all(batch.map((addr) => fetchRewardsBySpec(addr, specNames))),
+      Promise.all(batch.map((addr) => {
+        const p = providerMap.get(addr)!;
+        return fetchProviderAvatar(addr, p.identity || undefined).catch(() => null);
+      })),
+    ]);
 
     for (let j = 0; j < batch.length; j++) {
-      const provider = batch[j];
+      const addr = batch[j];
+      const provider = providerMap.get(addr)!;
       const rewards = rewardResults[j];
+      const rewardsLastMonth = rewardsLastMonthResults[j];
+      const avatar = avatarResults[j];
       const currentApr = calculateApr(rewards.totalUsd, investedUsd);
 
       let finalApr = currentApr;
       if (redis && currentApr > 0) {
-        await storeApr(redis, "provider", provider.address, currentApr);
-        const weighted = await getWeightedApr(redis, "provider", provider.address);
+        await storeApr(redis, "provider", addr, currentApr);
+        const weighted = await getWeightedApr(redis, "provider", addr);
         if (weighted !== null) finalApr = weighted;
       }
 
-      const relay = relay30d.get(provider.address);
+      const relay = relay30d.get(addr);
+      const firstSpec = provider.specs[0];
 
       results.push({
-        address: provider.address,
+        address: addr,
         moniker: provider.moniker || "-",
         apr: formatAprPercent(finalApr),
         commission: formatCommission(provider.commission),
         "30_days_cu_served": relay?.cu ?? "-",
         "30_days_relays_served": relay?.relays ?? "-",
         rewards_10k_lava_delegation: rewards.tokens,
+        rewards_last_month: rewardsLastMonth,
+        specs: provider.specs,
+        stake: firstSpec?.stake ?? "",
+        stakestatus: firstSpec ? "Active" : "",
+        addons: firstSpec?.addons ?? "",
+        extensions: firstSpec?.extensions ?? "",
+        delegateTotal: firstSpec?.delegateTotal ?? "",
+        avatar,
       });
     }
   }
