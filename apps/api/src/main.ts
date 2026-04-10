@@ -17,6 +17,7 @@ import { tvlRoutes } from "./routes/tvl.js";
 import { aprRoutes } from "./routes/apr.js";
 import { searchRoutes } from "./routes/search.js";
 import { lavaRoutes } from "./routes/lava.js";
+import { allProvidersAprRoutes } from "./routes/all-providers-apr.js";
 
 const PORT = parseInt(process.env.API_PORT ?? "8080", 10);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
@@ -47,6 +48,7 @@ async function main() {
   await app.register(supplyRoutes, { prefix: "/supply" });
   await app.register(tvlRoutes);
   await app.register(aprRoutes);
+  await app.register(allProvidersAprRoutes, { prefix: "/all_providers_apr" });
   await app.register(searchRoutes);
   await app.register(lavaRoutes, { prefix: "/lava" });
 

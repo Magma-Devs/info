@@ -1,4 +1,5 @@
 import pino from "pino";
+import type { Redis } from "ioredis";
 
 const logger = pino({ name: "rpc" });
 
@@ -260,19 +261,6 @@ export async function fetchStakingPool(): Promise<{ bonded_tokens: string; not_b
   return data.pool;
 }
 
-export async function fetchAnnualProvisions(): Promise<string> {
-  const data = await fetchRest<{ annual_provisions: string }>(
-    "/cosmos/mint/v1beta1/annual_provisions",
-  );
-  return data.annual_provisions;
-}
-
-export async function fetchCommunityTax(): Promise<number> {
-  const data = await fetchRest<{ params: { community_tax: string } }>(
-    "/cosmos/distribution/v1beta1/params",
-  );
-  return parseFloat(data.params.community_tax);
-}
 
 // Reward pools that count toward TVL (iprpc_pool excluded)
 const TVL_REWARD_POOLS = [
@@ -442,28 +430,449 @@ export async function computeTVL(): Promise<{ tvl: string }> {
   return { tvl: tvlUsd.toFixed(4) };
 }
 
-export async function computeAPR(): Promise<{
-  apr: number;
-  annualProvisions: string;
-  communityTax: number;
-  bondedTokens: string;
+// --- APR calculation (matches jsinfo) ---
+
+/** Benchmark: 10,000 LAVA in ulava / base units */
+const APR_BENCHMARK_ULAVA = 10_000_000_000;
+const APR_BENCHMARK_LAVA = 10_000;
+const APR_BENCHMARK_DENOM = "ulava";
+/** 80th percentile, capped at 30% — same thresholds as jsinfo */
+const APR_PERCENTILE = 0.8;
+const APR_MAX_PERCENTILE_CAP = 0.3;
+const APR_MAX_INDIVIDUAL = 0.8;
+const APR_MIN = 1e-11;
+
+/** Denom → base unit conversion (matching jsinfo DENOM_CONVERSIONS) */
+const DENOM_CONVERSIONS: Record<string, { baseDenom: string; factor: number }> = {
+  ulava:       { baseDenom: "lava",  factor: 1_000_000 },
+  uatom:       { baseDenom: "atom",  factor: 1_000_000 },
+  uosmo:       { baseDenom: "osmo",  factor: 1_000_000 },
+  ujuno:       { baseDenom: "juno",  factor: 1_000_000 },
+  ustars:      { baseDenom: "stars", factor: 1_000_000 },
+  uakt:        { baseDenom: "akt",   factor: 1_000_000 },
+  uhuahua:     { baseDenom: "huahua", factor: 1_000_000 },
+  uevmos:      { baseDenom: "evmos", factor: 1e18 },
+  inj:         { baseDenom: "inj",   factor: 1e18 },
+  aevmos:      { baseDenom: "evmos", factor: 1e18 },
+  basecro:     { baseDenom: "cro",   factor: 1e8 },
+  uscrt:       { baseDenom: "scrt",  factor: 1_000_000 },
+  uiris:       { baseDenom: "iris",  factor: 1_000_000 },
+  uregen:      { baseDenom: "regen", factor: 1_000_000 },
+  uion:        { baseDenom: "ion",   factor: 1_000_000 },
+  nanolike:    { baseDenom: "like",  factor: 1e9 },
+  uaxl:        { baseDenom: "axl",   factor: 1_000_000 },
+  uband:       { baseDenom: "band",  factor: 1_000_000 },
+  ubld:        { baseDenom: "bld",   factor: 1_000_000 },
+  ucmdx:       { baseDenom: "cmdx",  factor: 1_000_000 },
+  ucre:        { baseDenom: "cre",   factor: 1_000_000 },
+  uxprt:       { baseDenom: "xprt",  factor: 1_000_000 },
+  uusdc:       { baseDenom: "usdc",  factor: 1_000_000 },
+  "unit-move": { baseDenom: "move",  factor: 1e7 },
+};
+
+/** Base denom → CoinGecko coin ID */
+const DENOM_COINGECKO_ID: Record<string, string> = {
+  lava: "lava-network", atom: "cosmos", osmo: "osmosis",
+  juno: "juno-network", stars: "stargaze", akt: "akash-network",
+  huahua: "chihuahua-token", evmos: "evmos", inj: "injective-protocol",
+  cro: "crypto-com-chain", scrt: "secret", iris: "iris-network",
+  regen: "regen", ion: "ion", like: "likecoin", axl: "axelar",
+  band: "band-protocol", bld: "agoric", cmdx: "comdex",
+  cre: "crescent-network", xprt: "persistence", usdc: "usd-coin",
+  move: "movement",
+};
+
+/** In-memory price cache (5 min TTL) */
+const priceCache = new Map<string, { price: number; ts: number }>();
+const PRICE_CACHE_MS = 300_000;
+
+/** Fetch USD price for a base denom via CoinGecko */
+async function fetchTokenUsdPrice(baseDenom: string): Promise<number> {
+  const cached = priceCache.get(baseDenom);
+  if (cached && Date.now() - cached.ts < PRICE_CACHE_MS) return cached.price;
+
+  const id = DENOM_COINGECKO_ID[baseDenom];
+  if (!id) return 0;
+
+  try {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`,
+    );
+    if (!res.ok) return cached?.price ?? 0;
+    const data = (await res.json()) as Record<string, { usd?: number }>;
+    const price = data[id]?.usd ?? 0;
+    if (price > 0) priceCache.set(baseDenom, { price, ts: Date.now() });
+    return price;
+  } catch {
+    return cached?.price ?? 0;
+  }
+}
+
+/** Resolve an IBC hash to its base denom via chain RPC */
+async function fetchDenomTrace(ibcHash: string): Promise<string | null> {
+  try {
+    const data = await fetchRest<{
+      denom_trace: { base_denom: string };
+    }>(`/ibc/apps/transfer/v1/denom_traces/${ibcHash}`);
+    return data.denom_trace?.base_denom ?? null;
+  } catch {
+    return null;
+  }
+}
+
+interface EstimatedRewardsResponse {
+  info: Array<{
+    source: string;
+    amount: { denom: string; amount: string } | Array<{ denom: string; amount: string }>;
+  }>;
+  total: Array<{ denom: string; amount: string }>;
+  recommended_block?: string;
+}
+
+/** IBC test denoms to skip (matching jsinfo) */
+const TEST_DENOMS = new Set([
+  "ibc/E3FCBEDDBAC500B1BAB90395C7D1E4F33D9B9ECFE82A16ED7D7D141A0152323F",
+]);
+
+/** Token breakdown matching jsinfo RewardAmount */
+export interface RewardToken {
+  source_denom: string;
+  resolved_amount: string;
+  resolved_denom: string;
+  display_denom: string;
+  display_amount: string;
+  value_usd: string;
+}
+
+export interface ProcessedRewards {
+  totalUsd: number;
+  tokens: RewardToken[];
+}
+
+/** Convert multi-denom reward array to USD total + per-token breakdown */
+async function processRewardTokens(
+  rewards: Array<{ denom: string; amount: string }>,
+): Promise<ProcessedRewards> {
+  const tokens: RewardToken[] = [];
+  let totalUsd = 0;
+
+  for (const { denom, amount } of rewards) {
+    if (TEST_DENOMS.has(denom)) continue;
+
+    // Resolve IBC denoms to their base denom
+    let rawDenom = denom;
+    let resolvedDenom = denom;
+    if (denom.startsWith("ibc/")) {
+      const resolved = await fetchDenomTrace(denom.slice(4));
+      if (!resolved) continue;
+      rawDenom = resolved;
+      resolvedDenom = resolved;
+    }
+
+    const conversion = DENOM_CONVERSIONS[rawDenom];
+    if (!conversion) continue;
+
+    const baseAmount = parseFloat(amount) / conversion.factor;
+    if (!isFinite(baseAmount) || baseAmount <= 0) continue;
+
+    const price = await fetchTokenUsdPrice(conversion.baseDenom);
+    const usd = price > 0 ? baseAmount * price : 0;
+    totalUsd += usd;
+
+    tokens.push({
+      source_denom: denom,
+      resolved_amount: amount,
+      resolved_denom: resolvedDenom,
+      display_denom: conversion.baseDenom,
+      display_amount: formatTokenAmount(baseAmount),
+      value_usd: `$${formatTokenAmount(usd)}`,
+    });
+  }
+
+  return { totalUsd, tokens };
+}
+
+/** Format number: strip trailing zeros after decimal */
+function formatTokenAmount(n: number): string {
+  const s = n.toFixed(20);
+  const [whole, frac] = s.split(".");
+  if (!frac) return whole;
+  const trimmed = frac.replace(/0+$/, "");
+  return trimmed ? `${whole}.${trimmed}` : whole;
+}
+
+/** Fetch estimated rewards for a provider/validator — returns USD total + token breakdown */
+async function fetchEstimatedRewards(
+  type: "provider" | "validator",
+  address: string,
+): Promise<ProcessedRewards> {
+  try {
+    const data = await fetchRest<EstimatedRewardsResponse>(
+      `/lavanet/lava/subscription/estimated_${type}_rewards/${address}/${APR_BENCHMARK_ULAVA}${APR_BENCHMARK_DENOM}`,
+    );
+    return await processRewardTokens(data.total ?? []);
+  } catch {
+    return { totalUsd: 0, tokens: [] };
+  }
+}
+
+/** Fetch all bonded validator operator addresses */
+export async function fetchBondedValidators(): Promise<string[]> {
+  const validators: string[] = [];
+  let nextKey: string | null = null;
+  do {
+    const params = new URLSearchParams({
+      status: "BOND_STATUS_BONDED",
+      "pagination.limit": "200",
+    });
+    if (nextKey) params.set("pagination.key", nextKey);
+    const data = await fetchRest<{
+      validators: Array<{ operator_address: string }>;
+      pagination: { next_key: string | null };
+    }>(`/cosmos/staking/v1beta1/validators?${params}`);
+    for (const v of data.validators ?? []) validators.push(v.operator_address);
+    nextKey = data.pagination?.next_key ?? null;
+  } while (nextKey);
+  return validators;
+}
+
+/** Percentile calculation matching jsinfo `CalculatePercentile` */
+function calculatePercentile(values: number[], rank: number): number {
+  if (values.length === 0 || rank < 0 || rank > 1) return 0;
+  if (values.length === 1) return values[0];
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const pos = Math.floor((sorted.length - 1) * rank);
+
+  if (sorted.length % 2 === 0) {
+    return sorted[pos] + (sorted[pos + 1] - sorted[pos]) * rank;
+  }
+  return sorted[pos];
+}
+
+/** APR from monthly reward: (1 + rewardUsd/investedUsd)^12 - 1 */
+function calculateApr(rewardUsd: number, investedUsd: number): number {
+  if (investedUsd <= 0 || rewardUsd <= 0) return 0;
+  const rate = rewardUsd / investedUsd;
+  const apr = Math.pow(1 + rate, 12) - 1;
+  if (!isFinite(apr) || apr < APR_MIN || apr > 100) return 0;
+  return apr;
+}
+
+// --- Weighted APR history (Redis, matches jsinfo AprWeighted) ---
+
+const APR_WEIGHTS = [0.4, 0.25, 0.15, 0.1, 0.05, 0.03, 0.02];
+const APR_DAYS_TO_KEEP = 7;
+const APR_HISTORY_TTL = 30 * 24 * 60 * 60; // 30 days
+
+interface AprRecord { date: string; aprSum: number; count: number }
+interface AprHistory { records: AprRecord[]; lastUpdated: string }
+
+function aprHistoryKey(type: string, address: string): string {
+  return `apr_history:${type}:${address}`;
+}
+
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+}
+
+async function storeApr(redis: Redis, type: string, address: string, apr: number): Promise<void> {
+  if (apr === 0) return;
+  const key = aprHistoryKey(type, address);
+  const today = todayStr();
+  try {
+    const raw = await redis.get(key);
+    const history: AprHistory = raw ? JSON.parse(raw) : { records: [], lastUpdated: today };
+
+    const rec = history.records.find((r) => r.date === today);
+    if (rec) { rec.aprSum += apr; rec.count += 1; }
+    else { history.records.push({ date: today, aprSum: apr, count: 1 }); }
+
+    history.records = history.records
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, APR_DAYS_TO_KEEP);
+    history.lastUpdated = today;
+
+    await redis.set(key, JSON.stringify(history), "EX", APR_HISTORY_TTL);
+  } catch { /* Redis failures are non-fatal */ }
+}
+
+async function getWeightedApr(redis: Redis, type: string, address: string): Promise<number | null> {
+  try {
+    const raw = await redis.get(aprHistoryKey(type, address));
+    if (!raw) return null;
+    const history: AprHistory = JSON.parse(raw);
+    if (history.records.length === 0) return null;
+
+    let weightedSum = 0;
+    let weightSum = 0;
+    for (let i = 0; i < history.records.length && i < APR_WEIGHTS.length; i++) {
+      const avg = history.records[i].aprSum / history.records[i].count;
+      weightedSum += avg * APR_WEIGHTS[i];
+      weightSum += APR_WEIGHTS[i];
+    }
+    return weightSum > 0 ? weightedSum / weightSum : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compute APR percentiles matching jsinfo `/apr` response.
+ *
+ * For each active provider and bonded validator:
+ *   1. Query `estimated_{type}_rewards` with a 10 000 LAVA benchmark
+ *   2. Convert multi-denom rewards to USD via CoinGecko
+ *   3. Compute APR via monthly compounding: (1 + monthlyRate)^12 - 1
+ *   4. Store in 7-day weighted history (Redis, if available)
+ *   5. Take 80th percentile, cap at 30%
+ */
+export async function computeAPR(redis?: Redis | null): Promise<{
+  restaking_apr_percentile: number;
+  staking_apr_percentile: number;
 }> {
-  const [annualProvisions, communityTax, pool] = await Promise.all([
-    fetchAnnualProvisions(),
-    fetchCommunityTax(),
-    fetchStakingPool(),
+  // USD value of the 10k LAVA benchmark investment
+  const lavaPrice = await fetchTokenUsdPrice("lava");
+  const investedUsd = APR_BENCHMARK_LAVA * lavaPrice;
+
+  const [providers, validators] = await Promise.all([
+    fetchAllProviders(),
+    fetchBondedValidators(),
   ]);
 
-  const provisions = parseFloat(annualProvisions);
-  const bonded = parseFloat(pool.bonded_tokens);
-  const apr = bonded > 0 ? (provisions * (1 - communityTax)) / bonded : 0;
+  const providerAddresses = providers.map((p) => p.address);
+
+  // Collect per-entity APRs (batches of 5 to respect RPC rate limits)
+  const [providerAprs, validatorAprs] = await Promise.all([
+    collectEntityAprs("provider", providerAddresses, investedUsd, redis),
+    collectEntityAprs("validator", validators, investedUsd, redis),
+  ]);
 
   return {
-    apr,
-    annualProvisions,
-    communityTax,
-    bondedTokens: pool.bonded_tokens,
+    restaking_apr_percentile: Math.min(
+      calculatePercentile(providerAprs, APR_PERCENTILE),
+      APR_MAX_PERCENTILE_CAP,
+    ),
+    staking_apr_percentile: Math.min(
+      calculatePercentile(validatorAprs, APR_PERCENTILE),
+      APR_MAX_PERCENTILE_CAP,
+    ),
   };
+}
+
+/** Batch-fetch estimated rewards, compute APR per entity, apply weighted history */
+async function collectEntityAprs(
+  type: "provider" | "validator",
+  addresses: string[],
+  investedUsd: number,
+  redis?: Redis | null,
+): Promise<number[]> {
+  const aprs: number[] = [];
+
+  for (let i = 0; i < addresses.length; i += 5) {
+    const batch = addresses.slice(i, i + 5);
+    const rewards = await Promise.all(
+      batch.map((addr) => fetchEstimatedRewards(type, addr)),
+    );
+
+    for (let j = 0; j < batch.length; j++) {
+      const currentApr = calculateApr(rewards[j].totalUsd, investedUsd);
+      if (currentApr <= 0) continue;
+
+      let finalApr = currentApr;
+      if (redis) {
+        await storeApr(redis, type, batch[j], currentApr);
+        const weighted = await getWeightedApr(redis, type, batch[j]);
+        if (weighted !== null) finalApr = weighted;
+      }
+
+      if (finalApr > 0 && finalApr < APR_MAX_INDIVIDUAL) {
+        aprs.push(finalApr);
+      }
+    }
+  }
+
+  return aprs;
+}
+
+/** Max display APR for individual providers (matching jsinfo) */
+const MAX_DISPLAY_APR = 0.9;
+
+/** Format APR as percentage string matching jsinfo format */
+function formatAprPercent(apr: number): string {
+  if (apr <= 0) return "-";
+  if (apr > MAX_DISPLAY_APR) return "90.0%";
+  return `${(apr * 100).toFixed(4)}%`;
+}
+
+/** Format commission as percentage string */
+function formatCommission(commission: string): string {
+  if (!commission) return "-";
+  const n = parseFloat(commission);
+  if (!isFinite(n)) return "-";
+  return `${n.toFixed(1)}%`;
+}
+
+export interface AllProviderAprEntry {
+  address: string;
+  moniker: string;
+  apr: string;
+  commission: string;
+  "30_days_cu_served": string;
+  "30_days_relays_served": string;
+  rewards_10k_lava_delegation: RewardToken[];
+}
+
+/**
+ * Compute per-provider APR data matching jsinfo `/all_providers_apr`.
+ *
+ * Returns array of provider objects with APR, commission, 30d relay data,
+ * and per-token reward breakdown for a 10k LAVA delegation benchmark.
+ */
+export async function computeAllProvidersApr(
+  relay30d: Map<string, { cu: string; relays: string }>,
+  redis?: Redis | null,
+): Promise<AllProviderAprEntry[]> {
+  const lavaPrice = await fetchTokenUsdPrice("lava");
+  const investedUsd = APR_BENCHMARK_LAVA * lavaPrice;
+
+  const providers = await fetchAllProviders();
+  const results: AllProviderAprEntry[] = [];
+
+  for (let i = 0; i < providers.length; i += 5) {
+    const batch = providers.slice(i, i + 5);
+    const rewardResults = await Promise.all(
+      batch.map((p) => fetchEstimatedRewards("provider", p.address)),
+    );
+
+    for (let j = 0; j < batch.length; j++) {
+      const provider = batch[j];
+      const rewards = rewardResults[j];
+      const currentApr = calculateApr(rewards.totalUsd, investedUsd);
+
+      let finalApr = currentApr;
+      if (redis && currentApr > 0) {
+        await storeApr(redis, "provider", provider.address, currentApr);
+        const weighted = await getWeightedApr(redis, "provider", provider.address);
+        if (weighted !== null) finalApr = weighted;
+      }
+
+      const relay = relay30d.get(provider.address);
+
+      results.push({
+        address: provider.address,
+        moniker: provider.moniker || "-",
+        apr: formatAprPercent(finalApr),
+        commission: formatCommission(provider.commission),
+        "30_days_cu_served": relay?.cu ?? "-",
+        "30_days_relays_served": relay?.relays ?? "-",
+        rewards_10k_lava_delegation: rewards.tokens,
+      });
+    }
+  }
+
+  return results;
 }
 
 export async function fetchLatestBlockHeight(): Promise<{
