@@ -19,22 +19,18 @@ async function buildApp() {
 }
 
 describe("GET /apr", () => {
-  it("returns APR computed from RPC", async () => {
+  it("returns restaking and staking APR percentiles", async () => {
     (computeAPR as ReturnType<typeof vi.fn>).mockResolvedValue({
-      apr: 0.1234,
-      annualProvisions: "100000000000",
-      communityTax: 0.02,
-      bondedTokens: "500000000000",
+      restaking_apr_percentile: 0.0842,
+      staking_apr_percentile: 0.1523,
     });
 
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/apr" });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.apr).toBeCloseTo(0.1234);
-    expect(body.annualProvisions).toBe("100000000000");
-    expect(body.communityTax).toBe(0.02);
-    expect(body.bondedTokens).toBe("500000000000");
+    expect(body.restaking_apr_percentile).toBeCloseTo(0.0842);
+    expect(body.staking_apr_percentile).toBeCloseTo(0.1523);
   });
 
   it("handles RPC error gracefully", async () => {
