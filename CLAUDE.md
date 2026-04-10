@@ -82,7 +82,8 @@ app.get("/path", { config: { cacheTTL: 300 } }, handler)
 No cache calls inside handlers. TTL guidelines:
 - Health/realtime: 10–30s
 - Lists/aggregates: 60–300s
-- Supply/TVL/APR: 300s
+- Supply/TVL: 300s
+- APR: 1800s (expensive — iterates all providers/validators)
 - Avatars: 86400s (24h)
 
 ### Materialized Views (Critical)
@@ -193,8 +194,9 @@ packages/
 | `GET /health` | — | — | Returns `{ health: "ok" }` |
 | `GET /health/status` | 10s | Chain RPC | Block height + staleness check (>5 min = degraded). Returns 503 on RPC error |
 | `GET /search?q=` | 600s | Chain RPC | Searches providers (by address/moniker) and specs (by specId/name). Case-insensitive substring match. Returns all if no query |
-| `GET /tvl` | 300s | Chain RPC | Total value locked = provider stakes + delegations + bonded tokens. Fetches all specs in batches of 5 |
-| `GET /apr` | 300s | Chain RPC | APR = `annualProvisions * (1 - communityTax) / bondedTokens` |
+| `GET /tvl` | 300s | Chain RPC + CoinGecko | TVL (USD) = bonded tokens + reward pools + subscriptions + DEX liquidity. All components converted to USD via CoinGecko LAVA price |
+| `GET /apr` | 1800s | Chain RPC + CoinGecko | Per-entity APR percentiles matching jsinfo. Queries `estimated_{provider,validator}_rewards` for all providers/validators with 10k LAVA benchmark, converts multi-denom rewards to USD, compounds monthly, takes 80th percentile, caps at 30%. Returns `{ restaking_apr_percentile, staking_apr_percentile }`. Uses 7-day weighted Redis history when available |
+| `GET /all_providers_apr` | 1800s | Chain RPC + CoinGecko + Indexer MV | Per-provider APR data matching jsinfo. Returns array of providers with: APR, commission, 30d CU/relays, 10k LAVA reward breakdown, per-spec rewards (rewards_last_month), specs, avatar |
 | `GET /validators` | 300s | Chain RPC | Staking pool info (bonded/not_bonded tokens). Validator list is placeholder `[]` |
 | `GET /lava/stakers` | 300s | Chain RPC | Just `{ bonded_tokens }` from staking pool |
 | `GET /lava/specs` | 300s | Chain RPC | All chain specs (raw, used by frontend `useChainNames` hook) |
