@@ -17,6 +17,9 @@ const IS_DEV = process.env.NODE_ENV === "development";
 function DevToolsMenu() {
   const [open, setOpen] = useState(false);
   const [cacheState, setCacheState] = useState<"idle" | "clearing" | "done">("idle");
+  const [mockChart, setMockChart] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem("lava-mock-chart") === "true",
+  );
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -39,6 +42,13 @@ function DevToolsMenu() {
       setCacheState("idle");
     }
   }, []);
+
+  const handleToggleMockChart = useCallback(() => {
+    const next = !mockChart;
+    setMockChart(next);
+    localStorage.setItem("lava-mock-chart", String(next));
+    window.dispatchEvent(new Event("mock-chart-toggle"));
+  }, [mockChart]);
 
   return (
     <div className="relative" ref={menuRef}>
@@ -66,6 +76,15 @@ function DevToolsMenu() {
                 : cacheState === "done"
                   ? "Cache cleared"
                   : "Reset cache"}
+            </button>
+            <button
+              onClick={handleToggleMockChart}
+              className="w-full text-left text-sm px-3 py-2 rounded-md hover:bg-muted transition-colors flex items-center justify-between"
+            >
+              <span>Mock chart data</span>
+              <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${mockChart ? "bg-green-900/50 text-green-400" : "bg-muted text-muted-foreground"}`}>
+                {mockChart ? "ON" : "OFF"}
+              </span>
             </button>
           </div>
         </div>

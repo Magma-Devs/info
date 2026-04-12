@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
 import { StatCard } from "@/components/data/StatCard";
 
-const Chart = dynamic(() => import("@/components/data/Chart").then((m) => m.Chart), { ssr: false });
+const IndexChart = dynamic(() => import("@/components/data/IndexChart").then((m) => m.IndexChart), { ssr: false });
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { ChainLink } from "@/components/data/ChainLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
@@ -54,6 +54,43 @@ interface ChartPoint {
   qosLatency: number | null;
 }
 
+/* ─── Mock chart data for development (toggle via Dev Tools > Mock chart data) ─── */
+function generateMockChartData(): ChartPoint[] {
+  const chains = ["ETH1", "LAVA", "COSMOSHUB", "AXELAR", "NEAR", "POLYGON", "EVMOS", "FUSE"];
+  const points: ChartPoint[] = [];
+  const now = new Date();
+
+  // Seeded pseudo-random for deterministic output
+  let seed = 42;
+  const rand = () => { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647; };
+
+  for (let i = 90; i >= 0; i--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().slice(0, 10);
+
+    for (const chain of chains) {
+      const baseRelays: Record<string, number> = {
+        ETH1: 800000, LAVA: 500000, COSMOSHUB: 300000, AXELAR: 200000,
+        NEAR: 150000, POLYGON: 100000, EVMOS: 80000, FUSE: 50000,
+      };
+      const base = baseRelays[chain] || 100000;
+      const variation = 1 + Math.sin(i * 0.1 + chains.indexOf(chain)) * 0.3;
+      const trend = 1 + (90 - i) * 0.003;
+      const relays = Math.round(base * variation * trend);
+
+      // QoS near 1.0 with a dip around day 40-55
+      const baseDip = i > 40 && i < 55 ? 0.06 : 0;
+      const qosSync = Math.min(1, Math.max(0, 0.995 - baseDip + (rand() - 0.5) * 0.008));
+      const qosAvail = Math.min(1, Math.max(0, 0.998 - baseDip * 0.5 + (rand() - 0.5) * 0.004));
+      const qosLat = Math.min(1, Math.max(0, 0.993 - baseDip + (rand() - 0.5) * 0.01));
+
+      points.push({ date: dateStr, chainId: chain, cu: String(relays * 5), relays: String(relays), qosSync, qosAvailability: qosAvail, qosLatency: qosLat });
+    }
+  }
+  return points;
+}
+
 export default function DashboardPage() {
   const { data: stats, isLoading } = useApi<IndexStats>("/index/stats");
   const { data: topChains } = useApi<{ data: TopChain[] }>("/index/top-chains");
@@ -66,55 +103,25 @@ export default function DashboardPage() {
     `/index/charts${chartFrom ? `?from=${chartFrom}` : ""}`,
   );
 
-  const [selectedChain, setSelectedChain] = useState<string>("all");
+  // Mock chart data toggle (controlled via Dev Tools menu)
+  const [useMockChart, setUseMockChart] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem("lava-mock-chart") === "true",
+  );
+  useEffect(() => {
+    const handler = () => setUseMockChart(localStorage.getItem("lava-mock-chart") === "true");
+    window.addEventListener("mock-chart-toggle", handler);
+    return () => window.removeEventListener("mock-chart-toggle", handler);
+  }, []);
 
-  // Aggregate chart data by day
   const chartData = useMemo(() => {
-    if (!chartResp?.data) return [];
-    const byDay = new Map<string, { date: string; relays: number; cu: number; qosSync: number; qosAvail: number; qosLat: number; weight: number }>();
-
-    for (const p of chartResp.data) {
-      if (selectedChain !== "all" && p.chainId !== selectedChain) continue;
-      const existing = byDay.get(p.date);
-      const relays = Number(p.relays);
-      if (existing) {
-        existing.relays += relays;
-        existing.cu += Number(p.cu);
-        if (p.qosSync != null) {
-          existing.qosSync += (p.qosSync ?? 0) * relays;
-          existing.qosAvail += (p.qosAvailability ?? 0) * relays;
-          existing.qosLat += (p.qosLatency ?? 0) * relays;
-          existing.weight += relays;
-        }
-      } else {
-        byDay.set(p.date, {
-          date: p.date,
-          relays,
-          cu: Number(p.cu),
-          qosSync: (p.qosSync ?? 0) * relays,
-          qosAvail: (p.qosAvailability ?? 0) * relays,
-          qosLat: (p.qosLatency ?? 0) * relays,
-          weight: p.qosSync != null ? relays : 0,
-        });
-      }
+    if (useMockChart) {
+      const mock = generateMockChartData();
+      // Filter mock data by range to match real API behavior
+      if (chartFrom) return mock.filter((p) => p.date >= chartFrom);
+      return mock;
     }
-
-    return Array.from(byDay.values())
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map((d) => ({
-        date: d.date,
-        relays: d.relays,
-        cu: d.cu,
-        qosSync: d.weight > 0 ? d.qosSync / d.weight : null,
-        qosAvailability: d.weight > 0 ? d.qosAvail / d.weight : null,
-        qosLatency: d.weight > 0 ? d.qosLat / d.weight : null,
-      }));
-  }, [chartResp, selectedChain]);
-
-  const chainOptions = useMemo(() => {
-    if (!chartResp?.data) return [];
-    return [...new Set(chartResp.data.map((p) => p.chainId))].sort();
-  }, [chartResp]);
+    return chartResp?.data;
+  }, [chartResp, useMockChart, chartFrom]);
 
   const providers = useMemo(() => providersResp?.data?.slice(0, 10) ?? [], [providersResp]);
   const chains = useMemo(() => topChains?.data?.slice(0, 10) ?? [], [topChains]);
@@ -194,51 +201,8 @@ export default function DashboardPage() {
 
       <div style={{ marginTop: "30px" }} />
 
-      {/* Index Chart */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Network Activity</CardTitle>
-            <CardDescription>Daily relays and QoS scores</CardDescription>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1">
-              {[{ label: "30d", days: 30 }, { label: "90d", days: 90 }, { label: "1y", days: 365 }, { label: "All", days: 0 }].map((r) => (
-                <button key={r.label} onClick={() => setRangeDays(r.days)}
-                  className={`px-2 py-1 text-xs rounded ${rangeDays === r.days ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted border border-border"}`}>
-                  {r.label}
-                </button>
-              ))}
-            </div>
-            <select
-              value={selectedChain}
-              onChange={(e) => setSelectedChain(e.target.value)}
-              className="bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground"
-            >
-              <option value="all">All Chains</option>
-              {chainOptions.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Chart
-            data={chartData}
-            series={[
-              { key: "relays", label: "Relays", color: "#ac4c39", type: "area" },
-              { key: "qosSync", label: "QoS Sync", color: "#81b29a" },
-              { key: "qosAvailability", label: "QoS Availability", color: "#f2cc8f" },
-              { key: "qosLatency", label: "QoS Latency", color: "#3d405b" },
-            ]}
-            xKey="date"
-            height={350}
-            isLoading={!chartResp}
-            brushable
-            toggleable
-          />
-        </CardContent>
-      </Card>
+      {/* Index Chart — matches jsinfo-ui layout with innovations */}
+      <IndexChart data={chartData} isLoading={!useMockChart && !chartResp} rangeDays={rangeDays} onRangeChange={setRangeDays} />
 
       <div style={{ marginTop: "30px" }} />
 
