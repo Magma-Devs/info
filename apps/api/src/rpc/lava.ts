@@ -13,13 +13,16 @@ async function fetchRest<T>(path: string): Promise<T> {
   if (existing) return existing as Promise<T>;
 
   const promise = (async () => {
-    const res = await fetch(`${LAVA_REST_URL}${path}`);
+    const res = await fetch(`${LAVA_REST_URL}${path}`, {
+      signal: AbortSignal.timeout(15_000),
+    });
     if (!res.ok) throw new Error(`RPC ${res.status}: ${res.statusText}`);
     return (await res.json()) as T;
   })();
 
   inflightRpc.set(path, promise);
-  promise.finally(() => inflightRpc.delete(path));
+  const cleanup = () => { inflightRpc.delete(path); };
+  promise.then(cleanup, cleanup);
   return promise;
 }
 
@@ -1118,7 +1121,9 @@ export async function fetchLatestBlockHeight(): Promise<{
   time: string;
 }> {
   const LAVA_RPC_URL = process.env.LAVA_RPC_URL ?? "https://lava.tendermintrpc.lava.build:443";
-  const res = await fetch(`${LAVA_RPC_URL}/status`);
+  const res = await fetch(`${LAVA_RPC_URL}/status`, {
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!res.ok) throw new Error(`RPC ${res.status}`);
   const data = (await res.json()) as {
     result: { sync_info: { latest_block_height: string; latest_block_time: string } };
