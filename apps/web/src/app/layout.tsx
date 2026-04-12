@@ -12,9 +12,38 @@ const inter = Inter({
   display: "swap",
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://info.lavanet.xyz";
+
 export const metadata: Metadata = {
-  title: "Lava Info",
-  description: "Lava Network Info Hub",
+  title: {
+    default: "Lava Info — Lava Network Explorer",
+    template: "%s | Lava Info",
+  },
+  description:
+    "Explore Lava Network providers, chains, staking, relay performance, and supply data. Real-time blockchain analytics for the Lava decentralized RPC network.",
+  keywords: [
+    "Lava Network", "blockchain explorer", "RPC providers", "staking",
+    "decentralized RPC", "relay analytics", "Web3 infrastructure",
+  ],
+  metadataBase: new URL(SITE_URL),
+  openGraph: {
+    type: "website",
+    siteName: "Lava Info",
+    title: "Lava Info — Lava Network Explorer",
+    description:
+      "Explore Lava Network providers, chains, staking, relay performance, and supply data.",
+    url: SITE_URL,
+  },
+  twitter: {
+    card: "summary",
+    title: "Lava Info — Lava Network Explorer",
+    description:
+      "Real-time analytics for Lava Network providers, chains, and relay performance.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export const viewport: Viewport = {
