@@ -254,7 +254,7 @@ The API provides pagination via `request.pagination` (Fastify plugin). Frontend 
 | **Geolocation** | Bitmask field. 0x1=US-Center, 0x2=Europe, 0x4=US-East, 0x8=US-West, 0x10=Africa, 0x20=Asia, 0x40=AU-NZ |
 | **Addons** | Extra capabilities (comma-separated string from joined endpoint addons) |
 | **Extensions** | Protocol extensions (comma-separated string from joined endpoint extensions) |
-| **Base Specs** | Abstract specs (COSMOSSDK, ETHERMINT, TENDERMINT, IBC, COSMOSWASM, COSMOSSDK50) — not real chains, excluded from UI |
+| **Base Specs** | Abstract specs (COSMOSSDK, COSMOSSDK50, COSMOSWASM, ETHERMINT, TENDERMINT, IBC, SUIGRPC, SUIJSONRPC) — not real chains, excluded from UI |
 | **IPRPC** | Incentivized Public RPC — bonus rewards for specific specs |
 
 ### Token Math
@@ -283,7 +283,7 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 | MV date filters | Use `Date` type with `YYYY-MM-DD` format, NOT `Datetime` / ISO |
 | QoS computation | Weighted: `qosSyncW / qosWeight`, not simple average |
 | Geolocation | Bitmask, not enum. A provider can be in multiple regions |
-| Base specs | COSMOSSDK, COSMOSSDK50, COSMOSWASM, ETHERMINT, TENDERMINT, IBC — exclude from chain lists |
+| Base specs | COSMOSSDK, COSMOSSDK50, COSMOSWASM, ETHERMINT, TENDERMINT, IBC, SUIGRPC, SUIJSONRPC — exclude from chain lists |
 | React hooks | All `useMemo`/`useState`/`useApi` calls MUST come before conditional early returns |
 | `next dev` + standalone | `output: "standalone"` crashes `next dev`. Docker dev mounts `next.config.dev.ts` without it |
 | Provider detail perf | Queries every spec on chain — inherently slow. Cache is essential (300s TTL) |
