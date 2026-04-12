@@ -1,6 +1,7 @@
 "use client";
 
 import React, { use, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { type ColumnDef, type Row } from "@tanstack/react-table";
 import { useApi } from "@/hooks/use-api";
@@ -10,26 +11,14 @@ import { ProviderLink } from "@/components/data/ProviderLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
 import { TimeTooltip } from "@/components/data/TimeTooltip";
 import { SortableTable } from "@/components/data/SortableTable";
-import { Chart } from "@/components/data/Chart";
+
+const Chart = dynamic(() => import("@/components/data/Chart").then((m) => m.Chart), { ssr: false });
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { formatNumberKMB } from "@/lib/format";
 import { Users, Coins, Box, Activity, BarChart3, ChevronRight } from "lucide-react";
 import { useChainNames } from "@/hooks/use-chain-names";
 import { getChainIcon } from "@/lib/chain-icons";
-
-function geoLabel(geo?: number): string {
-  if (geo == null || geo === 0) return "—";
-  if (geo === 0xffff) return "Global";
-  const regions: string[] = [];
-  if (geo & 0x1) regions.push("US-Center");
-  if (geo & 0x2) regions.push("Europe");
-  if (geo & 0x4) regions.push("US-East");
-  if (geo & 0x8) regions.push("US-West");
-  if (geo & 0x10) regions.push("Africa");
-  if (geo & 0x20) regions.push("Asia");
-  if (geo & 0x40) regions.push("AU/NZ");
-  return regions.length > 0 ? regions.join(", ") : String(geo);
-}
+import { geoLabel } from "@info/shared";
 
 function toBigInt(v: string | undefined): bigint {
   try { return BigInt(v ?? "0"); } catch { return 0n; }

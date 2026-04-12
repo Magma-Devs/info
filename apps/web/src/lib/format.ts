@@ -53,10 +53,3 @@ export function formatTimeDifference(date: Date | string): string {
   if (diffDay < 30) return `${diffDay}d ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
-
-/** Check if text is meaningful (not null, undefined, n/a, etc.) */
-export function isMeaningfulText(text: string | null | undefined): boolean {
-  if (!text) return false;
-  const lower = text.toLowerCase().trim();
-  return !["null", "undefined", "n/a", "na", "none", ""].includes(lower);
-}

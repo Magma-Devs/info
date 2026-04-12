@@ -5,10 +5,22 @@ const logger = pino({ name: "rpc" });
 
 const LAVA_REST_URL = process.env.LAVA_REST_URL ?? "https://lava.rest.lava.build";
 
+// Request coalescing: concurrent fetches for the same path share one in-flight request
+const inflightRpc = new Map<string, Promise<unknown>>();
+
 async function fetchRest<T>(path: string): Promise<T> {
-  const res = await fetch(`${LAVA_REST_URL}${path}`);
-  if (!res.ok) throw new Error(`RPC ${res.status}: ${res.statusText}`);
-  return (await res.json()) as T;
+  const existing = inflightRpc.get(path);
+  if (existing) return existing as Promise<T>;
+
+  const promise = (async () => {
+    const res = await fetch(`${LAVA_REST_URL}${path}`);
+    if (!res.ok) throw new Error(`RPC ${res.status}: ${res.statusText}`);
+    return (await res.json()) as T;
+  })();
+
+  inflightRpc.set(path, promise);
+  promise.finally(() => inflightRpc.delete(path));
+  return promise;
 }
 
 export async function fetchTotalSupply(): Promise<bigint> {
@@ -27,7 +39,7 @@ const REWARD_POOLS = [
   "iprpc_pool",
 ];
 
-export async function fetchRewardPoolsAmount(): Promise<bigint> {
+async function fetchRewardPoolsAmount(): Promise<bigint> {
   const data = await fetchRest<{
     pools: Array<{ name: string; balance: Array<{ denom: string; amount: string }> }>;
   }>("/lavanet/lava/rewards/pools");
@@ -48,7 +60,7 @@ interface VestingStats {
   periodicVesting: bigint;
 }
 
-export async function fetchLockedVestingTokens(): Promise<VestingStats> {
+async function fetchLockedVestingTokens(): Promise<VestingStats> {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const stats: VestingStats = { continuousVesting: 0n, periodicVesting: 0n };
   let nextKey: string | null = null;
@@ -270,9 +282,11 @@ const TVL_REWARD_POOLS = [
   "providers_rewards_allocation_pool",
 ];
 
+const COINGECKO_API_URL = process.env.COINGECKO_API_URL ?? "https://api.coingecko.com/api/v3";
+
 async function fetchLavaUsdPrice(): Promise<number> {
   const res = await fetch(
-    "https://api.coingecko.com/api/v3/simple/price?ids=lava-network&vs_currencies=usd",
+    `${COINGECKO_API_URL}/simple/price?ids=lava-network&vs_currencies=usd`,
   );
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
   const data = (await res.json()) as { "lava-network"?: { usd?: number } };
@@ -423,9 +437,11 @@ export async function computeTVL(): Promise<{ tvl: string }> {
     : 0n;
 
   // Sum all components in ulava, then convert to USD
+  // Use BigInt division to avoid Number precision loss for large ulava sums
   const totalUlava = bondedTokens + rewardPools + subscriptions
     + osmosis + baseUlava + arbitrumUlava;
-  const tvlUsd = Number(totalUlava) * (lavaPrice / 1_000_000);
+  const totalLava = Number(totalUlava / 1_000_000n) + Number(totalUlava % 1_000_000n) / 1_000_000;
+  const tvlUsd = totalLava * lavaPrice;
 
   return { tvl: tvlUsd.toFixed(4) };
 }
@@ -1113,18 +1129,28 @@ export async function fetchLatestBlockHeight(): Promise<{
   };
 }
 
-/** Fetch all providers across all specs, with dedup by address */
-export async function fetchAllProviders(): Promise<
-  Array<{
-    address: string;
-    moniker: string;
-    identity: string;
-    totalStake: string;
-    totalDelegation: string;
-    commission: string;
-    specs: string[];
-  }>
-> {
+// Request coalescing: concurrent callers share one in-flight fetchAllProviders
+let pendingProviders: Promise<AllProvidersResult> | null = null;
+
+type AllProvidersResult = Array<{
+  address: string;
+  moniker: string;
+  identity: string;
+  totalStake: string;
+  totalDelegation: string;
+  commission: string;
+  specs: string[];
+}>;
+
+/** Fetch all providers across all specs, with dedup by address.
+ *  Concurrent callers share one in-flight request (coalesced). */
+export function fetchAllProviders(): Promise<AllProvidersResult> {
+  if (pendingProviders) return pendingProviders;
+  pendingProviders = fetchAllProvidersImpl().finally(() => { pendingProviders = null; });
+  return pendingProviders;
+}
+
+async function fetchAllProvidersImpl(): Promise<AllProvidersResult> {
   const specs = await fetchAllSpecs();
 
   interface SpecEntry {
@@ -1203,22 +1229,6 @@ export async function fetchAllProviders(): Promise<
   }));
 }
 
-export async function fetchIprpcSpecRewards(specId: string): Promise<
-  Array<{ provider: string; iprpcCu: string }>
-> {
-  try {
-    const data = await fetchRest<{
-      iprpc_rewards: Array<{ provider: string; iprpc_cu: string }>;
-    }>(`/lavanet/lava/rewards/iprpc_spec_reward/${specId}`);
-    return (data.iprpc_rewards ?? []).map((r) => ({
-      provider: r.provider,
-      iprpcCu: r.iprpc_cu ?? "0",
-    }));
-  } catch {
-    return [];
-  }
-}
-
 export async function fetchDelegatorRewards(provider: string): Promise<
   Array<{ denom: string; amount: string }>
 > {
@@ -1233,7 +1243,7 @@ export async function fetchDelegatorRewards(provider: string): Promise<
   }
 }
 
-export async function fetchProviderMetadata(provider: string): Promise<{
+async function fetchProviderMetadata(provider: string): Promise<{
   description?: { identity?: string; moniker?: string };
 } | null> {
   try {
@@ -1267,8 +1277,9 @@ export async function fetchProviderAvatar(provider: string, identityHint?: strin
     }
     if (!identity) return null;
 
+    const KEYBASE_API_URL = process.env.KEYBASE_API_URL ?? "https://keybase.io/_/api/1.0";
     const res = await fetch(
-      `https://keybase.io/_/api/1.0/user/lookup.json?key_suffix=${identity}&fields=pictures`,
+      `${KEYBASE_API_URL}/user/lookup.json?key_suffix=${encodeURIComponent(identity)}&fields=pictures`,
     );
     if (!res.ok) return null;
     const data = (await res.json()) as {

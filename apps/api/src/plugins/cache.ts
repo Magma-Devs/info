@@ -8,7 +8,15 @@ declare module "fastify" {
 }
 
 function buildCacheKey(request: FastifyRequest): string {
-  return `cache:${request.method}:${request.url}`;
+  // Normalize: collapse double slashes, strip trailing slash, sort query params
+  const [path, qs] = request.url.split("?", 2);
+  const normalizedPath = path.replace(/\/+/g, "/").replace(/\/$/, "") || "/";
+  const normalizedQs = qs
+    ? qs.split("&").sort().join("&")
+    : "";
+  return normalizedQs
+    ? `cache:${request.method}:${normalizedPath}?${normalizedQs}`
+    : `cache:${request.method}:${normalizedPath}`;
 }
 
 /**

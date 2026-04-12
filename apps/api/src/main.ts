@@ -1,17 +1,16 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import { redisPlugin } from "./plugins/redis.js";
 import { cachePlugin } from "./plugins/cache.js";
 import { paginationPlugin } from "./plugins/pagination.js";
-import { csvPlugin } from "./plugins/csv.js";
 import { errorHandlerPlugin } from "./plugins/error-handler.js";
 import { healthProbePlugin } from "./plugins/health-probe.js";
 import { healthRoutes } from "./routes/health.js";
 import { indexRoutes } from "./routes/index.js";
 import { providerRoutes } from "./routes/providers.js";
 import { specRoutes } from "./routes/specs.js";
-import { eventRoutes } from "./routes/events.js";
-import { validatorRoutes } from "./routes/validators.js";
 import { supplyRoutes } from "./routes/supply.js";
 import { tvlRoutes } from "./routes/tvl.js";
 import { aprRoutes } from "./routes/apr.js";
@@ -21,6 +20,9 @@ import { allProvidersAprRoutes } from "./routes/all-providers-apr.js";
 
 const PORT = parseInt(process.env.API_PORT ?? "8080", 10);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+  : true; // default: allow all in dev; set CORS_ORIGINS in production
 
 async function main() {
   const app = Fastify({
@@ -32,19 +34,22 @@ async function main() {
     },
   });
 
-  await app.register(cors, { origin: true, methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"] });
+  await app.register(cors, { origin: CORS_ORIGINS, methods: ["GET", "HEAD", "OPTIONS"] });
+  await app.register(helmet, { contentSecurityPolicy: false }); // CSP handled by Next.js frontend
+  await app.register(rateLimit, {
+    max: parseInt(process.env.RATE_LIMIT_MAX ?? "100", 10),
+    timeWindow: "1 minute",
+    allowList: ["127.0.0.1", "::1"],
+  });
   await app.register(errorHandlerPlugin);
   await app.register(redisPlugin);
   await app.register(cachePlugin);
   await app.register(paginationPlugin);
-  await app.register(csvPlugin);
 
   await app.register(healthRoutes);
   await app.register(indexRoutes, { prefix: "/index" });
   await app.register(providerRoutes, { prefix: "/providers" });
   await app.register(specRoutes, { prefix: "/specs" });
-  await app.register(eventRoutes, { prefix: "/events" });
-  await app.register(validatorRoutes, { prefix: "/validators" });
   await app.register(supplyRoutes, { prefix: "/supply" });
   await app.register(tvlRoutes);
   await app.register(aprRoutes);

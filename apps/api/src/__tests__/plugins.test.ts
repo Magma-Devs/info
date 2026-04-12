@@ -53,66 +53,6 @@ describe("pagination plugin", () => {
   });
 });
 
-describe("CSV plugin", () => {
-  it("transforms JSON array to CSV when ?format=csv", async () => {
-    const app = await buildTestApp();
-    app.get("/test", async () => {
-      return { data: [
-        { name: "Alice", age: 30 },
-        { name: "Bob", age: 25 },
-      ]};
-    });
-
-    const res = await app.inject({ method: "GET", url: "/test?format=csv" });
-    expect(res.headers["content-type"]).toContain("text/csv");
-    expect(res.headers["content-disposition"]).toContain("export.csv");
-    const lines = res.body.split("\n");
-    expect(lines[0]).toBe("name,age");
-    expect(lines[1]).toBe("Alice,30");
-    expect(lines[2]).toBe("Bob,25");
-  });
-
-  it("escapes commas and quotes in CSV", async () => {
-    const app = await buildTestApp();
-    app.get("/test", async () => {
-      return { data: [{ name: 'O"Brien', city: "New York, NY" }] };
-    });
-
-    const res = await app.inject({ method: "GET", url: "/test?format=csv" });
-    expect(res.body).toContain('"O""Brien"');
-    expect(res.body).toContain('"New York, NY"');
-  });
-
-  it("returns empty string for empty data", async () => {
-    const app = await buildTestApp();
-    app.get("/test", async () => ({ data: [] }));
-
-    const res = await app.inject({ method: "GET", url: "/test?format=csv" });
-    expect(res.headers["content-type"]).toContain("text/csv");
-    expect(res.body).toBe("");
-  });
-
-  it("does not transform when format is not csv", async () => {
-    const app = await buildTestApp();
-    app.get("/test", async () => ({ data: [{ id: 1 }] }));
-
-    const res = await app.inject({ method: "GET", url: "/test" });
-    expect(res.headers["content-type"]).toContain("application/json");
-    expect(JSON.parse(res.body)).toEqual({ data: [{ id: 1 }] });
-  });
-
-  it("handles root-level arrays", async () => {
-    const app = await buildTestApp();
-    app.get("/test", async () => [{ id: 1 }, { id: 2 }]);
-
-    const res = await app.inject({ method: "GET", url: "/test?format=csv" });
-    const lines = res.body.split("\n");
-    expect(lines[0]).toBe("id");
-    expect(lines[1]).toBe("1");
-    expect(lines[2]).toBe("2");
-  });
-});
-
 describe("error handler plugin", () => {
   it("returns 404 for unknown routes", async () => {
     const app = await buildTestApp();

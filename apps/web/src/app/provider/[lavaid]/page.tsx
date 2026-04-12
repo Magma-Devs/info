@@ -1,6 +1,7 @@
 "use client";
 
 import React, { use, useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
@@ -10,7 +11,8 @@ import { getChainIcon } from "@/lib/chain-icons";
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
 import { TimeTooltip } from "@/components/data/TimeTooltip";
-import { Chart } from "@/components/data/Chart";
+
+const Chart = dynamic(() => import("@/components/data/Chart").then((m) => m.Chart), { ssr: false });
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { SortableTable } from "@/components/data/SortableTable";
 import { type ColumnDef, type Row } from "@tanstack/react-table";
@@ -23,22 +25,9 @@ import {
   Cell,
   Tooltip,
 } from "recharts";
+import { geoLabel } from "@info/shared";
 
 const COLORS = ["#ac4c39", "#ab5a49", "#e07a5f", "#f2cc8f", "#81b29a", "#3d405b", "#f4f1de", "#e8a87c"];
-
-function geoLabel(geo?: number): string {
-  if (geo == null || geo === 0) return "—";
-  if (geo === 0xffff) return "Global";
-  const regions: string[] = [];
-  if (geo & 0x1) regions.push("US-Center");
-  if (geo & 0x2) regions.push("Europe");
-  if (geo & 0x4) regions.push("US-East");
-  if (geo & 0x8) regions.push("US-West");
-  if (geo & 0x10) regions.push("Africa");
-  if (geo & 0x20) regions.push("Asia");
-  if (geo & 0x40) regions.push("AU/NZ");
-  return regions.length > 0 ? regions.join(", ") : String(geo);
-}
 
 const INTERFACE_COLORS: Record<string, string> = {
   jsonrpc: "bg-amber-500/15 text-amber-400 border-amber-500/30",
