@@ -486,11 +486,42 @@ const DENOM_COINGECKO_ID: Record<string, string> = {
 const priceCache = new Map<string, { price: number; ts: number }>();
 const PRICE_CACHE_MS = 300_000;
 
-/** Fetch USD price for a base denom via CoinGecko */
+/**
+ * Pre-warm the price cache with a single batch CoinGecko call for all known denoms.
+ * CoinGecko supports comma-separated IDs in one request.
+ */
+async function prewarmPriceCache(): Promise<void> {
+  const now = Date.now();
+  // Skip if all entries are still fresh
+  const allFresh = Object.keys(DENOM_COINGECKO_ID).every((d) => {
+    const c = priceCache.get(d);
+    return c && now - c.ts < PRICE_CACHE_MS;
+  });
+  if (allFresh) return;
+
+  const ids = [...new Set(Object.values(DENOM_COINGECKO_ID))].join(",");
+  try {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
+    );
+    if (!res.ok) return;
+    const data = (await res.json()) as Record<string, { usd?: number }>;
+    const ts = Date.now();
+    for (const [denom, cgId] of Object.entries(DENOM_COINGECKO_ID)) {
+      const price = data[cgId]?.usd ?? 0;
+      if (price > 0) priceCache.set(denom, { price, ts });
+    }
+  } catch {
+    // Keep stale cache on failure
+  }
+}
+
+/** Fetch USD price for a base denom — reads from cache (pre-warmed by prewarmPriceCache) */
 async function fetchTokenUsdPrice(baseDenom: string): Promise<number> {
   const cached = priceCache.get(baseDenom);
   if (cached && Date.now() - cached.ts < PRICE_CACHE_MS) return cached.price;
 
+  // Fallback: single-denom fetch if cache miss (shouldn't happen after prewarm)
   const id = DENOM_COINGECKO_ID[baseDenom];
   if (!id) return 0;
 
@@ -586,7 +617,7 @@ async function processRewardTokens(
       resolved_denom: resolvedDenom,
       display_denom: conversion.baseDenom,
       display_amount: displayAmount,
-      value_usd: `$${formatTokenStr(usd.toFixed(20))}`,
+      value_usd: `$${formatTokenStr(usd.toFixed(14))}`,
     });
   }
 
@@ -819,7 +850,9 @@ export async function computeAPR(redis?: Redis | null): Promise<{
   restaking_apr_percentile: number;
   staking_apr_percentile: number;
 }> {
-  // USD value of the 10k LAVA benchmark investment
+  // Pre-warm all token prices in a single CoinGecko call
+  await prewarmPriceCache();
+
   const lavaPrice = await fetchTokenUsdPrice("lava");
   const investedUsd = APR_BENCHMARK_LAVA * lavaPrice;
 
@@ -1002,6 +1035,9 @@ export async function computeAllProvidersApr(
   relay30d: Map<string, { cu: string; relays: string }>,
   redis?: Redis | null,
 ): Promise<AllProviderAprEntry[]> {
+  // Pre-warm all token prices in a single CoinGecko call
+  await prewarmPriceCache();
+
   const lavaPrice = await fetchTokenUsdPrice("lava");
   const investedUsd = APR_BENCHMARK_LAVA * lavaPrice;
 
@@ -1075,18 +1111,6 @@ export async function fetchLatestBlockHeight(): Promise<{
     height: parseInt(data.result.sync_info.latest_block_height, 10),
     time: data.result.sync_info.latest_block_time,
   };
-}
-
-export interface RpcProvider {
-  address: string;
-  moniker: string;
-  stake: { amount: string; denom: string };
-  delegate_total: { amount: string; denom: string };
-  delegate_limit: { amount: string; denom: string };
-  delegate_commission: string;
-  geolocation: number;
-  addons: string;
-  extensions: string;
 }
 
 /** Fetch all providers across all specs, with dedup by address */
