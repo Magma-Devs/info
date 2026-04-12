@@ -3,7 +3,7 @@ import { gqlSafe } from "../graphql/client.js";
 import { fetchLatestBlockHeight, fetchAllProviders } from "../rpc/lava.js";
 
 export async function indexRoutes(app: FastifyInstance) {
-  app.get("/stats", { config: { cacheTTL: 60 } }, async () => {
+  app.get("/stats", { config: { cacheTTL: 300 } }, async () => {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10);

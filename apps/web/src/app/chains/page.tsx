@@ -56,7 +56,7 @@ const columns: ColumnDef<Spec, unknown>[] = [
 ];
 
 export default function ChainsPage() {
-  const { data: specsResp, isLoading } = useApi<{ data: Spec[] }>("/specs");
+  const { data: specsResp, isLoading, error } = useApi<{ data: Spec[] }>("/specs");
   const specs = useMemo(() => specsResp?.data ?? [], [specsResp]);
 
   const [sorting, setSorting] = useState<SortingState>([
@@ -73,6 +73,7 @@ export default function ChainsPage() {
   });
 
   if (isLoading) return <Loading />;
+  if (error) return <div className="py-12 text-center text-destructive">Failed to load chains data.</div>;
 
   return (
     <div className="space-y-6">

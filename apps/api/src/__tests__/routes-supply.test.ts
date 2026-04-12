@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import Fastify from "fastify";
 import { paginationPlugin } from "../plugins/pagination.js";
-import { csvPlugin } from "../plugins/csv.js";
 import { errorHandlerPlugin } from "../plugins/error-handler.js";
 
 vi.mock("../rpc/lava.js", () => ({
@@ -16,7 +15,6 @@ async function buildApp() {
   const app = Fastify({ logger: false });
   await app.register(errorHandlerPlugin);
   await app.register(paginationPlugin);
-  await app.register(csvPlugin);
   await app.register(supplyRoutes, { prefix: "/supply" });
   return app;
 }

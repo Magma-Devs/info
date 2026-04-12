@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
 import { StatCard } from "@/components/data/StatCard";
-import { Chart } from "@/components/data/Chart";
+
+const Chart = dynamic(() => import("@/components/data/Chart").then((m) => m.Chart), { ssr: false });
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { ChainLink } from "@/components/data/ChainLink";
 import { LavaAmount } from "@/components/data/LavaAmount";

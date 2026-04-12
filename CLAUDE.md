@@ -113,10 +113,11 @@ MVs are auto-created by PostgreSQL event triggers in `lava-indexer-test/docker/i
 apps/
   api/                 Fastify 5 REST API (port 8080)
     src/
-      routes/          One file per resource (index, providers, specs, events, etc.)
+      routes/          One file per resource (index, providers, specs, etc.)
       rpc/lava.ts      All chain RPC/REST calls + business logic (supply, TVL, APR, display names)
       graphql/client.ts  GraphQL client wrapper — gql<T>(query, vars)
-      plugins/cache.ts   Redis cache plugin (onRequest/onSend hooks)
+      plugins/cache.ts   Redis cache plugin (onRequest/onSend hooks, normalized keys)
+      plugins/pagination.ts  Pagination with configurable per-route maxLimit
       plugins/redis.ts   Shared Redis client decorator (app.redis)
       plugins/health-probe.ts  Background gRPC health probe (ENABLE_HEALTH_PROBE=true)
       services/grpc-probe.ts   Native gRPC Relayer.Probe() client
@@ -129,8 +130,8 @@ apps/
         ui/            shadcn primitives (badge, button, card, table, tabs)
         data/          Domain components (ChainLink, ProviderLink, LavaAmount, StatCard, Chart, SortableTable)
         layout/        Shell (Header, Footer, MobileNav, SearchBar)
-      hooks/           useApi (SWR), usePaginatedApi, useChainNames
-      lib/             Utilities (api-client, chain-icons, format, cn, csv)
+      hooks/           useApi (SWR), useChainNames
+      lib/             Utilities (api-client, chain-icons, format, cn)
     public/chains/     32 SVG chain icons, convention-based: /chains/{specId}.svg
 packages/
   shared/              Shared constants (BASE_SPECS, geolocation, block normalization)
@@ -142,7 +143,7 @@ packages/
 
 | Endpoint | Cache | Source | Description |
 |----------|-------|--------|-------------|
-| `GET /index/stats` | 60s | Indexer MV + Chain RPC | Alltime totals (CU, relays), 30-day totals, total stake (sum across all providers), active provider count, latest block height/time |
+| `GET /index/stats` | 300s | Indexer MV + Chain RPC | Alltime totals (CU, relays), 30-day totals, total stake (sum across all providers), active provider count, latest block height/time |
 | `GET /index/top-chains` | 300s | Indexer MV | Top 20 chains by alltime CU. Groups `mvRelayDailies` by `CHAIN_ID` |
 | `GET /index/charts?from=&to=` | 300s | Indexer MV | Daily time-series per chain. Collapses provider dimension by re-aggregating MV by (date, chainId). Default 90 days. Returns: date, chainId, cu, relays, qosSync, qosAvailability, qosLatency |
 
@@ -154,13 +155,9 @@ packages/
 | `GET /providers/:addr` | 300s | Chain RPC | Provider detail. Fetches **every spec** and checks if provider is staked. Returns stakes array with: specId, stake, delegation, moniker, delegateCommission, geolocation, addons, extensions |
 | `GET /providers/:addr/stakes` | 300s | Chain RPC | Same as above but returns only the stakes array (no moniker) |
 | `GET /providers/:addr/health?page=&limit=` | 30s | Redis | Paginated health records from gRPC probe (stored in Redis with 10min TTL) |
-| `GET /providers/:addr/events?page=&limit=` | — | Indexer GQL | Paginated blockchain events filtered by provider |
-| `GET /providers/:addr/rewards?page=&limit=` | — | Indexer GQL | Paginated relay payments (raw `relayPayments` table, filtered by provider). Returns: provider, consumer, chainId, cu, rewardedCu, relayNumber, all QoS fields, timestamp |
-| `GET /providers/:addr/reports?page=&limit=` | — | Indexer GQL | Paginated provider reports: cu, errors, disconnections, epoch |
 | `GET /providers/:addr/charts?from=&to=&chain=` | 300s | Indexer MV | **Two modes**: (1) No params → alltime summary grouped by chain (cu, relays per chainId). (2) With date params → daily time-series with QoS + excellence QoS. Can filter by chain |
 | `GET /providers/:addr/avatar?identity=` | 86400s | Keybase API | Avatar URL from Keybase identity. Hint param skips provider metadata lookup. Returns `{ url: string \| null }` |
 | `GET /providers/:addr/delegator-rewards` | 300s | Chain RPC | Delegator rewards from dualstaking module |
-| `GET /providers/:addr/block-reports?page=&limit=` | — | Indexer GQL | Paginated block height reports |
 
 ### Specs/Chains (`/specs`)
 
@@ -170,15 +167,6 @@ packages/
 | `GET /specs/:specId/stakes` | 300s | Chain RPC | Providers staked on this spec: provider, moniker, stake, delegation, delegateCommission, geolocation |
 | `GET /specs/:specId/health` | 30s | Redis | Health status distribution (grouped by STATUS, from gRPC probe) |
 | `GET /specs/:specId/charts` | 300s | Indexer MV | Alltime CU/relays for this chain (grouped by CHAIN_ID) |
-| `GET /specs/:specId/tracked-info` | 300s | Chain RPC | IPRPC spec rewards (provider, iprpcCu) |
-
-### Events (`/events`)
-
-| Endpoint | Cache | Source | Description |
-|----------|-------|--------|-------------|
-| `GET /events?type=events&page=&limit=` | — | Indexer GQL | Paginated blockchain events (default). Ordered by BLOCK_HEIGHT_DESC |
-| `GET /events?type=rewards&page=&limit=` | — | Indexer GQL | Paginated relay payments. Ordered by TIMESTAMP_DESC |
-| `GET /events?type=reports&page=&limit=` | — | Indexer GQL | Paginated provider reports. Ordered by BLOCK_HEIGHT_DESC |
 
 ### Supply (`/supply`)
 
@@ -197,23 +185,19 @@ packages/
 | `GET /tvl` | 300s | Chain RPC + CoinGecko | TVL (USD) = bonded tokens + reward pools + subscriptions + DEX liquidity. All components converted to USD via CoinGecko LAVA price |
 | `GET /apr` | 1800s | Chain RPC + CoinGecko | Per-entity APR percentiles matching jsinfo. Queries `estimated_{provider,validator}_rewards` for all providers/validators with 10k LAVA benchmark, converts multi-denom rewards to USD, compounds monthly, takes 80th percentile, caps at 30%. Returns `{ restaking_apr_percentile, staking_apr_percentile }`. Uses 7-day weighted Redis history when available |
 | `GET /all_providers_apr` | 1800s | Chain RPC + CoinGecko + Indexer MV | Per-provider APR data matching jsinfo. Returns array of providers with: APR, commission, 30d CU/relays, 10k LAVA reward breakdown, per-spec rewards (rewards_last_month), specs, avatar |
-| `GET /validators` | 300s | Chain RPC | Staking pool info (bonded/not_bonded tokens). Validator list is placeholder `[]` |
-| `GET /lava/stakers` | 300s | Chain RPC | Just `{ bonded_tokens }` from staking pool |
 | `GET /lava/specs` | 300s | Chain RPC | All chain specs (raw, used by frontend `useChainNames` hook) |
-| `GET /lava/iprpc` | 300s | — | Placeholder, returns `{ data: [] }` |
 
 ## Pagination Convention
 
 All paginated endpoints accept: `?page=1&limit=20&sort=field&order=asc|desc`
 Response shape: `{ data: T[], pagination: { total, page, limit, pages } }`
 
-The API provides pagination via `request.pagination` (Fastify plugin). Frontend uses `usePaginatedApi` hook or fetches all data client-side (providers page loads `?limit=10000` then sorts with TanStack Table).
+The API provides pagination via `request.pagination` (Fastify plugin). Default max limit is 100 per page, configurable per-route via `config.maxLimit`. Frontend fetches all providers client-side (`?limit=10000`) then sorts with TanStack Table.
 
 ## Frontend Patterns
 
 ### Data Fetching
 - `useApi<T>(url)` — SWR wrapper with 5-min refresh, returns `{ data, isLoading, error }`
-- `usePaginatedApi<T>(url)` — adds pagination state management
 - `useChainNames()` — fetches `/lava/specs` and returns a `getName(chainId)` lookup
 - API base URL from `NEXT_PUBLIC_API_URL`, testnet from `NEXT_PUBLIC_API_URL_TESTNET`
 - Network toggle (Mainnet/Testnet pill in header) switches via `localStorage.setItem("lava-network", "testnet")`
@@ -305,6 +289,10 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 | `ENABLE_HEALTH_PROBE` | `false` | API |
 | `HEALTH_PROBE_REGION` | `Local` | API |
 | `HEALTH_PROBE_INTERVAL_MS` | `30000` | API |
+| `CORS_ORIGINS` | `true` (all) | API — comma-separated origins, e.g. `https://info.lavanet.xyz,http://localhost:3001` |
+| `RATE_LIMIT_MAX` | `100` | API — global rate limit per IP per minute |
+| `COINGECKO_API_URL` | `https://api.coingecko.com/api/v3` | API |
+| `KEYBASE_API_URL` | `https://keybase.io/_/api/1.0` | API |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | Web |
 | `NEXT_PUBLIC_API_URL_TESTNET` | same as above | Web |
 | `NODE_ENV` | `production` | Web |

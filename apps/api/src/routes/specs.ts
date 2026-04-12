@@ -1,7 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { gqlSafe } from "../graphql/client.js";
-import { fetchAllSpecs, fetchProvidersForSpec, fetchIprpcSpecRewards } from "../rpc/lava.js";
+import { fetchAllSpecs, fetchProvidersForSpec } from "../rpc/lava.js";
 import { readHealthSummaryForSpec, readHealthByProviderForSpec } from "../services/health-store.js";
+
+const specIdSchema = {
+  params: {
+    type: "object" as const,
+    properties: { specId: { type: "string" as const, pattern: "^[A-Za-z0-9_-]{1,30}$" } },
+    required: ["specId"] as const,
+  },
+};
 
 export async function specRoutes(app: FastifyInstance) {
   // GET /specs — chain RPC + indexer relay data
@@ -52,7 +60,7 @@ export async function specRoutes(app: FastifyInstance) {
   });
 
   // GET /specs/:specId/stakes — chain RPC + health from Redis
-  app.get<{ Params: { specId: string } }>("/:specId/stakes", { config: { cacheTTL: 300 } }, async (request) => {
+  app.get<{ Params: { specId: string } }>("/:specId/stakes", { schema: specIdSchema, config: { cacheTTL: 300 } }, async (request) => {
     const { specId } = request.params;
     const providers = await fetchProvidersForSpec(specId);
 
@@ -80,7 +88,7 @@ export async function specRoutes(app: FastifyInstance) {
   });
 
   // GET /specs/:specId/health — from Redis
-  app.get<{ Params: { specId: string } }>("/:specId/health", { config: { cacheTTL: 30 } }, async (request) => {
+  app.get<{ Params: { specId: string } }>("/:specId/health", { schema: specIdSchema, config: { cacheTTL: 30 } }, async (request) => {
     const { specId } = request.params;
 
     if (!app.redis) {
@@ -96,7 +104,7 @@ export async function specRoutes(app: FastifyInstance) {
   });
 
   // GET /specs/:specId/charts — indexer GraphQL (materialized view)
-  app.get<{ Params: { specId: string } }>("/:specId/charts", { config: { cacheTTL: 300 } }, async (request) => {
+  app.get<{ Params: { specId: string } }>("/:specId/charts", { schema: specIdSchema, config: { cacheTTL: 300 } }, async (request) => {
     const { specId } = request.params;
 
     const data = await gqlSafe<{
@@ -123,10 +131,4 @@ export async function specRoutes(app: FastifyInstance) {
     };
   });
 
-  // GET /specs/:specId/tracked-info — chain RPC
-  app.get<{ Params: { specId: string } }>("/:specId/tracked-info", { config: { cacheTTL: 300 } }, async (request) => {
-    const { specId } = request.params;
-    const rewards = await fetchIprpcSpecRewards(specId);
-    return { data: rewards };
-  });
 }
