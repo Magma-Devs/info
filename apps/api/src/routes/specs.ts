@@ -13,7 +13,10 @@ const specIdSchema = {
 
 export async function specRoutes(app: FastifyInstance) {
   // GET /specs — chain RPC + indexer relay data
-  app.get("/", { config: { cacheTTL: 300 } }, async () => {
+  app.get("/", {
+    schema: { tags: ["Specs"], summary: "All specs with provider counts and 30d relay data" },
+    config: { cacheTTL: 300 },
+  }, async () => {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     const [specs, relayData] = await Promise.all([
@@ -60,7 +63,10 @@ export async function specRoutes(app: FastifyInstance) {
   });
 
   // GET /specs/:specId/stakes — chain RPC + health from Redis
-  app.get<{ Params: { specId: string } }>("/:specId/stakes", { schema: specIdSchema, config: { cacheTTL: 300 } }, async (request) => {
+  app.get<{ Params: { specId: string } }>("/:specId/stakes", {
+    schema: { ...specIdSchema, tags: ["Specs"], summary: "Providers staked on this spec with health" },
+    config: { cacheTTL: 300 },
+  }, async (request) => {
     const { specId } = request.params;
     const providers = await fetchProvidersForSpec(specId);
 
@@ -88,7 +94,10 @@ export async function specRoutes(app: FastifyInstance) {
   });
 
   // GET /specs/:specId/health — from Redis
-  app.get<{ Params: { specId: string } }>("/:specId/health", { schema: specIdSchema, config: { cacheTTL: 30 } }, async (request) => {
+  app.get<{ Params: { specId: string } }>("/:specId/health", {
+    schema: { ...specIdSchema, tags: ["Specs"], summary: "Health status distribution for a spec" },
+    config: { cacheTTL: 30 },
+  }, async (request) => {
     const { specId } = request.params;
 
     if (!app.redis) {
@@ -104,7 +113,10 @@ export async function specRoutes(app: FastifyInstance) {
   });
 
   // GET /specs/:specId/charts — indexer GraphQL (materialized view)
-  app.get<{ Params: { specId: string } }>("/:specId/charts", { schema: specIdSchema, config: { cacheTTL: 300 } }, async (request) => {
+  app.get<{ Params: { specId: string } }>("/:specId/charts", {
+    schema: { ...specIdSchema, tags: ["Specs"], summary: "Alltime CU/relays for a chain" },
+    config: { cacheTTL: 300 },
+  }, async (request) => {
     const { specId } = request.params;
 
     const data = await gqlSafe<{

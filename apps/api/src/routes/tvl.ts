@@ -3,7 +3,10 @@ import { computeTVL } from "../rpc/lava.js";
 
 export async function tvlRoutes(app: FastifyInstance) {
   // GET /tvl — computed from chain RPC, cached 5 min
-  app.get("/tvl", { config: { cacheTTL: 300 } }, async () => {
+  app.get("/tvl", {
+    schema: { tags: ["TVL"], summary: "Total Value Locked in USD" },
+    config: { cacheTTL: 300 },
+  }, async () => {
     return await computeTVL();
   });
 }

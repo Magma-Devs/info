@@ -12,7 +12,19 @@ interface SearchResult {
 
 export async function searchRoutes(app: FastifyInstance) {
   // GET /search?q=... — all from chain RPC, cached 10 min
-  app.get("/search", { config: { cacheTTL: 600 } }, async (request) => {
+  app.get("/search", {
+    schema: {
+      tags: ["Search"],
+      summary: "Search providers and specs by address, moniker, or name",
+      querystring: {
+        type: "object" as const,
+        properties: {
+          q: { type: "string" as const, description: "Search query (case-insensitive substring match)" },
+        },
+      },
+    },
+    config: { cacheTTL: 600 },
+  }, async (request) => {
     const query = request.query as Record<string, string>;
     const q = query.q?.toLowerCase() ?? "";
 

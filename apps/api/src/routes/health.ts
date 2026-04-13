@@ -2,7 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { fetchLatestBlockHeight } from "../rpc/lava.js";
 
 export async function healthRoutes(app: FastifyInstance) {
-  app.get("/health", async () => {
+  app.get("/health", {
+    schema: {
+      tags: ["Health"],
+      summary: "Basic health check",
+      response: { 200: { type: "object" as const, properties: { health: { type: "string" as const } } } },
+    },
+  }, async () => {
     return { health: "ok" };
   });
 
@@ -19,7 +25,13 @@ export async function healthRoutes(app: FastifyInstance) {
     });
   }
 
-  app.get("/health/status", { config: { cacheTTL: 10 } }, async (_request, reply) => {
+  app.get("/health/status", {
+    schema: {
+      tags: ["Health"],
+      summary: "Detailed health status with block staleness check",
+    },
+    config: { cacheTTL: 10 },
+  }, async (_request, reply) => {
     try {
       const block = await fetchLatestBlockHeight();
       const blockTime = new Date(block.time);
