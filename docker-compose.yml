@@ -35,8 +35,7 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL_MAINNET: ${NEXT_PUBLIC_API_URL_MAINNET:-http://localhost:8080}
-        NEXT_PUBLIC_API_URL_TESTNET: ${NEXT_PUBLIC_API_URL_TESTNET:-http://localhost:8080}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     ports:
       - "3001:3000"
     depends_on:
