@@ -63,6 +63,13 @@ async function main() {
 
   await app.listen({ port: PORT, host: HOST });
   app.log.info(`API server listening on ${HOST}:${PORT}`);
+
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.on(signal, () => {
+      app.log.info(`Received ${signal}, shutting down`);
+      app.close().then(() => process.exit(0));
+    });
+  }
 }
 
 main().catch((err) => {
