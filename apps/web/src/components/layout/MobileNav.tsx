@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, Home, Server, Link2, Gift, Activity, ExternalLink } from "lucide-react";
+import { Menu, X, Home, Server, Link2, Gift, ExternalLink } from "lucide-react";
 
 const TESTNET_URL = process.env.NEXT_PUBLIC_TESTNET_URL ?? "https://info-testnet.lavanet.xyz";
 const MAINNET_URL = process.env.NEXT_PUBLIC_MAINNET_URL ?? "https://info.lavanet.xyz";
@@ -13,7 +13,6 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/providers", label: "Providers", icon: Server },
   { href: "/chains", label: "Chains", icon: Link2 },
-  { href: "/usage", label: "Usage", icon: Activity },
 ];
 
 const EXTERNAL_ITEMS = [

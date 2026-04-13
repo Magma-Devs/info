@@ -140,9 +140,6 @@ export function Header() {
         <a href="https://rewards.lavanet.xyz" className="nav-link" target="_blank" rel="noopener noreferrer">
           Rewards
         </a>
-<Link href="/usage" className={`nav-link ${isActive("/usage") ? "nav-link-selected" : ""}`}>
-          Usage
-        </Link>
       </nav>
 
       <div className="flex items-center gap-4 ml-auto md:gap-2 lg:gap-4">
