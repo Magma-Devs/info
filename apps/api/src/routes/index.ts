@@ -3,7 +3,13 @@ import { gqlSafe } from "../graphql/client.js";
 import { fetchLatestBlockHeight, fetchAllProviders } from "../rpc/lava.js";
 
 export async function indexRoutes(app: FastifyInstance) {
-  app.get("/stats", { config: { cacheTTL: 300 } }, async () => {
+  app.get("/stats", {
+    schema: {
+      tags: ["Index"],
+      summary: "Dashboard stats — alltime totals, 30d totals, stake, provider count, latest block",
+    },
+    config: { cacheTTL: 300 },
+  }, async () => {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10);
@@ -46,7 +52,13 @@ export async function indexRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get("/top-chains", { config: { cacheTTL: 300 } }, async () => {
+  app.get("/top-chains", {
+    schema: {
+      tags: ["Index"],
+      summary: "Top 20 chains by alltime CU",
+    },
+    config: { cacheTTL: 300 },
+  }, async () => {
     const data = await gqlSafe<{
       mvRelayDailies: {
         groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
@@ -69,7 +81,20 @@ export async function indexRoutes(app: FastifyInstance) {
     return { data: chains.slice(0, 20) };
   });
 
-  app.get("/charts", { config: { cacheTTL: 300 } }, async (request) => {
+  app.get("/charts", {
+    schema: {
+      tags: ["Index"],
+      summary: "Daily time-series per chain (CU, relays, QoS)",
+      querystring: {
+        type: "object" as const,
+        properties: {
+          from: { type: "string" as const, description: "Start date (YYYY-MM-DD). Default: 90 days ago" },
+          to: { type: "string" as const, description: "End date (YYYY-MM-DD). Default: today" },
+        },
+      },
+    },
+    config: { cacheTTL: 300 },
+  }, async (request) => {
     const q = request.query as Record<string, string>;
     const to = q.to ? q.to : new Date().toISOString().slice(0, 10);
     const from = q.from

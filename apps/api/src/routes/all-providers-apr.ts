@@ -5,7 +5,10 @@ import { gqlSafe } from "../graphql/client.js";
 export async function allProvidersAprRoutes(app: FastifyInstance) {
   // GET /all_providers_apr — per-provider APR, commission, 30d relays, reward breakdown
   // Matches jsinfo /all_providers_apr response format. Cached 30 min (expensive).
-  app.get("/", { config: { cacheTTL: 1800 } }, async (request) => {
+  app.get("/", {
+    schema: { tags: ["APR"], summary: "Per-provider APR with commission, 30d relays, and reward breakdown" },
+    config: { cacheTTL: 1800 },
+  }, async (request) => {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10);

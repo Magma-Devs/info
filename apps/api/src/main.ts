@@ -6,6 +6,7 @@ import { redisPlugin } from "./plugins/redis.js";
 import { cachePlugin } from "./plugins/cache.js";
 import { paginationPlugin } from "./plugins/pagination.js";
 import { errorHandlerPlugin } from "./plugins/error-handler.js";
+import { swaggerPlugin } from "./plugins/swagger.js";
 import { healthProbePlugin } from "./plugins/health-probe.js";
 import { healthRoutes } from "./routes/health.js";
 import { indexRoutes } from "./routes/index.js";
@@ -42,6 +43,7 @@ async function main() {
     allowList: ["127.0.0.1", "::1"],
   });
   await app.register(errorHandlerPlugin);
+  await app.register(swaggerPlugin);
   await app.register(redisPlugin);
   await app.register(cachePlugin);
   await app.register(paginationPlugin);

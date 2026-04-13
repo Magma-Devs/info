@@ -19,7 +19,20 @@ const addrSchema = {
 
 export async function providerRoutes(app: FastifyInstance) {
   // GET /providers — chain RPC + indexer relay data
-  app.get("/", { config: { cacheTTL: 300 } }, async (request) => {
+  app.get("/", {
+    schema: {
+      tags: ["Providers"],
+      summary: "Paginated provider list with 30d relay stats",
+      querystring: {
+        type: "object" as const,
+        properties: {
+          page: { type: "integer" as const, default: 1 },
+          limit: { type: "integer" as const, default: 20 },
+        },
+      },
+    },
+    config: { cacheTTL: 300 },
+  }, async (request) => {
     const { page, limit, offset } = request.pagination;
 
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
@@ -79,7 +92,14 @@ export async function providerRoutes(app: FastifyInstance) {
   });
 
   // GET /providers/:addr — chain RPC
-  app.get<{ Params: { addr: string } }>("/:addr", { schema: addrSchema, config: { cacheTTL: 300 } }, async (request) => {
+  app.get<{ Params: { addr: string } }>("/:addr", {
+    schema: {
+      ...addrSchema,
+      tags: ["Providers"],
+      summary: "Provider detail — stakes across all specs with health data",
+    },
+    config: { cacheTTL: 300 },
+  }, async (request) => {
     const { addr } = request.params;
     const specs = await fetchAllSpecs();
 
@@ -130,7 +150,14 @@ export async function providerRoutes(app: FastifyInstance) {
   });
 
   // GET /providers/:addr/stakes — chain RPC
-  app.get<{ Params: { addr: string } }>("/:addr/stakes", { schema: addrSchema, config: { cacheTTL: 300 } }, async (request) => {
+  app.get<{ Params: { addr: string } }>("/:addr/stakes", {
+    schema: {
+      ...addrSchema,
+      tags: ["Providers"],
+      summary: "Provider stakes per spec",
+    },
+    config: { cacheTTL: 300 },
+  }, async (request) => {
     const { addr } = request.params;
     const specs = await fetchAllSpecs();
 
@@ -157,7 +184,14 @@ export async function providerRoutes(app: FastifyInstance) {
   });
 
   // GET /providers/:addr/health — from Redis
-  app.get<{ Params: { addr: string } }>("/:addr/health", { schema: addrSchema, config: { cacheTTL: 30 } }, async (request) => {
+  app.get<{ Params: { addr: string } }>("/:addr/health", {
+    schema: {
+      ...addrSchema,
+      tags: ["Providers"],
+      summary: "Provider health probe results (paginated)",
+    },
+    config: { cacheTTL: 30 },
+  }, async (request) => {
     const { addr } = request.params;
     const { page, limit } = request.pagination;
 
@@ -175,7 +209,22 @@ export async function providerRoutes(app: FastifyInstance) {
   });
 
   // GET /providers/:addr/charts — indexer GraphQL (materialized view)
-  app.get<{ Params: { addr: string } }>("/:addr/charts", { schema: addrSchema, config: { cacheTTL: 300 } }, async (request) => {
+  app.get<{ Params: { addr: string } }>("/:addr/charts", {
+    schema: {
+      ...addrSchema,
+      tags: ["Providers"],
+      summary: "Provider relay charts — alltime summary or daily time-series with QoS",
+      querystring: {
+        type: "object" as const,
+        properties: {
+          from: { type: "string" as const, description: "Start date (YYYY-MM-DD)" },
+          to: { type: "string" as const, description: "End date (YYYY-MM-DD)" },
+          chain: { type: "string" as const, description: "Filter by chain/spec ID" },
+        },
+      },
+    },
+    config: { cacheTTL: 300 },
+  }, async (request) => {
     const { addr } = request.params;
     const query = request.query as Record<string, string>;
     const chain = query.chain;
@@ -265,7 +314,20 @@ export async function providerRoutes(app: FastifyInstance) {
   });
 
   // GET /providers/:addr/avatar — Keybase API
-  app.get<{ Params: { addr: string } }>("/:addr/avatar", { schema: addrSchema, config: { cacheTTL: 86400 } }, async (request) => {
+  app.get<{ Params: { addr: string } }>("/:addr/avatar", {
+    schema: {
+      ...addrSchema,
+      tags: ["Providers"],
+      summary: "Provider avatar URL from Keybase identity",
+      querystring: {
+        type: "object" as const,
+        properties: {
+          identity: { type: "string" as const, description: "Keybase identity hint (skips provider metadata lookup)" },
+        },
+      },
+    },
+    config: { cacheTTL: 86400 },
+  }, async (request) => {
     const { addr } = request.params;
     const query = request.query as Record<string, string>;
     const url = await fetchProviderAvatar(addr, query.identity || undefined);
@@ -273,7 +335,14 @@ export async function providerRoutes(app: FastifyInstance) {
   });
 
   // GET /providers/:addr/delegator-rewards — chain RPC
-  app.get<{ Params: { addr: string } }>("/:addr/delegator-rewards", { schema: addrSchema, config: { cacheTTL: 300 } }, async (request) => {
+  app.get<{ Params: { addr: string } }>("/:addr/delegator-rewards", {
+    schema: {
+      ...addrSchema,
+      tags: ["Providers"],
+      summary: "Delegator rewards from dualstaking module",
+    },
+    config: { cacheTTL: 300 },
+  }, async (request) => {
     const { addr } = request.params;
     const rewards = await fetchDelegatorRewards(addr);
     return { data: rewards };
