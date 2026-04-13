@@ -8,10 +8,8 @@ import { MobileNav } from "./MobileNav";
 import { SearchBar } from "./SearchBar";
 import { LastUpdateBadge } from "./LastUpdateBadge";
 import { api } from "@/lib/api-client";
+import { isTestnet, getToggleUrl } from "@/lib/network";
 
-const TESTNET_URL = process.env.NEXT_PUBLIC_TESTNET_URL ?? "https://info-testnet.lavanet.xyz";
-const MAINNET_URL = process.env.NEXT_PUBLIC_MAINNET_URL ?? "https://info.lavanet.xyz";
-const IS_TESTNET = process.env.NEXT_PUBLIC_NETWORK === "testnet";
 const IS_DEV = process.env.NODE_ENV === "development";
 
 function DevToolsMenu() {
@@ -146,17 +144,17 @@ export function Header() {
         {/* Mainnet / Testnet toggle — hidden on mobile (shown in MobileNav instead) */}
         <div
           className="hidden md:flex items-center gap-1 rounded-full p-1 bg-muted cursor-pointer hover:bg-muted/80 transition-all duration-300 ease-in-out hover:shadow-md shrink-0"
-          onClick={() => { window.location.href = IS_TESTNET ? MAINNET_URL : TESTNET_URL; }}
+          onClick={() => { window.location.href = getToggleUrl(); }}
         >
           <div className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
-            !IS_TESTNET
+            !isTestnet()
               ? "bg-primary text-primary-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground hover:scale-105"
           }`}>
             Mainnet
           </div>
           <div className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
-            IS_TESTNET
+            isTestnet()
               ? "bg-primary text-primary-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground hover:scale-105"
           }`}>

@@ -4,10 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X, Home, Server, Link2, Gift, ExternalLink } from "lucide-react";
-
-const TESTNET_URL = process.env.NEXT_PUBLIC_TESTNET_URL ?? "https://info-testnet.lavanet.xyz";
-const MAINNET_URL = process.env.NEXT_PUBLIC_MAINNET_URL ?? "https://info.lavanet.xyz";
-const IS_TESTNET = process.env.NEXT_PUBLIC_NETWORK === "testnet";
+import { isTestnet, getToggleUrl } from "@/lib/network";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -61,17 +58,17 @@ export function MobileNav() {
           {/* Mainnet / Testnet toggle */}
           <div
             className="flex items-center gap-1 rounded-full p-1 bg-muted cursor-pointer mb-3"
-            onClick={() => { window.location.href = IS_TESTNET ? MAINNET_URL : TESTNET_URL; }}
+            onClick={() => { window.location.href = getToggleUrl(); }}
           >
             <div className={`flex-1 text-center px-3 py-1.5 rounded-full text-sm transition-all duration-300 ${
-              !IS_TESTNET
+              !isTestnet()
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground"
             }`}>
               Mainnet
             </div>
             <div className={`flex-1 text-center px-3 py-1.5 rounded-full text-sm transition-all duration-300 ${
-              IS_TESTNET
+              isTestnet()
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground"
             }`}>
