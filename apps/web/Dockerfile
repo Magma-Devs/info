@@ -3,6 +3,9 @@ RUN corepack enable
 WORKDIR /app
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:8080
+ARG NEXT_PUBLIC_NETWORK=mainnet
+ARG NEXT_PUBLIC_MAINNET_URL=http://localhost:3001
+ARG NEXT_PUBLIC_TESTNET_URL=http://localhost:3001
 
 # Copy everything first — ensures any file change busts the cache
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
@@ -12,6 +15,9 @@ COPY apps/web/ apps/web/
 RUN pnpm install --frozen-lockfile
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_NETWORK=$NEXT_PUBLIC_NETWORK
+ENV NEXT_PUBLIC_MAINNET_URL=$NEXT_PUBLIC_MAINNET_URL
+ENV NEXT_PUBLIC_TESTNET_URL=$NEXT_PUBLIC_TESTNET_URL
 RUN pnpm --filter @info/shared build && \
     pnpm --filter @info/web build
 
