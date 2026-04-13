@@ -1,8 +1,21 @@
 name: Build
 
 on:
+<<<<<<<< HEAD:.github/workflows/build.yml
   push:
     branches: [main]
+========
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Service to build and push"
+        required: true
+        type: choice
+        options:
+          - both
+          - api
+          - web
+>>>>>>>> 83fc643 (feat: split CI into build, publish, and deploy workflows):.github/workflows/publish.yml
 
 permissions:
   id-token: write
@@ -62,9 +75,14 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,scope=api,mode=max
 
+<<<<<<<< HEAD:.github/workflows/build.yml
   build-web:
     needs: changes
     if: needs.changes.outputs.web == 'true'
+========
+  publish-web:
+    if: inputs.service == 'web' || inputs.service == 'both'
+>>>>>>>> 83fc643 (feat: split CI into build, publish, and deploy workflows):.github/workflows/publish.yml
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
