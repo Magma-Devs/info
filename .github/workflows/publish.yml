@@ -1,42 +1,27 @@
-name: Build
+name: Publish
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Service to build and push"
+        required: true
+        type: choice
+        options:
+          - both
+          - api
+          - web
 
 permissions:
   id-token: write
   contents: read
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: false
-
 env:
   AWS_REGION: us-east-1
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      api: ${{ steps.filter.outputs.api }}
-      web: ${{ steps.filter.outputs.web }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            api:
-              - 'apps/api/**'
-              - 'packages/shared/**'
-            web:
-              - 'apps/web/**'
-              - 'packages/shared/**'
-
-  build-api:
-    needs: changes
-    if: needs.changes.outputs.api == 'true'
+  publish-api:
+    if: inputs.service == 'api' || inputs.service == 'both'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,9 +47,8 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,scope=api,mode=max
 
-  build-web:
-    needs: changes
-    if: needs.changes.outputs.web == 'true'
+  publish-web:
+    if: inputs.service == 'web' || inputs.service == 'both'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
