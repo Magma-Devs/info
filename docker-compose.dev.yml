@@ -55,4 +55,5 @@ services:
       - ./apps/web/next.config.dev.ts:/app/apps/web/next.config.ts
     environment:
       NODE_ENV: development
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      NEXT_PUBLIC_API_URL_MAINNET: ${NEXT_PUBLIC_API_URL_MAINNET:-http://localhost:8080}
+      NEXT_PUBLIC_API_URL_TESTNET: ${NEXT_PUBLIC_API_URL_TESTNET:-http://localhost:8080}

@@ -199,7 +199,7 @@ The API provides pagination via `request.pagination` (Fastify plugin). Default m
 ### Data Fetching
 - `useApi<T>(url)` — SWR wrapper with 5-min refresh, returns `{ data, isLoading, error }`
 - `useChainNames()` — fetches `/lava/specs` and returns a `getName(chainId)` lookup
-- API base URL from `NEXT_PUBLIC_API_URL`, testnet from `NEXT_PUBLIC_API_URL_TESTNET`
+- API base URL from `NEXT_PUBLIC_API_URL_MAINNET`, testnet from `NEXT_PUBLIC_API_URL_TESTNET`
 - Network toggle (Mainnet/Testnet pill in header) switches via `localStorage.setItem("lava-network", "testnet")`
 
 ### Key Components
@@ -293,7 +293,7 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 | `RATE_LIMIT_MAX` | `100` | API — global rate limit per IP per minute |
 | `COINGECKO_API_URL` | `https://api.coingecko.com/api/v3` | API |
 | `KEYBASE_API_URL` | `https://keybase.io/_/api/1.0` | API |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | Web |
+| `NEXT_PUBLIC_API_URL_MAINNET` | `http://localhost:8080` | Web |
 | `NEXT_PUBLIC_API_URL_TESTNET` | same as above | Web |
 | `NODE_ENV` | `production` | Web |
 
