@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       api: ${{ steps.filter.outputs.api }}
-      indexer: ${{ steps.filter.outputs.indexer }}
       web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v4
@@ -26,10 +25,6 @@ jobs:
           filters: |
             api:
               - 'apps/api/**'
-              - 'packages/db/**'
-              - 'packages/shared/**'
-            indexer:
-              - 'apps/indexer/**'
               - 'packages/db/**'
               - 'packages/shared/**'
             web:
@@ -64,34 +59,6 @@ jobs:
         run: |
           aws ecs update-service --cluster info --service info-api --force-new-deployment
 
-  deploy-indexer:
-    needs: changes
-    if: needs.changes.outputs.indexer == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr
-
-      - name: Build and push Indexer image
-        env:
-          REGISTRY: ${{ steps.ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -f apps/indexer/Dockerfile -t $REGISTRY/info-indexer:$IMAGE_TAG -t $REGISTRY/info-indexer:latest .
-          docker push $REGISTRY/info-indexer:$IMAGE_TAG
-          docker push $REGISTRY/info-indexer:latest
-
-      - name: Update ECS service
-        run: |
-          aws ecs update-service --cluster info --service info-indexer --force-new-deployment
-
   deploy-web:
     needs: changes
     if: needs.changes.outputs.web == 'true'
@@ -112,11 +79,12 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -f apps/web/Dockerfile -t $REGISTRY/info-web:$IMAGE_TAG -t $REGISTRY/info-web:latest .
+          docker build -f apps/web/Dockerfile \
+            --build-arg NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }} \
+            -t $REGISTRY/info-web:$IMAGE_TAG -t $REGISTRY/info-web:latest .
           docker push $REGISTRY/info-web:$IMAGE_TAG
           docker push $REGISTRY/info-web:latest
 
       - name: Update ECS service
         run: |
           aws ecs update-service --cluster info --service info-web --force-new-deployment
-

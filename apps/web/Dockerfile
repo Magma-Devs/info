@@ -25,4 +25,5 @@ COPY --from=builder /app/apps/web/public apps/web/public
 ENV NODE_ENV=production
 USER node
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:3000/ || exit 1
 CMD ["node", "apps/web/server.js"]
