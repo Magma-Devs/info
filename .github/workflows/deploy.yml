@@ -94,6 +94,9 @@ jobs:
           push: true
           build-args: |
             NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_NETWORK=${{ secrets.NEXT_PUBLIC_NETWORK }}
+            NEXT_PUBLIC_MAINNET_URL=${{ secrets.NEXT_PUBLIC_MAINNET_URL }}
+            NEXT_PUBLIC_TESTNET_URL=${{ secrets.NEXT_PUBLIC_TESTNET_URL }}
           tags: |
             ${{ steps.ecr.outputs.registry }}/info-web:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/info-web:latest
