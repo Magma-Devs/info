@@ -1,6 +1,6 @@
 "use client";
 
-import React, { use, useState, useMemo } from "react";
+import React, { use, useState, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
@@ -12,7 +12,7 @@ import { ProviderLink } from "@/components/data/ProviderLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
 import { TimeTooltip } from "@/components/data/TimeTooltip";
 
-const Chart = dynamic(() => import("@/components/data/Chart").then((m) => m.Chart), { ssr: false });
+const ProviderChart = dynamic(() => import("@/components/data/ProviderChart").then((m) => m.ProviderChart), { ssr: false });
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { SortableTable } from "@/components/data/SortableTable";
 import { type ColumnDef, type Row } from "@tanstack/react-table";
@@ -89,6 +89,32 @@ interface DelegatorReward {
   denom: string; amount: string;
 }
 
+/* ─── Mock chart data for dev (toggle via Dev Tools > Mock chart data) ─── */
+function generateProviderMockData(): TimeSeriesEntry[] {
+  const chains = ["ETH1", "LAVA", "COSMOSHUB", "NEAR"];
+  const points: TimeSeriesEntry[] = [];
+  const now = new Date();
+  let seed = 77;
+  const rand = () => { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647; };
+  for (let i = 90; i >= 0; i--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().slice(0, 10);
+    for (const chain of chains) {
+      const base: Record<string, number> = { ETH1: 120000, LAVA: 80000, COSMOSHUB: 40000, NEAR: 20000 };
+      const relays = Math.round((base[chain] || 50000) * (1 + Math.sin(i * 0.12 + chains.indexOf(chain)) * 0.25) * (1 + (90 - i) * 0.002));
+      const dip = i > 35 && i < 50 ? 0.04 : 0;
+      points.push({
+        date: dateStr, chainId: chain, cu: String(relays * 4), relays: String(relays),
+        qosSync: Math.min(1, Math.max(0, 0.996 - dip + (rand() - 0.5) * 0.006)),
+        qosAvailability: Math.min(1, Math.max(0, 0.998 - dip * 0.5 + (rand() - 0.5) * 0.003)),
+        qosLatency: Math.min(1, Math.max(0, 0.994 - dip + (rand() - 0.5) * 0.008)),
+      });
+    }
+  }
+  return points;
+}
+
 export default function ProviderPage({ params }: { params: Promise<{ lavaid: string }> }) {
   const { lavaid } = use(params);
   const { data: provider, isLoading } = useApi<ProviderDetail>(`/providers/${lavaid}`);
@@ -102,7 +128,23 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
     avatarIdentity ? `/providers/${lavaid}/avatar?identity=${avatarIdentity}` : `/providers/${lavaid}/avatar`
   );
 
-  const [chartChain, setChartChain] = useState<string>("all");
+  const [useMockChart, setUseMockChart] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem("lava-mock-chart") === "true",
+  );
+  useEffect(() => {
+    const handler = () => setUseMockChart(localStorage.getItem("lava-mock-chart") === "true");
+    window.addEventListener("mock-chart-toggle", handler);
+    return () => window.removeEventListener("mock-chart-toggle", handler);
+  }, []);
+  const providerChartData = useMemo(() => {
+    if (useMockChart) {
+      const mock = generateProviderMockData();
+      if (chartFrom) return mock.filter((p) => p.date >= chartFrom);
+      return mock;
+    }
+    return tsData?.data;
+  }, [tsData, useMockChart, chartFrom]);
+
   const [copied, setCopied] = useState(false);
   const [stakeFilter, setStakeFilter] = useState<"healthy" | "unhealthy" | "all">("all");
   const [geoFilter, setGeoFilter] = useState<string>("all");
@@ -120,33 +162,6 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
     }
     return { cu30d: cu, relays30d: relays };
   }, [tsData, thirtyDaysAgo]);
-
-  // Build time-series chart data
-  const chartData = useMemo(() => {
-    if (!tsData?.data) return [];
-    const byDay = new Map<string, { date: string; relays: number; cu: number; qS: number; qA: number; qL: number; w: number }>();
-    for (const p of tsData.data) {
-      if (chartChain !== "all" && p.chainId !== chartChain) continue;
-      const existing = byDay.get(p.date);
-      const relays = Number(p.relays);
-      if (existing) {
-        existing.relays += relays;
-        existing.cu += Number(p.cu);
-        if (p.qosSync != null) { existing.qS += p.qosSync * relays; existing.qA += (p.qosAvailability ?? 0) * relays; existing.qL += (p.qosLatency ?? 0) * relays; existing.w += relays; }
-      } else {
-        byDay.set(p.date, { date: p.date, relays, cu: Number(p.cu), qS: (p.qosSync ?? 0) * relays, qA: (p.qosAvailability ?? 0) * relays, qL: (p.qosLatency ?? 0) * relays, w: p.qosSync != null ? relays : 0 });
-      }
-    }
-    return Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date)).map((d) => ({
-      date: d.date, relays: d.relays, cu: d.cu,
-      qosSync: d.w > 0 ? d.qS / d.w : null, qosAvailability: d.w > 0 ? d.qA / d.w : null, qosLatency: d.w > 0 ? d.qL / d.w : null,
-    }));
-  }, [tsData, chartChain]);
-
-  const chainOptions = useMemo(() => {
-    if (!tsData?.data) return [];
-    return [...new Set(tsData.data.map((p) => p.chainId))].sort();
-  }, [tsData]);
 
   // All hooks must be before any early return
   const totalStake = useMemo(() => provider?.stakes.reduce((sum, s) => sum + BigInt(s.stake || "0"), 0n) ?? 0n, [provider]);
@@ -463,48 +478,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
       <div style={{ marginBottom: "20px" }} />
 
       {/* Time-series Chart */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Relays &amp; QoS</CardTitle>
-            <CardDescription>Daily performance</CardDescription>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1">
-              {[{ label: "30d", days: 30 }, { label: "90d", days: 90 }, { label: "1y", days: 365 }, { label: "All", days: 0 }].map((r) => (
-                <button key={r.label} onClick={() => setRangeDays(r.days)}
-                  className={`px-2 py-1 text-xs rounded ${rangeDays === r.days ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted border border-border"}`}>
-                  {r.label}
-                </button>
-              ))}
-            </div>
-            <select
-              value={chartChain}
-              onChange={(e) => setChartChain(e.target.value)}
-              className="bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground"
-            >
-              <option value="all">All Chains</option>
-              {chainOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Chart
-            data={chartData}
-            series={[
-              { key: "relays", label: "Relays", color: "#ac4c39", type: "area" },
-              { key: "qosSync", label: "QoS Sync", color: "#81b29a" },
-              { key: "qosAvailability", label: "QoS Availability", color: "#f2cc8f" },
-              { key: "qosLatency", label: "QoS Latency", color: "#3d405b" },
-            ]}
-            xKey="date"
-            height={350}
-            isLoading={!tsData}
-            brushable
-            toggleable
-          />
-        </CardContent>
-      </Card>
+      <ProviderChart data={providerChartData} isLoading={!useMockChart && !tsData} rangeDays={rangeDays} onRangeChange={setRangeDays} />
 
       <div style={{ marginBottom: "20px" }} />
 

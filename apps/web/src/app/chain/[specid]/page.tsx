@@ -1,6 +1,6 @@
 "use client";
 
-import React, { use, useMemo, useState } from "react";
+import React, { use, useMemo, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { type ColumnDef, type Row } from "@tanstack/react-table";
@@ -12,7 +12,7 @@ import { LavaAmount } from "@/components/data/LavaAmount";
 import { TimeTooltip } from "@/components/data/TimeTooltip";
 import { SortableTable } from "@/components/data/SortableTable";
 
-const Chart = dynamic(() => import("@/components/data/Chart").then((m) => m.Chart), { ssr: false });
+const ChainChart = dynamic(() => import("@/components/data/ChainChart").then((m) => m.ChainChart), { ssr: false });
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { formatNumberKMB } from "@/lib/format";
 import { Users, Coins, Box, Activity, BarChart3, ChevronRight } from "lucide-react";
@@ -65,6 +65,27 @@ interface TimeSeriesEntry {
   qosSync: number | null; qosAvailability: number | null; qosLatency: number | null;
 }
 
+/* ─── Mock chart data for dev (toggle via Dev Tools > Mock chart data) ─── */
+function generateChainMockData(): TimeSeriesEntry[] {
+  const points: TimeSeriesEntry[] = [];
+  const now = new Date();
+  let seed = 99;
+  const rand = () => { seed = (seed * 16807 + 0) % 2147483647; return seed / 2147483647; };
+  for (let i = 90; i >= 0; i--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - i);
+    const relays = Math.round(250000 * (1 + Math.sin(i * 0.08) * 0.2) * (1 + (90 - i) * 0.004));
+    const dip = i > 30 && i < 45 ? 0.05 : 0;
+    points.push({
+      date: date.toISOString().slice(0, 10), cu: String(relays * 6), relays: String(relays),
+      qosSync: Math.min(1, Math.max(0, 0.997 - dip + (rand() - 0.5) * 0.005)),
+      qosAvailability: Math.min(1, Math.max(0, 0.999 - dip * 0.4 + (rand() - 0.5) * 0.002)),
+      qosLatency: Math.min(1, Math.max(0, 0.995 - dip + (rand() - 0.5) * 0.007)),
+    });
+  }
+  return points;
+}
+
 export default function ChainPage({ params }: { params: Promise<{ specid: string }> }) {
   const { specid } = use(params);
   const { data: stakesResp, isLoading } = useApi<{ data: SpecStake[] }>(`/specs/${specid}/stakes`);
@@ -74,20 +95,25 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
   const { data: tsResp } = useApi<{ data: TimeSeriesEntry[] }>(`/specs/${specid}/charts${chartFrom ? `?from=${chartFrom}` : ""}`);
   const { getName } = useChainNames();
 
+  const [useMockChart, setUseMockChart] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem("lava-mock-chart") === "true",
+  );
+  useEffect(() => {
+    const handler = () => setUseMockChart(localStorage.getItem("lava-mock-chart") === "true");
+    window.addEventListener("mock-chart-toggle", handler);
+    return () => window.removeEventListener("mock-chart-toggle", handler);
+  }, []);
+  const chainChartData = useMemo(() => {
+    if (useMockChart) {
+      const mock = generateChainMockData();
+      if (chartFrom) return mock.filter((p) => p.date >= chartFrom);
+      return mock;
+    }
+    return tsResp?.data;
+  }, [tsResp, useMockChart, chartFrom]);
+
   const [stakeFilter, setStakeFilter] = useState<"healthy" | "unhealthy" | "all">("all");
   const [geoFilter, setGeoFilter] = useState<string>("all");
-
-  const chartData = useMemo(() => {
-    if (!tsResp?.data) return [];
-    return tsResp.data.map((d) => ({
-      date: d.date,
-      relays: Number(d.relays),
-      cu: Number(d.cu),
-      qosSync: d.qosSync,
-      qosAvailability: d.qosAvailability,
-      qosLatency: d.qosLatency,
-    }));
-  }, [tsResp]);
 
   const stakes = useMemo(() => stakesResp?.data ?? [], [stakesResp]);
   const totalStake = useMemo(() => stakes.reduce((sum, s) => sum + toBigInt(s.stake), 0n), [stakes]);
@@ -283,38 +309,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
       <div style={{ marginTop: "25px" }} />
 
       {/* Time-series Chart */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Relays &amp; QoS</CardTitle>
-            <CardDescription>Daily performance</CardDescription>
-          </div>
-          <div className="flex gap-1">
-            {[{ label: "30d", days: 30 }, { label: "90d", days: 90 }, { label: "1y", days: 365 }, { label: "All", days: 0 }].map((r) => (
-              <button key={r.label} onClick={() => setRangeDays(r.days)}
-                className={`px-2 py-1 text-xs rounded ${rangeDays === r.days ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted border border-border"}`}>
-                {r.label}
-              </button>
-            ))}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Chart
-            data={chartData}
-            series={[
-              { key: "relays", label: "Relays", color: "#ac4c39", type: "area" },
-              { key: "qosSync", label: "QoS Sync", color: "#81b29a" },
-              { key: "qosAvailability", label: "QoS Availability", color: "#f2cc8f" },
-              { key: "qosLatency", label: "QoS Latency", color: "#3d405b" },
-            ]}
-            xKey="date"
-            height={350}
-            isLoading={!tsResp}
-            brushable
-            toggleable
-          />
-        </CardContent>
-      </Card>
+      <ChainChart data={chainChartData} isLoading={!useMockChart && !tsResp} rangeDays={rangeDays} onRangeChange={setRangeDays} />
 
       <div style={{ marginTop: "25px" }} />
 

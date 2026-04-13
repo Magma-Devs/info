@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -91,8 +91,8 @@ export function SortableTable<T>({
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <>
-                <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
+              <Fragment key={row.id}>
+                <tr className="border-b border-border/50 hover:bg-muted/30">
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className={`px-4 py-3 text-foreground${
                       (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
@@ -108,7 +108,7 @@ export function SortableTable<T>({
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
