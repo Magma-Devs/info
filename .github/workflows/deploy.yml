@@ -34,6 +34,7 @@ jobs:
   deploy-api:
     if: inputs.service == 'api' || inputs.service == 'both'
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -79,6 +80,7 @@ jobs:
   deploy-web:
     if: inputs.service == 'web' || inputs.service == 'both'
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:

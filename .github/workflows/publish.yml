@@ -23,6 +23,7 @@ jobs:
   publish-api:
     if: inputs.service == 'api' || inputs.service == 'both'
     runs-on: ubuntu-latest
+    environment: mainnet
     steps:
       - uses: actions/checkout@v4
 
@@ -50,6 +51,7 @@ jobs:
   publish-web:
     if: inputs.service == 'web' || inputs.service == 'both'
     runs-on: ubuntu-latest
+    environment: mainnet
     steps:
       - uses: actions/checkout@v4
 
