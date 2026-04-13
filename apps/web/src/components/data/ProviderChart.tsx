@@ -4,7 +4,6 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
-  Line,
   Area,
   AreaChart,
   XAxis,
@@ -25,19 +24,9 @@ import { BarChart3, Loader2, ChevronsUpDown } from "lucide-react";
 import { formatNumberKMB } from "@/lib/format";
 import { getChainIcon } from "@/lib/chain-icons";
 
-/* ─── Constants ─── */
-
-const CHAIN_COLORS = [
-  "#ff4d4d", "#33cc33", "#6666ff", "#e6e600", "#ff4dff",
-  "#33cccc", "#ffa64d", "#9966ff", "#33cc99", "#ff4da6",
-  "#cc9933", "#6699ff", "#cc33cc", "#99cc33", "#ff6633",
-];
-
-const ALL_CHAINS_COLOR = "#8b5cf6";
-
 /* ─── Types ─── */
 
-interface ChartPoint {
+interface TimeSeriesEntry {
   date: string;
   chainId: string;
   cu: string;
@@ -47,71 +36,14 @@ interface ChartPoint {
   qosLatency: number | null;
 }
 
-interface IndexChartProps {
-  data: ChartPoint[] | undefined;
+interface ProviderChartProps {
+  data: TimeSeriesEntry[] | undefined;
   isLoading: boolean;
   rangeDays: number;
   onRangeChange: (days: number) => void;
 }
 
-/* ─── Helpers ─── */
-
-function getQoSColor(score: number): string {
-  if (score >= 0.99) return "#00ff00";
-  if (score >= 0.97) return "#ffff00";
-  return "#ff0000";
-}
-
-/* ─── Custom Tooltip ─── */
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const qosEntry = payload.find((p: any) => p.dataKey === "qos");
-  const qos: number | undefined = qosEntry?.value;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const areaEntries = payload.filter((p: any) => p.dataKey !== "qos");
-
-  return (
-    <div className="custom-tooltip">
-      <p className="font-semibold text-sm mb-2">
-        {new Date(label).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })}
-      </p>
-      {qos != null && (
-        <p className="text-sm">
-          <span
-            className="inline-block w-3 h-3 rounded-full mr-2"
-            style={{ backgroundColor: getQoSColor(qos) }}
-          />
-          <span className="font-bold">QoS Score:</span> {qos.toFixed(4)}
-        </p>
-      )}
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      {areaEntries.map((entry: any) => (
-        <p key={entry.dataKey} className="text-sm">
-          <span
-            className="inline-block w-3 h-3 rounded-full mr-2"
-            style={{ backgroundColor: entry.color || entry.stroke }}
-          />
-          <span className="font-bold">{entry.name}</span>:{" "}
-          <span className="font-mono">
-            {Number(entry.value).toLocaleString()}
-          </span>{" "}
-          Relays
-        </p>
-      ))}
-    </div>
-  );
-}
-
-/* ─── Chain Icon (with fallback) ─── */
+/* ─── Chain Icon ─── */
 
 function ChainIcon({ chainId }: { chainId: string }) {
   const [failed, setFailed] = useState(false);
@@ -208,123 +140,90 @@ function ChainCombobox({
   );
 }
 
+/* ─── Custom Tooltip ─── */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ChartTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+
+  return (
+    <div className="custom-tooltip">
+      <p className="font-semibold text-sm mb-2">
+        {new Date(label).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })}
+      </p>
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {payload.map((entry: any) => (
+        <p key={entry.dataKey} className="text-sm">
+          <span
+            className="inline-block w-3 h-3 rounded-full mr-2"
+            style={{ backgroundColor: entry.color || entry.stroke }}
+          />
+          <span className="font-bold">{entry.name}</span>:{" "}
+          <span className="font-mono">
+            {Number(entry.value).toLocaleString()}
+          </span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════
-   IndexChart — main component
+   ProviderChart — Relays & CU with dual Y-axis
    ═══════════════════════════════════════════════ */
 
-export function IndexChart({
+export function ProviderChart({
   data,
   isLoading,
   rangeDays,
   onRangeChange,
-}: IndexChartProps) {
+}: ProviderChartProps) {
   const [showAllChains, setShowAllChains] = useState(true);
   const [selectedChains, setSelectedChains] = useState<string[]>([]);
 
-  // Sort chains by total relays desc, assign colors
-  const { allChains, chainColors } = useMemo(() => {
-    if (!data?.length)
-      return {
-        allChains: [] as string[],
-        chainColors: {} as Record<string, string>,
-      };
+  const allChains = useMemo(() => {
+    if (!data?.length) return [];
     const totals: Record<string, number> = {};
     for (const p of data) {
       totals[p.chainId] = (totals[p.chainId] || 0) + Number(p.relays);
     }
-    const sorted = Object.entries(totals)
+    return Object.entries(totals)
       .sort((a, b) => b[1] - a[1])
       .map(([c]) => c);
-    const colors: Record<string, string> = {};
-    sorted.forEach((chain, i) => {
-      colors[chain] = CHAIN_COLORS[i % CHAIN_COLORS.length];
-    });
-    return { allChains: sorted, chainColors: colors };
   }, [data]);
 
-  // Pivot data: one row per date with totalRelays + per-chain columns + combined QoS
+  // Pivot: one row per date with total relays + total CU
   const chartData = useMemo(() => {
     if (!data?.length) return [];
 
-    const byDay = new Map<string, Record<string, number | string | null>>();
+    const activeChains =
+      !showAllChains && selectedChains.length > 0
+        ? new Set(selectedChains)
+        : null;
+
+    const byDay = new Map<string, { date: string; relays: number; cu: number }>();
 
     for (const p of data) {
+      if (activeChains && !activeChains.has(p.chainId)) continue;
       const relays = Number(p.relays);
+      const cu = Number(p.cu);
       const existing = byDay.get(p.date);
-
       if (existing) {
-        existing[p.chainId] =
-          ((existing[p.chainId] as number) || 0) + relays;
-        (existing as Record<string, number>).totalRelays += relays;
-        if (p.qosSync != null) {
-          (existing as Record<string, number>)._qSW +=
-            (p.qosSync ?? 0) * relays;
-          (existing as Record<string, number>)._qAW +=
-            (p.qosAvailability ?? 0) * relays;
-          (existing as Record<string, number>)._qLW +=
-            (p.qosLatency ?? 0) * relays;
-          (existing as Record<string, number>)._w += relays;
-        }
+        existing.relays += relays;
+        existing.cu += cu;
       } else {
-        byDay.set(p.date, {
-          date: p.date,
-          [p.chainId]: relays,
-          totalRelays: relays,
-          _qSW: (p.qosSync ?? 0) * relays,
-          _qAW: (p.qosAvailability ?? 0) * relays,
-          _qLW: (p.qosLatency ?? 0) * relays,
-          _w: p.qosSync != null ? relays : 0,
-        });
+        byDay.set(p.date, { date: p.date, relays, cu });
       }
     }
 
-    return Array.from(byDay.values())
-      .sort((a, b) => (a.date as string).localeCompare(b.date as string))
-      .map((d) => {
-        const w = d._w as number;
-        const sync = w > 0 ? (d._qSW as number) / w : null;
-        const avail = w > 0 ? (d._qAW as number) / w : null;
-        const lat = w > 0 ? (d._qLW as number) / w : null;
-        const qos =
-          sync != null && avail != null && lat != null
-            ? Math.pow(sync * avail * lat, 1 / 3)
-            : null;
-
-        const result: Record<string, unknown> = { ...d, qos };
-        delete result._qSW;
-        delete result._qAW;
-        delete result._qLW;
-        delete result._w;
-        return result;
-      });
-  }, [data]);
-
-  // Areas to render: "All Chains" aggregate OR individual chains
-  const areasToRender = useMemo(() => {
-    const areas: { key: string; color: string; label: string }[] = [];
-    if (showAllChains) {
-      areas.push({
-        key: "totalRelays",
-        color: ALL_CHAINS_COLOR,
-        label: "All Chains",
-      });
-    }
-    for (const chain of selectedChains) {
-      areas.push({
-        key: chain,
-        color: chainColors[chain] || "#888",
-        label: chain,
-      });
-    }
-    if (areas.length === 0) {
-      areas.push({
-        key: "totalRelays",
-        color: ALL_CHAINS_COLOR,
-        label: "All Chains",
-      });
-    }
-    return areas;
-  }, [showAllChains, selectedChains, chainColors]);
+    return Array.from(byDay.values()).sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
+  }, [data, showAllChains, selectedChains]);
 
   const toggleChain = useCallback((chain: string) => {
     setSelectedChains((prev) =>
@@ -347,46 +246,39 @@ export function IndexChart({
     return (
       <div className="flex flex-wrap justify-center gap-4 text-sm">
         {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        {entries.map((entry: any, i: number) => {
-          const isQos = entry.dataKey === "qos";
-          return (
-            <div key={i} className="flex items-center gap-1.5">
-              <span
-                className="inline-block w-3 h-3 rounded-full"
-                style={{
-                  backgroundColor: isQos ? "#00ff00" : entry.color,
-                }}
-              />
-              <span>{entry.value}</span>
-            </div>
-          );
-        })}
+        {entries.map((entry: any, i: number) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <span
+              className="inline-block w-3 h-3 rounded-full"
+              style={{ backgroundColor: entry.color }}
+            />
+            <span>{entry.value}</span>
+          </div>
+        ))}
       </div>
     );
   }, []);
-
-  /* ─── Render ─── */
 
   return (
     <Card>
       <CardHeader className="flex flex-col gap-4 pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <CardTitle>QoS Score and Selected Chains</CardTitle>
+          <CardTitle>Relays &amp; CU</CardTitle>
           <CardDescription>
-            Showing QoS score and relay counts for selected chains
+            Daily relay and compute unit volume
           </CardDescription>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
-              id="allChains"
+              id="provAllChains"
               checked={showAllChains}
               onChange={(e) => handleAllChainsChange(e.target.checked)}
               className="accent-[#ac4c39]"
             />
             <label
-              htmlFor="allChains"
+              htmlFor="provAllChains"
               className="text-sm font-medium whitespace-nowrap cursor-pointer"
             >
               All Chains
@@ -441,45 +333,14 @@ export function IndexChart({
                 margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
               >
                 <defs>
-                  <linearGradient
-                    id="qosGradient"
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
-                    <stop
-                      offset="5%"
-                      stopColor="#00ff00"
-                      stopOpacity={0.8}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor="#ff0000"
-                      stopOpacity={0.8}
-                    />
+                  <linearGradient id="fillRelays" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ac4c39" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#ac4c39" stopOpacity={0.1} />
                   </linearGradient>
-                  {areasToRender.map(({ key, color }) => (
-                    <linearGradient
-                      key={key}
-                      id={`fill-${key}`}
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="5%"
-                        stopColor={color}
-                        stopOpacity={0.8}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor={color}
-                        stopOpacity={0.1}
-                      />
-                    </linearGradient>
-                  ))}
+                  <linearGradient id="fillCU" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#81b29a" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#81b29a" stopOpacity={0.1} />
+                  </linearGradient>
                 </defs>
 
                 <CartesianGrid
@@ -502,6 +363,7 @@ export function IndexChart({
                   }
                 />
 
+                {/* Left Y-axis: Relays */}
                 <YAxis
                   yAxisId="left"
                   orientation="left"
@@ -509,38 +371,34 @@ export function IndexChart({
                   tickFormatter={(v: number) => formatNumberKMB(v)}
                 />
 
+                {/* Right Y-axis: CU */}
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  domain={[0, 1]}
                   tick={{ fill: "#888", fontSize: 12 }}
+                  tickFormatter={(v: number) => formatNumberKMB(v)}
                 />
 
                 <Tooltip content={<ChartTooltip />} />
                 <Legend content={renderLegend} />
 
-                <Line
-                  yAxisId="right"
+                <Area
+                  yAxisId="left"
                   type="monotone"
-                  dataKey="qos"
-                  name="QoS Score"
-                  stroke="url(#qosGradient)"
-                  strokeWidth={2}
-                  dot={false}
+                  dataKey="relays"
+                  name="Relays"
+                  stroke="#ac4c39"
+                  fill="url(#fillRelays)"
                 />
 
-                {areasToRender.map(({ key, color, label }) => (
-                  <Area
-                    key={key}
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey={key}
-                    name={label}
-                    stroke={color}
-                    fill={`url(#fill-${key})`}
-                    stackId="chains"
-                  />
-                ))}
+                <Area
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="cu"
+                  name="CU"
+                  stroke="#81b29a"
+                  fill="url(#fillCU)"
+                />
 
                 <Brush
                   dataKey="date"
@@ -558,7 +416,7 @@ export function IndexChart({
                   <AreaChart>
                     <Area
                       type="monotone"
-                      dataKey="totalRelays"
+                      dataKey="relays"
                       stroke="#888"
                       fill="#262626"
                       fillOpacity={0.4}
