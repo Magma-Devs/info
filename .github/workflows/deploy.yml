@@ -94,9 +94,10 @@ jobs:
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           CLUSTER: info-${{ inputs.environment }}
+          ENV: ${{ inputs.environment }}
           TAG: ${{ inputs.tag }}
         run: |
-          IMAGE="${REGISTRY}/info-web:${TAG}"
+          IMAGE="${REGISTRY}/info-web:${ENV}-${TAG}"
 
           echo "Deploying ${IMAGE} to ${CLUSTER}/web"
 
