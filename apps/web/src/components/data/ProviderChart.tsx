@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -20,9 +20,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { BarChart3, Loader2, ChevronsUpDown } from "lucide-react";
+import { BarChart3, Loader2 } from "lucide-react";
 import { formatNumberKMB } from "@/lib/format";
-import { getChainIcon } from "@/lib/chain-icons";
 
 /* ─── Types ─── */
 
@@ -41,103 +40,6 @@ interface ProviderChartProps {
   isLoading: boolean;
   rangeDays: number;
   onRangeChange: (days: number) => void;
-}
-
-/* ─── Chain Icon ─── */
-
-function ChainIcon({ chainId }: { chainId: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <span className="w-4 h-4 rounded-sm shrink-0 bg-muted flex items-center justify-center text-[9px] font-medium text-muted-foreground">
-        {chainId.charAt(0).toUpperCase()}
-      </span>
-    );
-  }
-  return (
-    <img
-      src={getChainIcon(chainId)}
-      alt=""
-      className="w-4 h-4 rounded-sm shrink-0"
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
-/* ─── Chain Multi-Select Combobox ─── */
-
-function ChainCombobox({
-  chains,
-  selected,
-  onToggle,
-}: {
-  chains: string[];
-  selected: string[];
-  onToggle: (chain: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const filtered = chains
-    .filter((c) => c.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => a.localeCompare(b));
-  const count = selected.length;
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-[200px] bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground hover:bg-muted/50"
-      >
-        <span className="truncate">
-          {count > 0
-            ? `${count} chain${count > 1 ? "s" : ""} selected`
-            : "Select chains..."}
-        </span>
-        <ChevronsUpDown className="h-4 w-4 ml-2 opacity-50 shrink-0" />
-      </button>
-      {open && (
-        <div className="absolute top-full mt-1 right-0 w-[220px] bg-card border border-border rounded-lg shadow-lg z-50 p-2">
-          <input
-            type="text"
-            placeholder="Search chains..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-muted border border-border rounded px-2 py-1.5 text-sm text-foreground mb-2 outline-none"
-          />
-          <div className="max-h-[200px] overflow-y-auto">
-            {filtered.map((chain) => (
-              <label
-                key={chain}
-                className="flex items-center gap-2 p-1.5 text-sm cursor-pointer hover:bg-muted rounded"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.includes(chain)}
-                  onChange={() => onToggle(chain)}
-                  className="accent-[#ac4c39] shrink-0"
-                />
-                <ChainIcon chainId={chain} />
-                <span className="truncate">{chain}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 /* ─── Custom Tooltip ─── */
@@ -182,8 +84,7 @@ export function ProviderChart({
   rangeDays,
   onRangeChange,
 }: ProviderChartProps) {
-  const [showAllChains, setShowAllChains] = useState(true);
-  const [selectedChains, setSelectedChains] = useState<string[]>([]);
+  const [selectedChain, setSelectedChain] = useState("all");
 
   const allChains = useMemo(() => {
     if (!data?.length) return [];
@@ -200,15 +101,10 @@ export function ProviderChart({
   const chartData = useMemo(() => {
     if (!data?.length) return [];
 
-    const activeChains =
-      !showAllChains && selectedChains.length > 0
-        ? new Set(selectedChains)
-        : null;
-
     const byDay = new Map<string, { date: string; relays: number; cu: number }>();
 
     for (const p of data) {
-      if (activeChains && !activeChains.has(p.chainId)) continue;
+      if (selectedChain !== "all" && p.chainId !== selectedChain) continue;
       const relays = Number(p.relays);
       const cu = Number(p.cu);
       const existing = byDay.get(p.date);
@@ -223,20 +119,7 @@ export function ProviderChart({
     return Array.from(byDay.values()).sort((a, b) =>
       a.date.localeCompare(b.date),
     );
-  }, [data, showAllChains, selectedChains]);
-
-  const toggleChain = useCallback((chain: string) => {
-    setSelectedChains((prev) =>
-      prev.includes(chain)
-        ? prev.filter((c) => c !== chain)
-        : [...prev, chain],
-    );
-  }, []);
-
-  const handleAllChainsChange = useCallback((checked: boolean) => {
-    setShowAllChains(checked);
-    if (checked) setSelectedChains([]);
-  }, []);
+  }, [data, selectedChain]);
 
   // Custom legend
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -269,26 +152,14 @@ export function ProviderChart({
           </CardDescription>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="provAllChains"
-              checked={showAllChains}
-              onChange={(e) => handleAllChainsChange(e.target.checked)}
-              className="accent-[#ac4c39]"
-            />
-            <label
-              htmlFor="provAllChains"
-              className="text-sm font-medium whitespace-nowrap cursor-pointer"
-            >
-              All Chains
-            </label>
-          </div>
-          <ChainCombobox
-            chains={allChains}
-            selected={selectedChains}
-            onToggle={toggleChain}
-          />
+          <select
+            value={selectedChain}
+            onChange={(e) => setSelectedChain(e.target.value)}
+            className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground"
+          >
+            <option value="all">All Chains</option>
+            {allChains.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
           <div className="flex gap-1">
             {[
               { label: "30d", days: 30 },
