@@ -105,7 +105,7 @@ function ConsumerDropdown({ consumers, selected, onChange }: { consumers: string
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-[120px] bg-card border border-border rounded px-2 py-1.5 text-xs text-foreground hover:bg-muted/50"
+        className="flex items-center justify-between h-8 min-w-[140px] bg-card border border-border rounded-md px-2 text-xs text-foreground hover:bg-muted/50"
       >
         <span className="truncate">{selected === "all" ? "All Consumers" : selected}</span>
         <ChevronsUpDown className="h-3 w-3 ml-1 opacity-50 shrink-0" />
