@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -16,7 +16,8 @@ import {
 } from "recharts";
 import { useApi } from "@/hooks/use-api";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { BarChart3, Loader2 } from "lucide-react";
+import { BarChart3, Loader2, ChevronsUpDown } from "lucide-react";
+import { getChainIcon } from "@/lib/chain-icons";
 
 /* ─── Types ─── */
 
@@ -79,6 +80,74 @@ const PROVIDER_COLORS = [
   "#0082FB", "#00D7B0", "#0EBA53", "#7679FF", "#E76678",
   "#EC25F4", "#FF1D70", "#FF3900", "#FFBC0A", "#1F4A30",
 ];
+
+/* ─── Chain Icon ─── */
+
+function ChainIcon({ chainId }: { chainId: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="w-4 h-4 rounded-sm shrink-0 bg-muted flex items-center justify-center text-[9px] font-medium text-muted-foreground">
+        {chainId.charAt(0).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <img src={getChainIcon(chainId)} alt="" className="w-4 h-4 rounded-sm shrink-0" loading="lazy" onError={() => setFailed(true)} />
+  );
+}
+
+/* ─── Chain Multi-Select Combobox ─── */
+
+function ChainCombobox({ chains, selected, onToggle }: { chains: string[]; selected: string[]; onToggle: (chain: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const filtered = chains.filter((c) => c.toLowerCase().includes(search.toLowerCase())).sort((a, b) => a.localeCompare(b));
+  const count = selected.length;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center justify-between w-[200px] bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground hover:bg-muted/50"
+      >
+        <span className="truncate">{count > 0 ? `${count} chain${count > 1 ? "s" : ""} selected` : "Select chains..."}</span>
+        <ChevronsUpDown className="h-4 w-4 ml-2 opacity-50 shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute top-full mt-1 right-0 w-[220px] bg-card border border-border rounded-lg shadow-lg z-50 p-2">
+          <input
+            type="text"
+            placeholder="Search chains..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-muted border border-border rounded px-2 py-1.5 text-sm text-foreground mb-2 outline-none"
+          />
+          <div className="max-h-[200px] overflow-y-auto">
+            {filtered.map((chain) => (
+              <label key={chain} className="flex items-center gap-2 p-1.5 text-sm cursor-pointer hover:bg-muted rounded">
+                <input type="checkbox" checked={selected.includes(chain)} onChange={() => onToggle(chain)} className="accent-[#ac4c39] shrink-0" />
+                <ChainIcon chainId={chain} />
+                <span className="truncate">{chain}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ─── Helpers ─── */
 
@@ -213,19 +282,42 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
   const [mode, setMode] = useState<MetricMode>("wrs");
   const [days, setDays] = useState(7);
   const [consumer, setConsumer] = useState("all");
-  const [chainId, setChainId] = useState("all");
+  const [showAllChains, setShowAllChains] = useState(true);
+  const [selectedChains, setSelectedChains] = useState<string[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   const from = formatDateParam(daysAgo(days));
   const to = formatDateParam(new Date());
 
-  const params = new URLSearchParams({ from, to, consumer, chain_id: chainId });
+  const params = new URLSearchParams({ from, to, consumer });
   const { data, isLoading } = useApi<ProviderResponse>(`/providers/${providerId}/optimizer-metrics?${params}`);
+
+  const allChains = useMemo(() => {
+    if (!data?.possibleChainIds) return [];
+    return [...data.possibleChainIds].sort((a, b) => a.localeCompare(b));
+  }, [data]);
+
+  const sortedConsumers = useMemo(() => {
+    if (!data?.possibleConsumers) return [];
+    return [...data.possibleConsumers].sort((a, b) => a.localeCompare(b));
+  }, [data]);
 
   const chartData = useMemo(() => {
     if (!data?.metrics?.length) return [];
-    return data.metrics.map((m) => ({ ...m, time: m.hourly_timestamp }));
-  }, [data]);
+    const activeChains = !showAllChains && selectedChains.length > 0 ? new Set(selectedChains) : null;
+    return data.metrics
+      .filter((m) => !activeChains || activeChains.has(m.chain_id))
+      .map((m) => ({ ...m, time: m.hourly_timestamp }));
+  }, [data, showAllChains, selectedChains]);
+
+  const toggleChain = useCallback((chain: string) => {
+    setSelectedChains((prev) => prev.includes(chain) ? prev.filter((c) => c !== chain) : [...prev, chain]);
+  }, []);
+
+  const handleAllChainsChange = useCallback((checked: boolean) => {
+    setShowAllChains(checked);
+    if (checked) setSelectedChains([]);
+  }, []);
 
   const series = mode === "wrs" ? WRS_SERIES : SCORE_SERIES;
   const isUnavailable = !isLoading && data && "error" in data;
@@ -252,16 +344,15 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
               <button onClick={() => { setMode("wrs"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "wrs" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>WRS</button>
               <button onClick={() => { setMode("scores"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "scores" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>Scores</button>
             </div>
-            {data?.possibleChainIds && data.possibleChainIds.length > 1 && (
-              <select value={chainId} onChange={(e) => setChainId(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
-                <option value="all">All Chains</option>
-                {data.possibleChainIds.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            )}
-            {data?.possibleConsumers && data.possibleConsumers.length > 1 && (
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="optAllChains" checked={showAllChains} onChange={(e) => handleAllChainsChange(e.target.checked)} className="accent-[#ac4c39]" />
+              <label htmlFor="optAllChains" className="text-sm font-medium whitespace-nowrap cursor-pointer">All Chains</label>
+            </div>
+            <ChainCombobox chains={allChains} selected={selectedChains} onToggle={toggleChain} />
+            {sortedConsumers.length > 1 && (
               <select value={consumer} onChange={(e) => setConsumer(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
                 <option value="all">All Consumers</option>
-                {data.possibleConsumers.map((c) => <option key={c} value={c}>{c.length > 20 ? `${c.slice(0, 10)}...${c.slice(-6)}` : c}</option>)}
+                {sortedConsumers.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             )}
             <RangeButtons days={days} onChange={setDays} />
@@ -338,6 +429,11 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
     return data.providers.slice(0, 10);
   }, [data]);
 
+  const sortedConsumers = useMemo(() => {
+    if (!data?.possibleConsumers) return [];
+    return [...data.possibleConsumers].sort((a, b) => a.localeCompare(b));
+  }, [data]);
+
   const chartData = useMemo(() => {
     if (!data?.metrics) return [];
 
@@ -401,10 +497,10 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
             <select value={metric} onChange={(e) => setMetric(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
               {metricOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
-            {data?.possibleConsumers && data.possibleConsumers.length > 1 && (
+            {sortedConsumers.length > 1 && (
               <select value={consumer} onChange={(e) => setConsumer(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
                 <option value="all">All Consumers</option>
-                {data.possibleConsumers.map((c) => <option key={c} value={c}>{c.length > 20 ? `${c.slice(0, 10)}...${c.slice(-6)}` : c}</option>)}
+                {sortedConsumers.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             )}
             <RangeButtons days={days} onChange={setDays} />
