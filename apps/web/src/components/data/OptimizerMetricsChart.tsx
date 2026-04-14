@@ -391,7 +391,24 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
    ChainOptimizerChart
    ═══════════════════════════════════════════════ */
 
+const WRS_METRIC_OPTIONS = [
+  { value: "selection_composite", label: "Composite" },
+  { value: "selection_latency", label: "Latency" },
+  { value: "selection_availability", label: "Availability" },
+  { value: "selection_sync", label: "Sync" },
+  { value: "selection_stake", label: "Stake" },
+];
+
+const SCORE_METRIC_OPTIONS = [
+  { value: "latency_score", label: "Latency" },
+  { value: "availability_score", label: "Availability" },
+  { value: "sync_score", label: "Sync" },
+  { value: "generic_score", label: "Reputation" },
+  { value: "node_error_rate", label: "Error Rate" },
+];
+
 export function ChainOptimizerChart({ specId }: { specId: string }) {
+  const [mode, setMode] = useState<MetricMode>("wrs");
   const [days, setDays] = useState(7);
   const [consumer, setConsumer] = useState("all");
   const [metric, setMetric] = useState("selection_composite");
@@ -433,6 +450,10 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
     return Array.from(byTime.values()).sort((a, b) => String(a.time).localeCompare(String(b.time)));
   }, [data, metric, topProviders]);
 
+  const providerColors = useMemo(() =>
+    new Map(topProviders.map((p, i) => [p.slice(0, 10), PROVIDER_COLORS[i % PROVIDER_COLORS.length]])),
+  [topProviders]);
+
   const series: SeriesConfig[] = useMemo(() =>
     topProviders.map((p, i) => ({
       key: p.slice(0, 10),
@@ -443,6 +464,13 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
 
   const isUnavailable = !isLoading && data && "error" in data;
 
+  const metricOptions = mode === "wrs" ? WRS_METRIC_OPTIONS : SCORE_METRIC_OPTIONS;
+
+  const handleModeChange = useCallback((newMode: MetricMode) => {
+    setMode(newMode);
+    setMetric(newMode === "wrs" ? "selection_composite" : "latency_score");
+  }, []);
+
   const toggleSeries = useCallback((key: string) => {
     setHidden((prev) => {
       const next = new Set(prev);
@@ -452,27 +480,19 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
     });
   }, []);
 
-  const metricOptions = [
-    { value: "selection_composite", label: "WRS Composite" },
-    { value: "selection_latency", label: "WRS Latency" },
-    { value: "selection_availability", label: "WRS Availability" },
-    { value: "selection_sync", label: "WRS Sync" },
-    { value: "selection_stake", label: "WRS Stake" },
-    { value: "latency_score", label: "Latency Score" },
-    { value: "availability_score", label: "Availability Score" },
-    { value: "sync_score", label: "Sync Score" },
-    { value: "generic_score", label: "Reputation Score" },
-  ];
-
   return (
     <Card>
       <CardHeader className="flex flex-col gap-4 pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <CardTitle className="flex items-center gap-2">Consumer Optimizer Metrics <ModeInfo mode={metric.startsWith("selection_") ? "wrs" : "scores"} /></CardTitle>
+          <CardTitle className="flex items-center gap-2">Consumer Optimizer Metrics <ModeInfo mode={mode} /></CardTitle>
           <CardDescription>Provider performance as seen by consumers</CardDescription>
         </div>
         {!isUnavailable && (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex rounded-md border border-border overflow-hidden text-xs">
+              <button onClick={() => handleModeChange("wrs")} className={`px-3 py-1.5 transition-colors ${mode === "wrs" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>WRS</button>
+              <button onClick={() => handleModeChange("scores")} className={`px-3 py-1.5 transition-colors ${mode === "scores" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>Scores</button>
+            </div>
             <select value={metric} onChange={(e) => setMetric(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
               {metricOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -526,18 +546,22 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-            <div className="flex flex-wrap justify-center gap-3 mt-4">
-              {series.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => toggleSeries(s.key)}
-                  className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted/50"
-                  style={{ opacity: hidden.has(s.key) ? 0.35 : 1 }}
-                >
-                  <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: s.color }} />
-                  <span>{s.label}</span>
-                </button>
-              ))}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-4">
+              {topProviders.map((addr, i) => {
+                const key = addr.slice(0, 10);
+                const color = PROVIDER_COLORS[i % PROVIDER_COLORS.length];
+                return (
+                  <button
+                    key={key}
+                    onClick={() => toggleSeries(key)}
+                    className="flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 text-left"
+                    style={{ opacity: hidden.has(key) ? 0.35 : 1 }}
+                  >
+                    <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                    <span className="text-xs font-mono truncate">{addr}</span>
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
