@@ -8,7 +8,7 @@ import { MobileNav } from "./MobileNav";
 import { SearchBar } from "./SearchBar";
 import { LastUpdateBadge } from "./LastUpdateBadge";
 import { api } from "@/lib/api-client";
-import { isTestnet, getToggleUrl } from "@/lib/network";
+import { IS_TESTNET, getToggleUrl } from "@/lib/network";
 
 const IS_DEV = process.env.NODE_ENV === "development";
 
@@ -147,14 +147,14 @@ export function Header() {
           onClick={() => { window.location.href = getToggleUrl(); }}
         >
           <div className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
-            !isTestnet()
+            !IS_TESTNET
               ? "bg-primary text-primary-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground hover:scale-105"
           }`}>
             Mainnet
           </div>
           <div className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
-            isTestnet()
+            IS_TESTNET
               ? "bg-primary text-primary-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground hover:scale-105"
           }`}>

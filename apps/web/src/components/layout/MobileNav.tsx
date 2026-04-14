@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X, Home, Server, Link2, Gift, ExternalLink } from "lucide-react";
-import { isTestnet, getToggleUrl } from "@/lib/network";
+import { IS_TESTNET, getToggleUrl } from "@/lib/network";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -61,14 +61,14 @@ export function MobileNav() {
             onClick={() => { window.location.href = getToggleUrl(); }}
           >
             <div className={`flex-1 text-center px-3 py-1.5 rounded-full text-sm transition-all duration-300 ${
-              !isTestnet()
+              !IS_TESTNET
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground"
             }`}>
               Mainnet
             </div>
             <div className={`flex-1 text-center px-3 py-1.5 rounded-full text-sm transition-all duration-300 ${
-              isTestnet()
+              IS_TESTNET
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground"
             }`}>
