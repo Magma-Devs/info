@@ -37,7 +37,7 @@ async function main() {
     },
   });
 
-  await app.register(cors, { origin: CORS_ORIGINS, methods: ["GET", "HEAD", "OPTIONS"] });
+  await app.register(cors, { origin: CORS_ORIGINS, methods: ["GET", "HEAD", "OPTIONS", "DELETE"] });
   await app.register(helmet, { contentSecurityPolicy: false }); // CSP handled by Next.js frontend
   await app.register(rateLimit, {
     max: parseInt(process.env.RATE_LIMIT_MAX ?? "100", 10),
