@@ -167,13 +167,7 @@ export default function DashboardPage() {
   return (
     <>
       {/* Stat Cards */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-5">
-        <StatCard
-          label="Relays (All Time)"
-          value={formatNumberKMB(stats?.totalRelays ?? 0)}
-          fullValue={formatNumber(stats?.totalRelays ?? 0)}
-          icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
-        />
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-4">
         <StatCard
           label="Relays (30 days)"
           value={formatNumberKMB(stats?.relays30d ?? 0)}
