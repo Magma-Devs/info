@@ -82,12 +82,12 @@ function avg(values: number[]): number {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-/** Aggregate normalized rows by hourly_timestamp — averages all metric values per hour. */
-function aggregateByTimestamp(rows: NormalizedMetric[]): NormalizedMetric[] {
+/** Aggregate normalized rows — averages metric values within each group key. */
+function aggregate(rows: NormalizedMetric[], keyFn: (r: NormalizedMetric) => string): NormalizedMetric[] {
   const groups = new Map<string, NormalizedMetric[]>();
 
   for (const r of rows) {
-    const key = String(r.hourly_timestamp);
+    const key = keyFn(r);
     const group = groups.get(key);
     if (group) group.push(r);
     else groups.set(key, [r]);
@@ -185,7 +185,7 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
       `;
 
       const normalized = rows.map(normalizeRow);
-      const metrics = aggregateByTimestamp(normalized);
+      const metrics = aggregate(normalized, (r) => String(r.hourly_timestamp));
 
       const possibleConsumers = [...new Set(rows.map(r => r.consumer).filter(Boolean))] as string[];
       const possibleChainIds = [...new Set(rows.map(r => r.chain).filter(Boolean))] as string[];
@@ -248,7 +248,7 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
       `;
 
       const normalized = rows.map(normalizeRow);
-      const metrics = aggregateByTimestamp(normalized);
+      const metrics = aggregate(normalized, (r) => `${r.provider}:::${r.hourly_timestamp}`);
 
       const possibleConsumers = [...new Set(rows.map(r => r.consumer).filter(Boolean))] as string[];
       const providers = [...new Set(rows.map(r => r.provider).filter(Boolean))] as string[];
