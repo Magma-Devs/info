@@ -118,6 +118,8 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
 
   const stakes = useMemo(() => stakesResp?.data ?? [], [stakesResp]);
   const totalStake = useMemo(() => stakes.reduce((sum, s) => sum + toBigInt(s.stake), 0n), [stakes]);
+  const cu30d = useMemo(() => stakes.reduce((sum, s) => sum + Number(s.cuSum30d ?? 0), 0), [stakes]);
+  const relays30d = useMemo(() => stakes.reduce((sum, s) => sum + Number(s.relaySum30d ?? 0), 0), [stakes]);
   const totalDelegation = useMemo(() => stakes.reduce((sum, s) => sum + toBigInt(s.delegation), 0n), [stakes]);
   const healthyCnt = useMemo(() => stakes.filter(s => s.health?.status === "healthy").length, [stakes]);
   const unhealthyCnt = useMemo(() => stakes.filter(s => s.health?.status === "unhealthy").length, [stakes]);
@@ -292,8 +294,8 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
             )}
           </div>
         } />
-        <StatCard label="Total CU" value={formatNumberKMB(summaryResp?.data?.cu ?? "0")} icon={<Box className="h-4 w-4 text-muted-foreground" />} />
-        <StatCard label="Total Relays" value={formatNumberKMB(summaryResp?.data?.relays ?? "0")} icon={<Activity className="h-4 w-4 text-muted-foreground" />} />
+        <StatCard label="CU (30d)" value={formatNumberKMB(cu30d)} icon={<Box className="h-4 w-4 text-muted-foreground" />} />
+        <StatCard label="Relays (30d)" value={formatNumberKMB(relays30d)} icon={<Activity className="h-4 w-4 text-muted-foreground" />} />
         <StatCard label="Total Stake" value={<LavaAmount amount={totalStake.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
       </div>
 
