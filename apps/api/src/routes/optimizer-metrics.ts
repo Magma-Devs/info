@@ -68,6 +68,44 @@ function normalizeRow(m: MetricRow) {
   };
 }
 
+type NormalizedMetric = ReturnType<typeof normalizeRow>;
+
+const METRIC_KEYS = [
+  "latency_score", "availability_score", "sync_score", "generic_score",
+  "node_error_rate", "entry_index",
+  "selection_availability", "selection_latency", "selection_sync",
+  "selection_stake", "selection_composite",
+] as const;
+
+function avg(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+/** Aggregate normalized rows by hourly_timestamp — averages all metric values per hour. */
+function aggregateByTimestamp(rows: NormalizedMetric[]): NormalizedMetric[] {
+  const groups = new Map<string, NormalizedMetric[]>();
+
+  for (const r of rows) {
+    const key = String(r.hourly_timestamp);
+    const group = groups.get(key);
+    if (group) group.push(r);
+    else groups.set(key, [r]);
+  }
+
+  const result: NormalizedMetric[] = [];
+  for (const [, group] of groups) {
+    const base = { ...group[0] };
+    for (const k of METRIC_KEYS) {
+      const values = group.map((r) => r[k]).filter((v): v is number => v != null);
+      (base as Record<string, unknown>)[k] = values.length > 0 ? avg(values) : null;
+    }
+    result.push(base);
+  }
+
+  return result;
+}
+
 function defaultFrom(): Date {
   const d = new Date();
   d.setMonth(d.getMonth() - 1);
@@ -146,7 +184,8 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
         ORDER BY hourly_timestamp
       `;
 
-      const metrics = rows.map(normalizeRow);
+      const normalized = rows.map(normalizeRow);
+      const metrics = aggregateByTimestamp(normalized);
 
       const possibleConsumers = [...new Set(rows.map(r => r.consumer).filter(Boolean))] as string[];
       const possibleChainIds = [...new Set(rows.map(r => r.chain).filter(Boolean))] as string[];
@@ -208,7 +247,8 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
         ORDER BY hourly_timestamp
       `;
 
-      const metrics = rows.map(normalizeRow);
+      const normalized = rows.map(normalizeRow);
+      const metrics = aggregateByTimestamp(normalized);
 
       const possibleConsumers = [...new Set(rows.map(r => r.consumer).filter(Boolean))] as string[];
       const providers = [...new Set(rows.map(r => r.provider).filter(Boolean))] as string[];

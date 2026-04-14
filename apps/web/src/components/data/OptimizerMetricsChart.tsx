@@ -11,7 +11,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   Brush,
 } from "recharts";
 import { useApi } from "@/hooks/use-api";
@@ -58,23 +57,29 @@ interface SeriesConfig {
   key: string;
   label: string;
   color: string;
+  description?: string;
 }
 
 const WRS_SERIES: SeriesConfig[] = [
-  { key: "selection_composite", label: "Composite", color: "#0082FB" },
-  { key: "selection_latency", label: "Latency", color: "#00D7B0" },
-  { key: "selection_availability", label: "Availability", color: "#0EBA53" },
-  { key: "selection_sync", label: "Sync", color: "#7679FF" },
-  { key: "selection_stake", label: "Stake", color: "#E76678" },
+  { key: "selection_composite", label: "Composite", color: "#0082FB", description: "Overall combined score used for provider selection" },
+  { key: "selection_latency", label: "Latency", color: "#00D7B0", description: "Latency component of the selection weight" },
+  { key: "selection_availability", label: "Availability", color: "#0EBA53", description: "Availability component of the selection weight" },
+  { key: "selection_sync", label: "Sync", color: "#7679FF", description: "Sync component of the selection weight" },
+  { key: "selection_stake", label: "Stake", color: "#E76678", description: "Stake component of the selection weight" },
 ];
 
 const SCORE_SERIES: SeriesConfig[] = [
-  { key: "latency_score", label: "Latency", color: "#0082FB" },
-  { key: "availability_score", label: "Availability", color: "#00D7B0" },
-  { key: "sync_score", label: "Sync", color: "#0EBA53" },
-  { key: "generic_score", label: "Reputation", color: "#E76678" },
-  { key: "node_error_rate", label: "Error Rate", color: "#FF3900" },
+  { key: "latency_score", label: "Latency", color: "#0082FB", description: "Lower is better. Measures response time" },
+  { key: "availability_score", label: "Availability", color: "#00D7B0", description: "Higher is better. Measures uptime" },
+  { key: "sync_score", label: "Sync", color: "#0EBA53", description: "Higher is better. Measures block sync accuracy" },
+  { key: "generic_score", label: "Reputation", color: "#E76678", description: "Overall reputation score" },
+  { key: "node_error_rate", label: "Error Rate", color: "#FF3900", description: "Lower is better. Rate of node errors" },
 ];
+
+const MODE_DESCRIPTIONS: Record<MetricMode, string> = {
+  wrs: "WRS normalized selection scores range from 0 to 1, where higher is better. These scores reflect how the provider is weighted in the Weighted Random Selection algorithm.",
+  scores: "Raw quality scores as reported by consumers. These measure actual provider performance metrics.",
+};
 
 const PROVIDER_COLORS = [
   "#0082FB", "#00D7B0", "#0EBA53", "#7679FF", "#E76678",
@@ -189,31 +194,40 @@ function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
-/* ─── Custom Legend ─── */
+/* ─── Metric Legend Grid ─── */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function renderLegend(hidden: Set<string>, onToggle: (key: string) => void) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (props: any) => {
-    const entries = props?.payload;
-    if (!entries) return null;
-    return (
-      <div className="flex flex-wrap justify-center gap-4 text-sm mt-2">
-        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        {entries.map((entry: any, i: number) => (
-          <button
-            key={i}
-            onClick={() => onToggle(entry.dataKey)}
-            className="flex items-center gap-1.5 cursor-pointer"
-            style={{ opacity: hidden.has(entry.dataKey) ? 0.3 : 1 }}
-          >
-            <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }} />
-            <span>{entry.value}</span>
-          </button>
-        ))}
-      </div>
-    );
-  };
+function MetricLegend({ series, hidden, onToggle }: { series: SeriesConfig[]; hidden: Set<string>; onToggle: (key: string) => void }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-4">
+      {series.map((s) => (
+        <button
+          key={s.key}
+          onClick={() => onToggle(s.key)}
+          className="flex items-start gap-2 p-2 rounded-md hover:bg-muted/50 text-left transition-opacity"
+          style={{ opacity: hidden.has(s.key) ? 0.35 : 1 }}
+        >
+          <span className="inline-block w-3 h-3 rounded-full mt-0.5 shrink-0" style={{ backgroundColor: s.color }} />
+          <div>
+            <span className="text-sm font-medium">{s.label}</span>
+            <p className="text-xs text-muted-foreground leading-tight">{s.description}</p>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Mode Info Tooltip ─── */
+
+function ModeInfo({ mode }: { mode: MetricMode }) {
+  return (
+    <span className="relative group">
+      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-muted text-muted-foreground text-[10px] font-bold cursor-help">?</span>
+      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-2 bg-card border border-border rounded-md text-xs text-muted-foreground shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50">
+        {MODE_DESCRIPTIONS[mode]}
+      </span>
+    </span>
+  );
 }
 
 /* ─── Shared Empty / Loading / Unavailable States ─── */
@@ -340,9 +354,12 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
         </div>
         {!isUnavailable && (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex rounded-md border border-border overflow-hidden text-xs">
-              <button onClick={() => { setMode("wrs"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "wrs" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>WRS</button>
-              <button onClick={() => { setMode("scores"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "scores" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>Scores</button>
+            <div className="flex items-center gap-1.5">
+              <div className="flex rounded-md border border-border overflow-hidden text-xs">
+                <button onClick={() => { setMode("wrs"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "wrs" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>WRS</button>
+                <button onClick={() => { setMode("scores"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "scores" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>Scores</button>
+              </div>
+              <ModeInfo mode={mode} />
             </div>
             <div className="flex items-center gap-2">
               <input type="checkbox" id="optAllChains" checked={showAllChains} onChange={(e) => handleAllChainsChange(e.target.checked)} className="accent-[#ac4c39]" />
@@ -361,47 +378,49 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
       </CardHeader>
       <CardContent>
         {isUnavailable ? <ChartUnavailable /> : isLoading ? <ChartLoading /> : chartData.length === 0 ? <ChartEmpty /> : (
-          <div className="h-[350px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 14.9%)" />
-                <XAxis
-                  dataKey="time"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                  minTickGap={32}
-                  tick={{ fill: "#888", fontSize: 12 }}
-                  tickFormatter={formatTimestamp}
-                />
-                <YAxis
-                  tick={{ fill: "#888", fontSize: 12 }}
-                  tickFormatter={(v: number) => v.toFixed(2)}
-                />
-                <Tooltip content={<ChartTooltip />} />
-                <Legend content={renderLegend(hidden, toggleSeries)} />
+          <>
+            <div className="h-[350px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 14.9%)" />
+                  <XAxis
+                    dataKey="time"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    minTickGap={32}
+                    tick={{ fill: "#888", fontSize: 12 }}
+                    tickFormatter={formatTimestamp}
+                  />
+                  <YAxis
+                    tick={{ fill: "#888", fontSize: 12 }}
+                    tickFormatter={(v: number) => v.toFixed(2)}
+                  />
+                  <Tooltip content={<ChartTooltip />} />
 
-                {series.map((s) =>
-                  hidden.has(s.key) ? null : (
-                    <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} dot={false} strokeWidth={2} />
-                  )
-                )}
+                  {series.map((s) =>
+                    hidden.has(s.key) ? null : (
+                      <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} dot={false} strokeWidth={2} />
+                    )
+                  )}
 
-                <Brush
-                  dataKey="time"
-                  height={30}
-                  stroke="rgba(136, 136, 136, 0.3)"
-                  fill="#0a0a0a"
-                  travellerWidth={10}
-                  tickFormatter={formatTimestamp}
-                >
-                  <AreaChart>
-                    <Area type="monotone" dataKey={series[0].key} stroke="#888" fill="#262626" fillOpacity={0.4} />
-                  </AreaChart>
-                </Brush>
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
+                  <Brush
+                    dataKey="time"
+                    height={30}
+                    stroke="rgba(136, 136, 136, 0.3)"
+                    fill="#0a0a0a"
+                    travellerWidth={10}
+                    tickFormatter={formatTimestamp}
+                  >
+                    <AreaChart>
+                      <Area type="monotone" dataKey={series[0].key} stroke="#888" fill="#262626" fillOpacity={0.4} />
+                    </AreaChart>
+                  </Brush>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <MetricLegend series={series} hidden={hidden} onToggle={toggleSeries} />
+          </>
         )}
       </CardContent>
     </Card>
@@ -509,47 +528,61 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
       </CardHeader>
       <CardContent>
         {isUnavailable ? <ChartUnavailable /> : isLoading ? <ChartLoading /> : chartData.length === 0 ? <ChartEmpty /> : (
-          <div className="h-[350px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 14.9%)" />
-                <XAxis
-                  dataKey="time"
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={8}
-                  minTickGap={32}
-                  tick={{ fill: "#888", fontSize: 12 }}
-                  tickFormatter={formatTimestamp}
-                />
-                <YAxis
-                  tick={{ fill: "#888", fontSize: 12 }}
-                  tickFormatter={(v: number) => v.toFixed(2)}
-                />
-                <Tooltip content={<ChartTooltip />} />
-                <Legend content={renderLegend(hidden, toggleSeries)} />
+          <>
+            <div className="h-[350px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 14.9%)" />
+                  <XAxis
+                    dataKey="time"
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={8}
+                    minTickGap={32}
+                    tick={{ fill: "#888", fontSize: 12 }}
+                    tickFormatter={formatTimestamp}
+                  />
+                  <YAxis
+                    tick={{ fill: "#888", fontSize: 12 }}
+                    tickFormatter={(v: number) => v.toFixed(2)}
+                  />
+                  <Tooltip content={<ChartTooltip />} />
 
-                {series.map((s) =>
-                  hidden.has(s.key) ? null : (
-                    <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} dot={false} strokeWidth={2} />
-                  )
-                )}
+                  {series.map((s) =>
+                    hidden.has(s.key) ? null : (
+                      <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} dot={false} strokeWidth={2} />
+                    )
+                  )}
 
-                <Brush
-                  dataKey="time"
-                  height={30}
-                  stroke="rgba(136, 136, 136, 0.3)"
-                  fill="#0a0a0a"
-                  travellerWidth={10}
-                  tickFormatter={formatTimestamp}
+                  <Brush
+                    dataKey="time"
+                    height={30}
+                    stroke="rgba(136, 136, 136, 0.3)"
+                    fill="#0a0a0a"
+                    travellerWidth={10}
+                    tickFormatter={formatTimestamp}
+                  >
+                    <AreaChart>
+                      <Area type="monotone" dataKey={series[0]?.key ?? "time"} stroke="#888" fill="#262626" fillOpacity={0.4} />
+                    </AreaChart>
+                  </Brush>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex flex-wrap justify-center gap-3 mt-4">
+              {series.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => toggleSeries(s.key)}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded text-sm hover:bg-muted/50"
+                  style={{ opacity: hidden.has(s.key) ? 0.35 : 1 }}
                 >
-                  <AreaChart>
-                    <Area type="monotone" dataKey={series[0]?.key ?? "time"} stroke="#888" fill="#262626" fillOpacity={0.4} />
-                  </AreaChart>
-                </Brush>
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
+                  <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: s.color }} />
+                  <span>{s.label}</span>
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
