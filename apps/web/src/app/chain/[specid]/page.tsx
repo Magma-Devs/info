@@ -300,7 +300,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
       <div style={{ marginTop: "25px" }} />
 
       {/* Optimizer Metrics — from relays DB */}
-      <ChainOptimizerChart specId={specid} />
+      <ChainOptimizerChart specId={specid} providerInfo={stakesResp?.data} />
 
       <div style={{ marginTop: "25px" }} />
 

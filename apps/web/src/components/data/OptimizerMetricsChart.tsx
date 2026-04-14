@@ -86,6 +86,25 @@ const PROVIDER_COLORS = [
   "#EC25F4", "#FF1D70", "#FF3900", "#FFBC0A", "#1F4A30",
 ];
 
+/* ─── Provider Avatar ─── */
+
+function ProviderAvatar({ url, moniker }: { url: string; moniker?: string }) {
+  const [failed, setFailed] = useState(false);
+  const { data } = useApi<{ url: string | null }>(url);
+
+  if (failed || !data?.url) {
+    return (
+      <span className="w-5 h-5 rounded-full shrink-0 bg-muted flex items-center justify-center text-[9px] font-medium text-muted-foreground">
+        {(moniker || "?").charAt(0).toUpperCase()}
+      </span>
+    );
+  }
+
+  return (
+    <img src={data.url} alt="" className="w-5 h-5 rounded-full shrink-0" loading="lazy" onError={() => setFailed(true)} />
+  );
+}
+
 /* ─── Consumer Dropdown ─── */
 
 function ConsumerDropdown({ consumers, selected, onChange }: { consumers: string[]; selected: string; onChange: (c: string) => void }) {
@@ -407,7 +426,13 @@ const SCORE_METRIC_OPTIONS = [
   { value: "node_error_rate", label: "Error Rate" },
 ];
 
-export function ChainOptimizerChart({ specId }: { specId: string }) {
+interface ProviderInfo {
+  provider: string;
+  moniker?: string;
+  identity?: string;
+}
+
+export function ChainOptimizerChart({ specId, providerInfo }: { specId: string; providerInfo?: ProviderInfo[] }) {
   const [mode, setMode] = useState<MetricMode>("wrs");
   const [days, setDays] = useState(7);
   const [consumer, setConsumer] = useState("all");
@@ -419,6 +444,14 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
 
   const params = new URLSearchParams({ from, to, consumer });
   const { data, isLoading } = useApi<SpecResponse>(`/specs/${specId}/optimizer-metrics?${params}`);
+
+  const providerMap = useMemo(() => {
+    const map = new Map<string, ProviderInfo>();
+    if (providerInfo) {
+      for (const p of providerInfo) map.set(p.provider, p);
+    }
+    return map;
+  }, [providerInfo]);
 
   const topProviders = useMemo(() => {
     if (!data?.providers) return [];
@@ -468,7 +501,7 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
 
   const handleModeChange = useCallback((newMode: MetricMode) => {
     setMode(newMode);
-    setMetric(newMode === "wrs" ? "selection_composite" : "latency_score");
+    setMetric(newMode === "wrs" ? "selection_composite" : "generic_score");
   }, []);
 
   const toggleSeries = useCallback((key: string) => {
@@ -550,6 +583,9 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
               {topProviders.map((addr, i) => {
                 const key = addr.slice(0, 10);
                 const color = PROVIDER_COLORS[i % PROVIDER_COLORS.length];
+                const info = providerMap.get(addr);
+                const moniker = info?.moniker;
+                const avatarUrl = info?.identity ? `/providers/${addr}/avatar?identity=${info.identity}` : null;
                 return (
                   <button
                     key={key}
@@ -558,7 +594,17 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
                     style={{ opacity: hidden.has(key) ? 0.35 : 1 }}
                   >
                     <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                    <span className="text-xs font-mono truncate">{addr}</span>
+                    {avatarUrl ? (
+                      <ProviderAvatar url={avatarUrl} moniker={moniker} />
+                    ) : (
+                      <span className="w-5 h-5 rounded-full shrink-0 bg-muted flex items-center justify-center text-[9px] font-medium text-muted-foreground">
+                        {(moniker || addr).charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <div className="min-w-0">
+                      {moniker && <span className="text-xs font-medium block truncate">{moniker}</span>}
+                      <span className="text-[10px] font-mono text-muted-foreground block truncate">{addr.slice(0, 12)}...{addr.slice(-4)}</span>
+                    </div>
                   </button>
                 );
               })}
