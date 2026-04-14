@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/card";
 import { BarChart3, Loader2 } from "lucide-react";
 import { formatNumberKMB } from "@/lib/format";
+import { ChainSelect } from "./ChainSelect";
 
 /* ─── Types ─── */
 
@@ -152,14 +153,7 @@ export function ProviderChart({
           </CardDescription>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <select
-            value={selectedChain}
-            onChange={(e) => setSelectedChain(e.target.value)}
-            className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground"
-          >
-            <option value="all">All Chains</option>
-            {allChains.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <ChainSelect chains={allChains} selected={selectedChain} onChange={setSelectedChain} />
           <div className="flex gap-1">
             {[
               { label: "30d", days: 30 },

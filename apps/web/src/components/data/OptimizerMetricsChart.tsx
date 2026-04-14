@@ -16,6 +16,7 @@ import {
 import { useApi } from "@/hooks/use-api";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { BarChart3, Loader2, ChevronsUpDown } from "lucide-react";
+import { ChainSelect } from "./ChainSelect";
 
 /* ─── Types ─── */
 
@@ -325,10 +326,7 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
               <button onClick={() => { setMode("wrs"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "wrs" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>WRS</button>
               <button onClick={() => { setMode("scores"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "scores" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>Scores</button>
             </div>
-            <select value={chainId} onChange={(e) => setChainId(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
-              <option value="all">All Chains</option>
-              {allChains.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <ChainSelect chains={allChains} selected={chainId} onChange={setChainId} />
             {sortedConsumers.length > 1 && (
               <ConsumerDropdown consumers={sortedConsumers} selected={consumer} onChange={setConsumer} />
             )}
