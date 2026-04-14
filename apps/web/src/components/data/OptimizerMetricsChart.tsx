@@ -1,10 +1,24 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Line,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  Brush,
+} from "recharts";
 import { useApi } from "@/hooks/use-api";
-import { Chart } from "./Chart";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Loader2 } from "lucide-react";
+
+/* ─── Types ─── */
 
 interface OptimizerMetric {
   hourly_timestamp: string;
@@ -39,7 +53,13 @@ interface SpecResponse {
 
 type MetricMode = "wrs" | "scores";
 
-const WRS_SERIES = [
+interface SeriesConfig {
+  key: string;
+  label: string;
+  color: string;
+}
+
+const WRS_SERIES: SeriesConfig[] = [
   { key: "selection_composite", label: "Composite", color: "#0082FB" },
   { key: "selection_latency", label: "Latency", color: "#00D7B0" },
   { key: "selection_availability", label: "Availability", color: "#0EBA53" },
@@ -47,13 +67,20 @@ const WRS_SERIES = [
   { key: "selection_stake", label: "Stake", color: "#E76678" },
 ];
 
-const SCORE_SERIES = [
+const SCORE_SERIES: SeriesConfig[] = [
   { key: "latency_score", label: "Latency", color: "#0082FB" },
   { key: "availability_score", label: "Availability", color: "#00D7B0" },
   { key: "sync_score", label: "Sync", color: "#0EBA53" },
   { key: "generic_score", label: "Reputation", color: "#E76678" },
   { key: "node_error_rate", label: "Error Rate", color: "#FF3900" },
 ];
+
+const PROVIDER_COLORS = [
+  "#0082FB", "#00D7B0", "#0EBA53", "#7679FF", "#E76678",
+  "#EC25F4", "#FF1D70", "#FF3900", "#FFBC0A", "#1F4A30",
+];
+
+/* ─── Helpers ─── */
 
 function formatDateParam(d: Date): string {
   return d.toISOString().split("T")[0];
@@ -65,13 +92,129 @@ function daysAgo(n: number): Date {
   return d;
 }
 
-// --- Provider Optimizer Chart ---
+function formatTimestamp(v: string): string {
+  return new Date(v).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatTimestampFull(v: string): string {
+  return new Date(v).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+/* ─── Custom Tooltip ─── */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ChartTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="custom-tooltip">
+      <p className="font-semibold text-sm mb-2">{formatTimestampFull(label)}</p>
+      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+      {payload.map((entry: any) => (
+        <p key={entry.dataKey} className="text-sm">
+          <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: entry.color || entry.stroke }} />
+          <span className="font-bold">{entry.name}</span>:{" "}
+          <span className="font-mono">{Number(entry.value).toFixed(4)}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Custom Legend ─── */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function renderLegend(hidden: Set<string>, onToggle: (key: string) => void) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (props: any) => {
+    const entries = props?.payload;
+    if (!entries) return null;
+    return (
+      <div className="flex flex-wrap justify-center gap-4 text-sm mt-2">
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        {entries.map((entry: any, i: number) => (
+          <button
+            key={i}
+            onClick={() => onToggle(entry.dataKey)}
+            className="flex items-center gap-1.5 cursor-pointer"
+            style={{ opacity: hidden.has(entry.dataKey) ? 0.3 : 1 }}
+          >
+            <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: entry.color }} />
+            <span>{entry.value}</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
+}
+
+/* ─── Shared Empty / Loading / Unavailable States ─── */
+
+function ChartLoading() {
+  return (
+    <div className="flex flex-col items-center justify-center text-muted-foreground h-[350px]">
+      <Loader2 className="h-8 w-8 mb-3 opacity-30 animate-spin" />
+      <span className="text-sm">Loading chart data...</span>
+    </div>
+  );
+}
+
+function ChartEmpty() {
+  return (
+    <div className="flex flex-col items-center justify-center text-muted-foreground h-[350px]">
+      <BarChart3 className="h-10 w-10 mb-3 opacity-20" />
+      <span className="text-sm">No optimizer metrics available</span>
+      <span className="text-xs opacity-60 mt-1">No data for this time range</span>
+    </div>
+  );
+}
+
+function ChartUnavailable() {
+  return (
+    <div className="flex flex-col items-center justify-center text-muted-foreground h-[350px]">
+      <BarChart3 className="h-10 w-10 mb-3 opacity-20" />
+      <span className="text-sm">Optimizer metrics unavailable</span>
+      <span className="text-xs opacity-60 mt-1">Relays database not connected</span>
+    </div>
+  );
+}
+
+/* ─── Range Buttons ─── */
+
+function RangeButtons({ days, onChange }: { days: number; onChange: (d: number) => void }) {
+  return (
+    <div className="flex gap-1">
+      {[
+        { label: "2d", days: 2 },
+        { label: "7d", days: 7 },
+        { label: "30d", days: 30 },
+        { label: "90d", days: 90 },
+      ].map((r) => (
+        <button
+          key={r.label}
+          onClick={() => onChange(r.days)}
+          className={`px-2 py-1 text-xs rounded ${
+            days === r.days
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-muted border border-border"
+          }`}
+        >
+          {r.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   ProviderOptimizerChart
+   ═══════════════════════════════════════════════ */
 
 export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
   const [mode, setMode] = useState<MetricMode>("wrs");
   const [days, setDays] = useState(7);
   const [consumer, setConsumer] = useState("all");
   const [chainId, setChainId] = useState("all");
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   const from = formatDateParam(daysAgo(days));
   const to = formatDateParam(new Date());
@@ -80,81 +223,109 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
   const { data, isLoading } = useApi<ProviderResponse>(`/providers/${providerId}/optimizer-metrics?${params}`);
 
   const chartData = useMemo(() => {
-    if (!data?.metrics) return [];
-    return data.metrics.map((m) => ({
-      time: new Date(m.hourly_timestamp).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-      ...m,
-    }));
+    if (!data?.metrics?.length) return [];
+    return data.metrics.map((m) => ({ ...m, time: m.hourly_timestamp }));
   }, [data]);
 
   const series = mode === "wrs" ? WRS_SERIES : SCORE_SERIES;
-
   const isUnavailable = !isLoading && data && "error" in data;
+
+  const toggleSeries = useCallback((key: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" /> Consumer Optimizer Metrics
-            </CardTitle>
-            <CardDescription>How consumers perceive this provider</CardDescription>
-          </div>
-          {!isUnavailable && (
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex rounded-md border border-border overflow-hidden text-xs">
-                <button onClick={() => setMode("wrs")} className={`px-3 py-1.5 transition-colors ${mode === "wrs" ? "bg-accent text-white" : "text-muted-foreground hover:text-foreground"}`}>WRS</button>
-                <button onClick={() => setMode("scores")} className={`px-3 py-1.5 transition-colors ${mode === "scores" ? "bg-accent text-white" : "text-muted-foreground hover:text-foreground"}`}>Scores</button>
-              </div>
-              <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
-                <option value={2}>2 days</option>
-                <option value={7}>7 days</option>
-                <option value={30}>30 days</option>
-                <option value={90}>90 days</option>
-              </select>
-              {data?.possibleChainIds && data.possibleChainIds.length > 1 && (
-                <select value={chainId} onChange={(e) => setChainId(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
-                  <option value="all">All Chains</option>
-                  {data.possibleChainIds.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              )}
-              {data?.possibleConsumers && data.possibleConsumers.length > 1 && (
-                <select value={consumer} onChange={(e) => setConsumer(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
-                  <option value="all">All Consumers</option>
-                  {data.possibleConsumers.map((c) => <option key={c} value={c}>{c.length > 20 ? `${c.slice(0, 10)}...${c.slice(-6)}` : c}</option>)}
-                </select>
-              )}
-            </div>
-          )}
+      <CardHeader className="flex flex-col gap-4 pb-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <CardTitle>Consumer Optimizer Metrics</CardTitle>
+          <CardDescription>How consumers perceive this provider</CardDescription>
         </div>
+        {!isUnavailable && (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex rounded-md border border-border overflow-hidden text-xs">
+              <button onClick={() => { setMode("wrs"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "wrs" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>WRS</button>
+              <button onClick={() => { setMode("scores"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "scores" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>Scores</button>
+            </div>
+            {data?.possibleChainIds && data.possibleChainIds.length > 1 && (
+              <select value={chainId} onChange={(e) => setChainId(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
+                <option value="all">All Chains</option>
+                {data.possibleChainIds.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            )}
+            {data?.possibleConsumers && data.possibleConsumers.length > 1 && (
+              <select value={consumer} onChange={(e) => setConsumer(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
+                <option value="all">All Consumers</option>
+                {data.possibleConsumers.map((c) => <option key={c} value={c}>{c.length > 20 ? `${c.slice(0, 10)}...${c.slice(-6)}` : c}</option>)}
+              </select>
+            )}
+            <RangeButtons days={days} onChange={setDays} />
+          </div>
+        )}
       </CardHeader>
       <CardContent>
-        {isUnavailable ? (
-          <div className="flex flex-col items-center justify-center text-muted-foreground py-8">
-            <BarChart3 className="h-10 w-10 mb-3 opacity-20" />
-            <span className="text-sm">Optimizer metrics unavailable</span>
-            <span className="text-xs opacity-60 mt-1">Relays database not connected</span>
+        {isUnavailable ? <ChartUnavailable /> : isLoading ? <ChartLoading /> : chartData.length === 0 ? <ChartEmpty /> : (
+          <div className="h-[350px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 14.9%)" />
+                <XAxis
+                  dataKey="time"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  minTickGap={32}
+                  tick={{ fill: "#888", fontSize: 12 }}
+                  tickFormatter={formatTimestamp}
+                />
+                <YAxis
+                  tick={{ fill: "#888", fontSize: 12 }}
+                  tickFormatter={(v: number) => v.toFixed(2)}
+                />
+                <Tooltip content={<ChartTooltip />} />
+                <Legend content={renderLegend(hidden, toggleSeries)} />
+
+                {series.map((s) =>
+                  hidden.has(s.key) ? null : (
+                    <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} dot={false} strokeWidth={2} />
+                  )
+                )}
+
+                <Brush
+                  dataKey="time"
+                  height={30}
+                  stroke="rgba(136, 136, 136, 0.3)"
+                  fill="#0a0a0a"
+                  travellerWidth={10}
+                  tickFormatter={formatTimestamp}
+                >
+                  <AreaChart>
+                    <Area type="monotone" dataKey={series[0].key} stroke="#888" fill="#262626" fillOpacity={0.4} />
+                  </AreaChart>
+                </Brush>
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
-        ) : (
-          <Chart data={chartData} series={series} xKey="time" height={350} isLoading={isLoading} brushable toggleable />
         )}
       </CardContent>
     </Card>
   );
 }
 
-// --- Spec/Chain Optimizer Chart ---
-
-const PROVIDER_COLORS = [
-  "#0082FB", "#00D7B0", "#0EBA53", "#7679FF", "#E76678",
-  "#EC25F4", "#FF1D70", "#FF3900", "#FFBC0A", "#1F4A30",
-];
+/* ═══════════════════════════════════════════════
+   ChainOptimizerChart
+   ═══════════════════════════════════════════════ */
 
 export function ChainOptimizerChart({ specId }: { specId: string }) {
   const [days, setDays] = useState(7);
   const [consumer, setConsumer] = useState("all");
   const [metric, setMetric] = useState("selection_composite");
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
 
   const from = formatDateParam(daysAgo(days));
   const to = formatDateParam(new Date());
@@ -174,20 +345,20 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
 
     for (const m of data.metrics) {
       if (!topProviders.includes(m.provider)) continue;
-      const time = new Date(m.hourly_timestamp).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
       const value = m[metric as keyof OptimizerMetric];
       if (value == null) continue;
 
+      const time = m.hourly_timestamp;
       if (!byTime.has(time)) byTime.set(time, { time });
       const entry = byTime.get(time)!;
       const label = m.provider.slice(0, 10);
       entry[label] = value;
     }
 
-    return Array.from(byTime.values());
+    return Array.from(byTime.values()).sort((a, b) => String(a.time).localeCompare(String(b.time)));
   }, [data, metric, topProviders]);
 
-  const series = useMemo(() =>
+  const series: SeriesConfig[] = useMemo(() =>
     topProviders.map((p, i) => ({
       key: p.slice(0, 10),
       label: p.slice(0, 10) + "...",
@@ -196,6 +367,15 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
   [topProviders]);
 
   const isUnavailable = !isLoading && data && "error" in data;
+
+  const toggleSeries = useCallback((key: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const metricOptions = [
     { value: "selection_composite", label: "WRS Composite" },
@@ -211,44 +391,69 @@ export function ChainOptimizerChart({ specId }: { specId: string }) {
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" /> Consumer Optimizer Metrics
-            </CardTitle>
-            <CardDescription>Provider performance as seen by consumers</CardDescription>
-          </div>
-          {!isUnavailable && (
-            <div className="flex flex-wrap items-center gap-2">
-              <select value={metric} onChange={(e) => setMetric(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
-                {metricOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
-                <option value={2}>2 days</option>
-                <option value={7}>7 days</option>
-                <option value={30}>30 days</option>
-                <option value={90}>90 days</option>
-              </select>
-              {data?.possibleConsumers && data.possibleConsumers.length > 1 && (
-                <select value={consumer} onChange={(e) => setConsumer(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
-                  <option value="all">All Consumers</option>
-                  {data.possibleConsumers.map((c) => <option key={c} value={c}>{c.length > 20 ? `${c.slice(0, 10)}...${c.slice(-6)}` : c}</option>)}
-                </select>
-              )}
-            </div>
-          )}
+      <CardHeader className="flex flex-col gap-4 pb-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <CardTitle>Consumer Optimizer Metrics</CardTitle>
+          <CardDescription>Provider performance as seen by consumers</CardDescription>
         </div>
+        {!isUnavailable && (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <select value={metric} onChange={(e) => setMetric(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
+              {metricOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {data?.possibleConsumers && data.possibleConsumers.length > 1 && (
+              <select value={consumer} onChange={(e) => setConsumer(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
+                <option value="all">All Consumers</option>
+                {data.possibleConsumers.map((c) => <option key={c} value={c}>{c.length > 20 ? `${c.slice(0, 10)}...${c.slice(-6)}` : c}</option>)}
+              </select>
+            )}
+            <RangeButtons days={days} onChange={setDays} />
+          </div>
+        )}
       </CardHeader>
       <CardContent>
-        {isUnavailable ? (
-          <div className="flex flex-col items-center justify-center text-muted-foreground py-8">
-            <BarChart3 className="h-10 w-10 mb-3 opacity-20" />
-            <span className="text-sm">Optimizer metrics unavailable</span>
-            <span className="text-xs opacity-60 mt-1">Relays database not connected</span>
+        {isUnavailable ? <ChartUnavailable /> : isLoading ? <ChartLoading /> : chartData.length === 0 ? <ChartEmpty /> : (
+          <div className="h-[350px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(0 0% 14.9%)" />
+                <XAxis
+                  dataKey="time"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  minTickGap={32}
+                  tick={{ fill: "#888", fontSize: 12 }}
+                  tickFormatter={formatTimestamp}
+                />
+                <YAxis
+                  tick={{ fill: "#888", fontSize: 12 }}
+                  tickFormatter={(v: number) => v.toFixed(2)}
+                />
+                <Tooltip content={<ChartTooltip />} />
+                <Legend content={renderLegend(hidden, toggleSeries)} />
+
+                {series.map((s) =>
+                  hidden.has(s.key) ? null : (
+                    <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} dot={false} strokeWidth={2} />
+                  )
+                )}
+
+                <Brush
+                  dataKey="time"
+                  height={30}
+                  stroke="rgba(136, 136, 136, 0.3)"
+                  fill="#0a0a0a"
+                  travellerWidth={10}
+                  tickFormatter={formatTimestamp}
+                >
+                  <AreaChart>
+                    <Area type="monotone" dataKey={series[0]?.key ?? "time"} stroke="#888" fill="#262626" fillOpacity={0.4} />
+                  </AreaChart>
+                </Brush>
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
-        ) : (
-          <Chart data={chartData} series={series} xKey="time" height={350} isLoading={isLoading} brushable toggleable />
         )}
       </CardContent>
     </Card>
