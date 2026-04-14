@@ -18,14 +18,24 @@ export const relaysDbPlugin = fp(async (app: FastifyInstance) => {
 
   const sql = postgres(url, {
     idle_timeout: 20,
-    connect_timeout: 10,
+    connect_timeout: 5,
     max: 10,
   });
 
   try {
-    await sql`SELECT 1`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    await Promise.race([
+      sql`SELECT 1`,
+      new Promise((_, reject) => {
+        controller.signal.addEventListener("abort", () =>
+          reject(new Error("Relays DB connection timed out")));
+      }),
+    ]);
+    clearTimeout(timeout);
   } catch (err) {
     app.log.error({ err }, "Failed to connect to relays DB — optimizer metrics disabled");
+    await sql.end({ timeout: 1 }).catch(() => {});
     app.decorate("relaysDb", null);
     return;
   }
