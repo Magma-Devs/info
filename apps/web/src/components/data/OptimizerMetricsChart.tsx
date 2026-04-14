@@ -490,10 +490,10 @@ export function ChainOptimizerChart({ specId, providerInfo }: { specId: string; 
   const series: SeriesConfig[] = useMemo(() =>
     topProviders.map((p, i) => ({
       key: p.slice(0, 10),
-      label: p.slice(0, 10) + "...",
+      label: providerMap.get(p)?.moniker || p.slice(0, 10) + "...",
       color: PROVIDER_COLORS[i % PROVIDER_COLORS.length],
     })),
-  [topProviders]);
+  [topProviders, providerMap]);
 
   const isUnavailable = !isLoading && data && "error" in data;
 
