@@ -52,37 +52,39 @@ export function ChainSelect({ chains, selected, onChange }: ChainSelectProps) {
         </span>
         <ChevronsUpDown className="h-3 w-3 ml-1 opacity-50 shrink-0" />
       </button>
-      {open && (
-        <div className="absolute top-full mt-1 right-0 w-[220px] bg-card border border-border rounded-lg shadow-lg z-50 p-2">
-          {chains.length > 5 && (
-            <input
-              type="text"
-              placeholder="Search chains..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-muted border border-border rounded px-2 py-1.5 text-sm text-foreground mb-2 outline-none"
-            />
-          )}
-          <div className="max-h-[200px] overflow-y-auto">
+      <div
+        className={`absolute top-full mt-1 right-0 w-[220px] bg-card border border-border rounded-lg shadow-lg z-50 p-2 transition-all duration-150 origin-top ${
+          open ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
+        }`}
+      >
+        {chains.length > 5 && (
+          <input
+            type="text"
+            placeholder="Search chains..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-muted border border-border rounded px-2 py-1.5 text-sm text-foreground mb-2 outline-none"
+          />
+        )}
+        <div className="max-h-[200px] overflow-y-auto">
+          <button
+            onClick={() => { onChange("all"); setOpen(false); setSearch(""); }}
+            className={`flex items-center gap-2 w-full p-1.5 text-sm rounded ${selected === "all" ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
+          >
+            All Chains
+          </button>
+          {filtered.map((chain) => (
             <button
-              onClick={() => { onChange("all"); setOpen(false); setSearch(""); }}
-              className={`flex items-center gap-2 w-full p-1.5 text-sm rounded ${selected === "all" ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
+              key={chain}
+              onClick={() => { onChange(chain); setOpen(false); setSearch(""); }}
+              className={`flex items-center gap-2 w-full p-1.5 text-sm rounded ${selected === chain ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
             >
-              All Chains
+              <ChainIcon chainId={chain} />
+              <span>{chain}</span>
             </button>
-            {filtered.map((chain) => (
-              <button
-                key={chain}
-                onClick={() => { onChange(chain); setOpen(false); setSearch(""); }}
-                className={`flex items-center gap-2 w-full p-1.5 text-sm rounded ${selected === chain ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
-              >
-                <ChainIcon chainId={chain} />
-                <span>{chain}</span>
-              </button>
-            ))}
-          </div>
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }

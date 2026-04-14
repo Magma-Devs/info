@@ -110,8 +110,11 @@ function ConsumerDropdown({ consumers, selected, onChange }: { consumers: string
         <span className="truncate">{selected === "all" ? "All Consumers" : selected}</span>
         <ChevronsUpDown className="h-3 w-3 ml-1 opacity-50 shrink-0" />
       </button>
-      {open && (
-        <div className="absolute top-full mt-1 right-0 w-auto min-w-[200px] max-w-[400px] bg-card border border-border rounded-lg shadow-lg z-50 p-2">
+      <div
+        className={`absolute top-full mt-1 right-0 w-auto min-w-[200px] max-w-[400px] bg-card border border-border rounded-lg shadow-lg z-50 p-2 transition-all duration-150 origin-top ${
+          open ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
+        }`}
+      >
           <div className="max-h-[200px] overflow-y-auto">
             <button
               onClick={() => { onChange("all"); setOpen(false); }}
@@ -128,9 +131,8 @@ function ConsumerDropdown({ consumers, selected, onChange }: { consumers: string
                 {c}
               </button>
             ))}
-          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
