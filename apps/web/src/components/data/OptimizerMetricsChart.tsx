@@ -16,7 +16,6 @@ import {
 import { useApi } from "@/hooks/use-api";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { BarChart3, Loader2, ChevronsUpDown } from "lucide-react";
-import { getChainIcon } from "@/lib/chain-icons";
 
 /* ─── Types ─── */
 
@@ -86,84 +85,6 @@ const PROVIDER_COLORS = [
   "#EC25F4", "#FF1D70", "#FF3900", "#FFBC0A", "#1F4A30",
 ];
 
-/* ─── Chain Icon ─── */
-
-function ChainIcon({ chainId }: { chainId: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <span className="w-4 h-4 rounded-sm shrink-0 bg-muted flex items-center justify-center text-[9px] font-medium text-muted-foreground">
-        {chainId.charAt(0).toUpperCase()}
-      </span>
-    );
-  }
-  return (
-    <img src={getChainIcon(chainId)} alt="" className="w-4 h-4 rounded-sm shrink-0" loading="lazy" onError={() => setFailed(true)} />
-  );
-}
-
-/* ─── Chain Dropdown ─── */
-
-function ChainDropdown({ chains, selected, onChange }: { chains: string[]; selected: string; onChange: (chain: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const filtered = chains.filter((c) => c.toLowerCase().includes(search.toLowerCase())).sort((a, b) => a.localeCompare(b));
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-[140px] bg-card border border-border rounded px-2 py-1.5 text-xs text-foreground hover:bg-muted/50"
-      >
-        <span className="truncate">{selected === "all" ? "All Chains" : selected}</span>
-        <ChevronsUpDown className="h-3 w-3 ml-1 opacity-50 shrink-0" />
-      </button>
-      <div
-        className={`absolute top-full mt-1 right-0 w-[220px] bg-card border border-border rounded-lg shadow-lg z-50 p-2 transition-all duration-150 origin-top ${
-          open ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
-        }`}
-      >
-        <input
-          type="text"
-          placeholder="Search chains..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full bg-muted border border-border rounded px-2 py-1.5 text-sm text-foreground mb-2 outline-none"
-        />
-        <div className="max-h-[200px] overflow-y-auto">
-          <button
-            onClick={() => { onChange("all"); setOpen(false); }}
-            className={`flex items-center gap-2 w-full p-1.5 text-sm rounded ${selected === "all" ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
-          >
-            All Chains
-          </button>
-          {filtered.map((chain) => (
-            <button
-              key={chain}
-              onClick={() => { onChange(chain); setOpen(false); }}
-              className={`flex items-center gap-2 w-full p-1.5 text-sm rounded ${selected === chain ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
-            >
-              <ChainIcon chainId={chain} />
-              <span>{chain}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ─── Consumer Dropdown ─── */
 
 function ConsumerDropdown({ consumers, selected, onChange }: { consumers: string[]; selected: string; onChange: (c: string) => void }) {
@@ -188,29 +109,27 @@ function ConsumerDropdown({ consumers, selected, onChange }: { consumers: string
         <span className="truncate">{selected === "all" ? "All Consumers" : selected}</span>
         <ChevronsUpDown className="h-3 w-3 ml-1 opacity-50 shrink-0" />
       </button>
-      <div
-        className={`absolute top-full mt-1 right-0 w-auto min-w-[200px] max-w-[400px] bg-card border border-border rounded-lg shadow-lg z-50 p-2 transition-all duration-150 origin-top ${
-          open ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
-        }`}
-      >
-        <div className="max-h-[200px] overflow-y-auto">
-          <button
-            onClick={() => { onChange("all"); setOpen(false); }}
-            className={`w-full text-left p-1.5 text-sm rounded whitespace-nowrap ${selected === "all" ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
-          >
-            All Consumers
-          </button>
-          {consumers.map((c) => (
+      {open && (
+        <div className="absolute top-full mt-1 right-0 w-auto min-w-[200px] max-w-[400px] bg-card border border-border rounded-lg shadow-lg z-50 p-2">
+          <div className="max-h-[200px] overflow-y-auto">
             <button
-              key={c}
-              onClick={() => { onChange(c); setOpen(false); }}
-              className={`w-full text-left p-1.5 text-sm rounded whitespace-nowrap ${selected === c ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
+              onClick={() => { onChange("all"); setOpen(false); }}
+              className={`w-full text-left p-1.5 text-sm rounded whitespace-nowrap ${selected === "all" ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
             >
-              {c}
+              All Consumers
             </button>
-          ))}
+            {consumers.map((c) => (
+              <button
+                key={c}
+                onClick={() => { onChange(c); setOpen(false); }}
+                className={`w-full text-left p-1.5 text-sm rounded whitespace-nowrap ${selected === c ? "bg-accent/20 text-foreground" : "hover:bg-muted text-foreground"}`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -406,7 +325,10 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
               <button onClick={() => { setMode("wrs"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "wrs" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>WRS</button>
               <button onClick={() => { setMode("scores"); setHidden(new Set()); }} className={`px-3 py-1.5 transition-colors ${mode === "scores" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"}`}>Scores</button>
             </div>
-            <ChainDropdown chains={allChains} selected={chainId} onChange={setChainId} />
+            <select value={chainId} onChange={(e) => setChainId(e.target.value)} className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground">
+              <option value="all">All Chains</option>
+              {allChains.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
             {sortedConsumers.length > 1 && (
               <ConsumerDropdown consumers={sortedConsumers} selected={consumer} onChange={setConsumer} />
             )}
