@@ -603,7 +603,7 @@ export function ChainOptimizerChart({ specId, providerInfo }: { specId: string; 
                     )}
                     <div className="min-w-0">
                       {moniker && <span className="text-xs font-medium block truncate">{moniker}</span>}
-                      <span className="text-[10px] font-mono text-muted-foreground block truncate">{addr.slice(0, 12)}...{addr.slice(-4)}</span>
+                      <span className="text-[10px] font-mono text-muted-foreground block break-all">{addr}</span>
                     </div>
                   </button>
                 );
