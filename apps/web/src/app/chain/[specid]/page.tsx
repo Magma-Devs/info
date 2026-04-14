@@ -13,6 +13,7 @@ import { TimeTooltip } from "@/components/data/TimeTooltip";
 import { SortableTable } from "@/components/data/SortableTable";
 
 const ChainChart = dynamic(() => import("@/components/data/ChainChart").then((m) => m.ChainChart), { ssr: false });
+const ChainOptimizerChart = dynamic(() => import("@/components/data/OptimizerMetricsChart").then((m) => m.ChainOptimizerChart), { ssr: false });
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { formatNumberKMB } from "@/lib/format";
 import { Users, Coins, Box, Activity, BarChart3, ChevronRight } from "lucide-react";
@@ -298,13 +299,8 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
 
       <div style={{ marginTop: "25px" }} />
 
-      {/* Optimizer Metrics — requires Relays DB, placeholder */}
-      <Card className="border-dashed opacity-60">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><BarChart3 className="h-4 w-4" /> Consumer Optimizer Metrics</CardTitle>
-          <CardDescription>Requires relay server data — coming soon</CardDescription>
-        </CardHeader>
-      </Card>
+      {/* Optimizer Metrics — from relays DB */}
+      <ChainOptimizerChart specId={specid} />
 
       <div style={{ marginTop: "25px" }} />
 

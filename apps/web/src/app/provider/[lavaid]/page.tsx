@@ -13,6 +13,7 @@ import { LavaAmount } from "@/components/data/LavaAmount";
 import { TimeTooltip } from "@/components/data/TimeTooltip";
 
 const ProviderChart = dynamic(() => import("@/components/data/ProviderChart").then((m) => m.ProviderChart), { ssr: false });
+const ProviderOptimizerChart = dynamic(() => import("@/components/data/OptimizerMetricsChart").then((m) => m.ProviderOptimizerChart), { ssr: false });
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { SortableTable } from "@/components/data/SortableTable";
 import { type ColumnDef, type Row } from "@tanstack/react-table";
@@ -467,13 +468,8 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
 
       <div style={{ marginBottom: "20px" }} />
 
-      {/* Optimizer Metrics — requires Relays DB, placeholder */}
-      <Card className="border-dashed opacity-60">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><BarChart3 className="h-4 w-4" /> Consumer Optimizer Metrics</CardTitle>
-          <CardDescription>Requires relay server data — coming soon</CardDescription>
-        </CardHeader>
-      </Card>
+      {/* Optimizer Metrics — from relays DB */}
+      <ProviderOptimizerChart providerId={lavaid} />
 
       <div style={{ marginBottom: "20px" }} />
 
