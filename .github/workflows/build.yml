@@ -87,7 +87,7 @@ jobs:
           file: apps/web/Dockerfile
           push: true
           build-args: |
-            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
           tags: |
             ${{ steps.ecr.outputs.registry }}/info-web:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/info-web:latest
