@@ -120,37 +120,43 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
       return { error: "Optimizer metrics not configured" };
     }
 
-    const { addr } = request.params as { addr: string };
-    const query = request.query as { from?: string; to?: string; consumer?: string; chain_id?: string };
-    const from = clampFrom(query.from ? new Date(query.from) : defaultFrom());
-    const to = query.to ? new Date(query.to) : new Date();
+    try {
+      const { addr } = request.params as { addr: string };
+      const query = request.query as { from?: string; to?: string; consumer?: string; chain_id?: string };
+      const from = clampFrom(query.from ? new Date(query.from) : defaultFrom());
+      const to = query.to ? new Date(query.to) : new Date();
 
-    const conditions = [
-      app.relaysDb`provider = ${addr}`,
-      app.relaysDb`hourly_timestamp >= ${from}`,
-      app.relaysDb`hourly_timestamp <= ${to}`,
-    ];
+      const conditions = [
+        app.relaysDb`provider = ${addr}`,
+        app.relaysDb`hourly_timestamp >= ${from}`,
+        app.relaysDb`hourly_timestamp <= ${to}`,
+      ];
 
-    if (query.consumer && query.consumer !== "all") {
-      conditions.push(app.relaysDb`(consumer = ${query.consumer} OR consumer_hostname = ${query.consumer})`);
+      if (query.consumer && query.consumer !== "all") {
+        conditions.push(app.relaysDb`(consumer = ${query.consumer} OR consumer_hostname = ${query.consumer})`);
+      }
+      if (query.chain_id && query.chain_id !== "all") {
+        conditions.push(app.relaysDb`chain = ${query.chain_id}`);
+      }
+
+      const rows = await app.relaysDb<MetricRow[]>`
+        SELECT ${app.relaysDb.unsafe(ALL_COLUMNS)}
+        FROM aggregated_consumer_optimizer_metrics
+        WHERE ${conditions.reduce((a, b) => app.relaysDb!`${a} AND ${b}`)}
+        ORDER BY hourly_timestamp
+      `;
+
+      const metrics = rows.map(normalizeRow);
+
+      const possibleConsumers = [...new Set(rows.map(r => r.consumer).filter(Boolean))] as string[];
+      const possibleChainIds = [...new Set(rows.map(r => r.chain).filter(Boolean))] as string[];
+
+      return { metrics, possibleConsumers, possibleChainIds, filters: { provider: addr, from, to } };
+    } catch (err) {
+      request.log.error({ err }, "Failed to query optimizer metrics for provider");
+      reply.status(503);
+      return { error: "Optimizer metrics temporarily unavailable" };
     }
-    if (query.chain_id && query.chain_id !== "all") {
-      conditions.push(app.relaysDb`chain = ${query.chain_id}`);
-    }
-
-    const rows = await app.relaysDb<MetricRow[]>`
-      SELECT ${app.relaysDb.unsafe(ALL_COLUMNS)}
-      FROM aggregated_consumer_optimizer_metrics
-      WHERE ${conditions.reduce((a, b) => app.relaysDb!`${a} AND ${b}`)}
-      ORDER BY hourly_timestamp
-    `;
-
-    const metrics = rows.map(normalizeRow);
-
-    const possibleConsumers = [...new Set(rows.map(r => r.consumer).filter(Boolean))] as string[];
-    const possibleChainIds = [...new Set(rows.map(r => r.chain).filter(Boolean))] as string[];
-
-    return { metrics, possibleConsumers, possibleChainIds, filters: { provider: addr, from, to } };
   });
 
   // GET /specs/:specId/optimizer-metrics
@@ -179,33 +185,39 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
       return { error: "Optimizer metrics not configured" };
     }
 
-    const { specId } = request.params as { specId: string };
-    const query = request.query as { from?: string; to?: string; consumer?: string };
-    const from = clampFrom(query.from ? new Date(query.from) : defaultFrom());
-    const to = query.to ? new Date(query.to) : new Date();
+    try {
+      const { specId } = request.params as { specId: string };
+      const query = request.query as { from?: string; to?: string; consumer?: string };
+      const from = clampFrom(query.from ? new Date(query.from) : defaultFrom());
+      const to = query.to ? new Date(query.to) : new Date();
 
-    const conditions = [
-      app.relaysDb`chain = ${specId}`,
-      app.relaysDb`hourly_timestamp >= ${from}`,
-      app.relaysDb`hourly_timestamp <= ${to}`,
-    ];
+      const conditions = [
+        app.relaysDb`chain = ${specId}`,
+        app.relaysDb`hourly_timestamp >= ${from}`,
+        app.relaysDb`hourly_timestamp <= ${to}`,
+      ];
 
-    if (query.consumer && query.consumer !== "all") {
-      conditions.push(app.relaysDb`(consumer = ${query.consumer} OR consumer_hostname = ${query.consumer})`);
+      if (query.consumer && query.consumer !== "all") {
+        conditions.push(app.relaysDb`(consumer = ${query.consumer} OR consumer_hostname = ${query.consumer})`);
+      }
+
+      const rows = await app.relaysDb<MetricRow[]>`
+        SELECT ${app.relaysDb.unsafe(ALL_COLUMNS)}
+        FROM aggregated_consumer_optimizer_metrics
+        WHERE ${conditions.reduce((a, b) => app.relaysDb!`${a} AND ${b}`)}
+        ORDER BY hourly_timestamp
+      `;
+
+      const metrics = rows.map(normalizeRow);
+
+      const possibleConsumers = [...new Set(rows.map(r => r.consumer).filter(Boolean))] as string[];
+      const providers = [...new Set(rows.map(r => r.provider).filter(Boolean))] as string[];
+
+      return { metrics, possibleConsumers, providers, filters: { specId, from, to } };
+    } catch (err) {
+      request.log.error({ err }, "Failed to query optimizer metrics for spec");
+      reply.status(503);
+      return { error: "Optimizer metrics temporarily unavailable" };
     }
-
-    const rows = await app.relaysDb<MetricRow[]>`
-      SELECT ${app.relaysDb.unsafe(ALL_COLUMNS)}
-      FROM aggregated_consumer_optimizer_metrics
-      WHERE ${conditions.reduce((a, b) => app.relaysDb!`${a} AND ${b}`)}
-      ORDER BY hourly_timestamp
-    `;
-
-    const metrics = rows.map(normalizeRow);
-
-    const possibleConsumers = [...new Set(rows.map(r => r.consumer).filter(Boolean))] as string[];
-    const providers = [...new Set(rows.map(r => r.provider).filter(Boolean))] as string[];
-
-    return { metrics, possibleConsumers, providers, filters: { specId, from, to } };
   });
 }
