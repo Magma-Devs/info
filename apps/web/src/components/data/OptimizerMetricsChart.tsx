@@ -253,7 +253,7 @@ function RangeButtons({ days, onChange }: { days: number; onChange: (d: number) 
   return (
     <div className="flex gap-1">
       {[
-        { label: "2d", days: 2 },
+        { label: "1d", days: 1 },
         { label: "7d", days: 7 },
         { label: "30d", days: 30 },
         { label: "90d", days: 90 },
