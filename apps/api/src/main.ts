@@ -18,6 +18,8 @@ import { aprRoutes } from "./routes/apr.js";
 import { searchRoutes } from "./routes/search.js";
 import { lavaRoutes } from "./routes/lava.js";
 import { allProvidersAprRoutes } from "./routes/all-providers-apr.js";
+import { relaysDbPlugin } from "./plugins/relays-db.js";
+import { optimizerMetricsRoutes } from "./routes/optimizer-metrics.js";
 
 const PORT = parseInt(process.env.API_PORT ?? "8080", 10);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
@@ -45,6 +47,7 @@ async function main() {
   await app.register(errorHandlerPlugin);
   await app.register(swaggerPlugin);
   await app.register(redisPlugin);
+  await app.register(relaysDbPlugin);
   await app.register(cachePlugin);
   await app.register(paginationPlugin);
 
@@ -58,6 +61,7 @@ async function main() {
   await app.register(allProvidersAprRoutes, { prefix: "/all_providers_apr" });
   await app.register(searchRoutes);
   await app.register(lavaRoutes, { prefix: "/lava" });
+  await app.register(optimizerMetricsRoutes);
 
   await app.register(healthProbePlugin);
 

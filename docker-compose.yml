@@ -27,6 +27,7 @@ services:
       REDIS_URL: redis://redis:6379
       LAVA_REST_URL: ${LAVA_REST_URL:-https://lava.rest.lava.build}
       LAVA_RPC_URL: ${LAVA_RPC_URL:-https://lava.tendermintrpc.lava.build:443}
+      RELAYS_DB_URL: ${RELAYS_DB_URL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

@@ -71,6 +71,7 @@ Every API route uses exactly one data source per query. Never mix them in a sing
 | **Chain RPC Tendermint** (`LAVA_RPC_URL`, default `https://lava.tendermintrpc.lava.build:443`) | Latest block height and time | Direct `fetch()` to `/status` |
 | **Redis — cache** (`REDIS_URL`) | Response-level cache (not a data source) | Automatic via `cacheTTL` in route config |
 | **Redis — health store** (`REDIS_URL`) | Provider health probe results (gRPC Probe, 10min TTL) | `readHealthMapForProvider()` / `readHealthByProviderForSpec()` from `services/health-store.ts` |
+| **Relays DB** (`RELAYS_DB_URL`) | Consumer optimizer metrics (aggregated hourly scores). DB resides outside AWS. **TODO: evaluate a different approach for optimizer metrics data ingestion** | `app.relaysDb` via `plugins/relays-db.ts` |
 | **Keybase API** | Provider avatars from identity field | `fetchProviderAvatar()` in `rpc/lava.ts` |
 
 ### Caching
@@ -158,6 +159,7 @@ packages/
 | `GET /providers/:addr/charts?from=&to=&chain=` | 300s | Indexer MV | **Two modes**: (1) No params → alltime summary grouped by chain (cu, relays per chainId). (2) With date params → daily time-series with QoS + excellence QoS. Can filter by chain |
 | `GET /providers/:addr/avatar?identity=` | 86400s | Keybase API | Avatar URL from Keybase identity. Hint param skips provider metadata lookup. Returns `{ url: string \| null }` |
 | `GET /providers/:addr/delegator-rewards` | 300s | Chain RPC | Delegator rewards from dualstaking module |
+| `GET /providers/:addr/optimizer-metrics?from=&to=&consumer=&chain_id=` | 300s | Relays DB | Consumer optimizer metrics for this provider. Returns WRS + score averages, possible consumers/chains for filters |
 
 ### Specs/Chains (`/specs`)
 
@@ -167,6 +169,7 @@ packages/
 | `GET /specs/:specId/stakes` | 300s | Chain RPC | Providers staked on this spec: provider, moniker, stake, delegation, delegateCommission, geolocation |
 | `GET /specs/:specId/health` | 30s | Redis | Health status distribution (grouped by STATUS, from gRPC probe) |
 | `GET /specs/:specId/charts` | 300s | Indexer MV | Alltime CU/relays for this chain (grouped by CHAIN_ID) |
+| `GET /specs/:specId/optimizer-metrics?from=&to=&consumer=` | 300s | Relays DB | Consumer optimizer metrics for this chain. Returns per-provider scores, possible consumers/providers for filters |
 
 ### Supply (`/supply`)
 
@@ -286,6 +289,7 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 | `REDIS_URL` | (none, cache disabled) | API |
 | `LAVA_REST_URL` | `https://lava.rest.lava.build` | API |
 | `LAVA_RPC_URL` | `https://lava.tendermintrpc.lava.build:443` | API |
+| `RELAYS_DB_URL` | (none, optimizer metrics disabled) | API — PostgreSQL connection to relays DB (external, outside AWS) |
 | `ENABLE_HEALTH_PROBE` | `false` | API |
 | `HEALTH_PROBE_REGION` | `Local` | API |
 | `HEALTH_PROBE_INTERVAL_MS` | `30000` | API |
@@ -299,7 +303,7 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 ## Not Covered (external data sources needed)
 
 - **Provider errors** — requires Relays DB (`lava_report_error` table), not in SubQuery indexer
-- **Optimizer metrics** — requires Relays DB (`aggregated_consumer_optimizer_metrics`), not in indexer
+- ~~**Optimizer metrics**~~ — **Implemented.** Reads from `aggregated_consumer_optimizer_metrics` in relays DB via `RELAYS_DB_URL`. TODO: evaluate a different approach for optimizer metrics data ingestion — the current direct DB connection to an external PostgreSQL is a stopgap
 - **Logpush endpoints** (`stats`, `entries`) — separate Cloudflare Logpush service
 - **Full validator list** — `/validators` returns empty `data: []`, only has staking pool info
 
