@@ -151,7 +151,7 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: 21600 },
   }, async (request, reply) => {
     if (!app.relaysDb) {
       reply.status(503);
@@ -217,7 +217,7 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: 21600 },
   }, async (request, reply) => {
     if (!app.relaysDb) {
       reply.status(503);
