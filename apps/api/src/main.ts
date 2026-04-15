@@ -20,6 +20,7 @@ import { lavaRoutes } from "./routes/lava.js";
 import { allProvidersAprRoutes } from "./routes/all-providers-apr.js";
 import { relaysDbPlugin } from "./plugins/relays-db.js";
 import { optimizerMetricsRoutes } from "./routes/optimizer-metrics.js";
+import { adjustedRewardsRoutes } from "./routes/adjusted-rewards.js";
 
 const PORT = parseInt(process.env.API_PORT ?? "8080", 10);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
@@ -62,6 +63,7 @@ async function main() {
   await app.register(searchRoutes);
   await app.register(lavaRoutes, { prefix: "/lava" });
   await app.register(optimizerMetricsRoutes);
+  await app.register(adjustedRewardsRoutes);
 
   await app.register(healthProbePlugin);
 
