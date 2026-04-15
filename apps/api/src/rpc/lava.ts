@@ -8,30 +8,72 @@ const LAVA_REST_URL = process.env.LAVA_REST_URL ?? "https://lava.rest.lava.build
 // Request coalescing: concurrent fetches for the same path share one in-flight request
 const inflightRpc = new Map<string, Promise<unknown>>();
 
-async function fetchRest<T>(path: string): Promise<T> {
-  const existing = inflightRpc.get(path);
+async function fetchRest<T>(path: string, blockHeight?: number): Promise<T> {
+  const cacheKey = blockHeight ? `${path}@${blockHeight}` : path;
+  const existing = inflightRpc.get(cacheKey);
   if (existing) return existing as Promise<T>;
 
   const promise = (async () => {
+    const headers: Record<string, string> = {};
+    if (blockHeight) headers["x-cosmos-block-height"] = String(blockHeight);
+
     const res = await fetch(`${LAVA_REST_URL}${path}`, {
+      headers,
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`RPC ${res.status}: ${res.statusText}`);
     return (await res.json()) as T;
   })();
 
-  inflightRpc.set(path, promise);
-  const cleanup = () => { inflightRpc.delete(path); };
+  inflightRpc.set(cacheKey, promise);
+  const cleanup = () => { inflightRpc.delete(cacheKey); };
   promise.then(cleanup, cleanup);
   return promise;
 }
 
-export async function fetchTotalSupply(): Promise<bigint> {
+export async function fetchTotalSupply(blockHeight?: number): Promise<bigint> {
   const data = await fetchRest<{ supply: Array<{ denom: string; amount: string }> }>(
     "/cosmos/bank/v1beta1/supply",
+    blockHeight,
   );
   const lava = data.supply?.find((c) => c.denom === "ulava");
   return BigInt(lava?.amount ?? "0");
+}
+
+// Binary-search Tendermint blocks to find the block closest to a target unix timestamp.
+export async function fetchBlockAtTimestamp(targetUnix: number): Promise<number> {
+  const LAVA_RPC_URL = process.env.LAVA_RPC_URL ?? "https://lava.tendermintrpc.lava.build:443";
+
+  async function blockTime(height: number): Promise<number> {
+    const res = await fetch(`${LAVA_RPC_URL}/block?height=${height}`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`RPC ${res.status}`);
+    const data = (await res.json()) as {
+      result: { block: { header: { time: string } } };
+    };
+    return Math.floor(new Date(data.result.block.header.time).getTime() / 1000);
+  }
+
+  const { height: latestHeight, time: latestTime } = await fetchLatestBlockHeight();
+  const latestUnix = Math.floor(new Date(latestTime).getTime() / 1000);
+
+  if (targetUnix >= latestUnix) return latestHeight;
+
+  let lo = 1;
+  let hi = latestHeight;
+
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const t = await blockTime(mid);
+    if (t < targetUnix) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+
+  return lo;
 }
 
 const REWARD_POOLS = [
@@ -295,6 +337,24 @@ async function fetchLavaUsdPrice(): Promise<number> {
   const data = (await res.json()) as { "lava-network"?: { usd?: number } };
   const price = data["lava-network"]?.usd;
   if (!price || price <= 0) throw new Error("Invalid LAVA price from CoinGecko");
+  return price;
+}
+
+// Fetch LAVA USD price at a specific date via CoinGecko /coins/{id}/history.
+// date is a Date object; CoinGecko expects dd-mm-yyyy format.
+export async function fetchLavaUsdPriceAt(date: Date): Promise<number> {
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = date.getUTCFullYear();
+  const res = await fetch(
+    `${COINGECKO_API_URL}/coins/lava-network/history?date=${dd}-${mm}-${yyyy}&localization=false`,
+  );
+  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+  const data = (await res.json()) as {
+    market_data?: { current_price?: { usd?: number } };
+  };
+  const price = data.market_data?.current_price?.usd;
+  if (!price || price <= 0) throw new Error(`No LAVA price for ${yyyy}-${mm}-${dd}`);
   return price;
 }
 
