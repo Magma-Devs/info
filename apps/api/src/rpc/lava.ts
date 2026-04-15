@@ -40,8 +40,19 @@ export async function fetchTotalSupply(blockHeight?: number): Promise<bigint> {
   return BigInt(lava?.amount ?? "0");
 }
 
+// Lava mainnet genesis timestamp (block 1) — used to narrow binary search range.
+const LAVA_GENESIS_UNIX = 1_713_350_000; // ~2024-04-17
+
+// LRU-ish cache for timestamp → block height (avoids repeated binary searches).
+const blockAtTsCache = new Map<number, number>();
+const BLOCK_AT_TS_CACHE_MAX = 200;
+
 // Binary-search Tendermint blocks to find the block closest to a target unix timestamp.
+// Uses linear interpolation to estimate the starting range, reducing iterations from ~23 to ~10.
 export async function fetchBlockAtTimestamp(targetUnix: number): Promise<number> {
+  const cached = blockAtTsCache.get(targetUnix);
+  if (cached !== undefined) return cached;
+
   const LAVA_RPC_URL = process.env.LAVA_RPC_URL ?? "https://lava.tendermintrpc.lava.build:443";
 
   async function blockTime(height: number): Promise<number> {
@@ -60,8 +71,19 @@ export async function fetchBlockAtTimestamp(targetUnix: number): Promise<number>
 
   if (targetUnix >= latestUnix) return latestHeight;
 
-  let lo = 1;
-  let hi = latestHeight;
+  // Linear interpolation to narrow the search range
+  const genesisUnix = LAVA_GENESIS_UNIX;
+  const estimatedHeight = Math.max(1, Math.min(
+    latestHeight,
+    Math.floor(latestHeight * (targetUnix - genesisUnix) / (latestUnix - genesisUnix)),
+  ));
+  const margin = 2000;
+  let lo = Math.max(1, estimatedHeight - margin);
+  let hi = Math.min(latestHeight, estimatedHeight + margin);
+
+  // Verify bounds contain the target; widen if not
+  if (await blockTime(lo) > targetUnix) lo = 1;
+  if (await blockTime(hi) < targetUnix) hi = latestHeight;
 
   while (lo < hi) {
     const mid = Math.floor((lo + hi) / 2);
@@ -72,6 +94,13 @@ export async function fetchBlockAtTimestamp(targetUnix: number): Promise<number>
       hi = mid;
     }
   }
+
+  // Evict oldest entry if cache is full
+  if (blockAtTsCache.size >= BLOCK_AT_TS_CACHE_MAX) {
+    const firstKey = blockAtTsCache.keys().next().value;
+    if (firstKey !== undefined) blockAtTsCache.delete(firstKey);
+  }
+  blockAtTsCache.set(targetUnix, lo);
 
   return lo;
 }
@@ -329,7 +358,7 @@ const TVL_REWARD_POOLS = [
 
 const COINGECKO_API_URL = process.env.COINGECKO_API_URL ?? "https://api.coingecko.com/api/v3";
 
-async function fetchLavaUsdPrice(): Promise<number> {
+export async function fetchLavaUsdPrice(): Promise<number> {
   const res = await fetch(
     `${COINGECKO_API_URL}/simple/price?ids=lava-network&vs_currencies=usd`,
   );
@@ -348,6 +377,7 @@ export async function fetchLavaUsdPriceAt(date: Date): Promise<number> {
   const yyyy = date.getUTCFullYear();
   const res = await fetch(
     `${COINGECKO_API_URL}/coins/lava-network/history?date=${dd}-${mm}-${yyyy}&localization=false`,
+    { signal: AbortSignal.timeout(15_000) },
   );
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
   const data = (await res.json()) as {

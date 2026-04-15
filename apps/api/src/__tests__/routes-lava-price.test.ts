@@ -5,10 +5,11 @@ import { errorHandlerPlugin } from "../plugins/error-handler.js";
 
 vi.mock("../rpc/lava.js", () => ({
   fetchAllSpecs: vi.fn(),
+  fetchLavaUsdPrice: vi.fn(),
   fetchLavaUsdPriceAt: vi.fn(),
 }));
 
-const { fetchLavaUsdPriceAt } = await import("../rpc/lava.js");
+const { fetchLavaUsdPrice, fetchLavaUsdPriceAt } = await import("../rpc/lava.js");
 const { lavaRoutes } = await import("../routes/lava.js");
 
 async function buildApp() {
@@ -21,21 +22,13 @@ async function buildApp() {
 
 describe("GET /lava/price", () => {
   it("returns current price when no date param", async () => {
-    // Mock global fetch for the CoinGecko call inside the route handler
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ "lava-network": { usd: 0.042 } }),
-    }) as unknown as typeof fetch;
-
+    (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockResolvedValue(0.042);
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/lava/price" });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.price).toBe(0.042);
-    expect(body.date).toBeNull();
-
-    globalThis.fetch = originalFetch;
+    expect(body).not.toHaveProperty("date");
   });
 
   it("returns historical price for YYYY-MM-DD date", async () => {

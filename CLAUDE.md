@@ -68,11 +68,12 @@ Every API route uses exactly one data source per query. Never mix them in a sing
 |--------|-----------------|----------------|
 | **Indexer GraphQL** (`INDEXER_GRAPHQL_URL`, default `http://localhost:3000`) | Historical relay data, events, reports, conflicts | `gql<T>(query, vars)` from `graphql/client.ts` |
 | **Chain RPC REST** (`LAVA_REST_URL`, default `https://lava.rest.lava.build`) | Live state: specs, providers per spec, stakes, supply, subscriptions, staking pool | `fetchRest<T>(path)` from `rpc/lava.ts` |
-| **Chain RPC Tendermint** (`LAVA_RPC_URL`, default `https://lava.tendermintrpc.lava.build:443`) | Latest block height and time | Direct `fetch()` to `/status` |
+| **Chain RPC Tendermint** (`LAVA_RPC_URL`, default `https://lava.tendermintrpc.lava.build:443`) | Latest block height and time; historical block-by-height lookup | `fetchLatestBlockHeight()`, `fetchBlockAtTimestamp(unix)` in `rpc/lava.ts` |
 | **Redis — cache** (`REDIS_URL`) | Response-level cache (not a data source) | Automatic via `cacheTTL` in route config |
 | **Redis — health store** (`REDIS_URL`) | Provider health probe results (gRPC Probe, 10min TTL) | `readHealthMapForProvider()` / `readHealthByProviderForSpec()` from `services/health-store.ts` |
 | **Relays DB** (`RELAYS_DB_URL`) | Consumer optimizer metrics (aggregated hourly scores). DB resides outside AWS. **TODO: evaluate a different approach for optimizer metrics data ingestion** | `app.relaysDb` via `plugins/relays-db.ts` |
 | **Keybase API** | Provider avatars from identity field | `fetchProviderAvatar()` in `rpc/lava.ts` |
+| **CoinGecko API** (`COINGECKO_API_URL`, default `https://api.coingecko.com/api/v3`) | Current and historical LAVA/USD price | `fetchLavaUsdPrice()`, `fetchLavaUsdPriceAt(date)` in `rpc/lava.ts` |
 
 ### Caching
 
@@ -175,7 +176,7 @@ packages/
 
 | Endpoint | Cache | Source | Description |
 |----------|-------|--------|-------------|
-| `GET /supply/total` | 300s | Chain RPC | Total supply in LAVA (plain text). `fetchTotalSupply() / 1_000_000` |
+| `GET /supply/total` | 300s | Chain RPC | Total supply in LAVA (plain text). `fetchTotalSupply() / 1_000_000`. Optional `?timestamp=` (unix seconds or ISO-8601) for historical supply — resolves timestamp to block height via binary search on Tendermint RPC, then queries supply at that block via `x-cosmos-block-height` header |
 | `GET /supply/circulating` | 300s | Chain RPC | Circulating supply in LAVA (plain text). Formula: `total - continuousVesting - periodicVesting - rewardPools`. Paginates through all ~53K accounts to calculate locked vesting amounts. 5 reward pools subtracted: validators_rewards_distribution_pool, validators_rewards_allocation_pool, providers_rewards_distribution_pool, providers_rewards_allocation_pool, iprpc_pool |
 
 ### Other (root-level)
@@ -189,6 +190,7 @@ packages/
 | `GET /apr` | 1800s | Chain RPC + CoinGecko | Per-entity APR percentiles matching jsinfo. Queries `estimated_{provider,validator}_rewards` for all providers/validators with 10k LAVA benchmark, converts multi-denom rewards to USD, compounds monthly, takes 80th percentile, caps at 30%. Returns `{ restaking_apr_percentile, staking_apr_percentile }`. Uses 7-day weighted Redis history when available |
 | `GET /all_providers_apr` | 1800s | Chain RPC + CoinGecko + Indexer MV | Per-provider APR data matching jsinfo. Returns array of providers with: APR, commission, 30d CU/relays, 10k LAVA reward breakdown, per-spec rewards (rewards_last_month), specs, avatar |
 | `GET /lava/specs` | 300s | Chain RPC | All chain specs (raw, used by frontend `useChainNames` hook) |
+| `GET /lava/price` | 300s | CoinGecko | LAVA USD price. Optional `?date=` (YYYY-MM-DD or unix seconds) for historical price via CoinGecko `/coins/{id}/history`. Returns `{ price }` (current) or `{ price, date }` (historical) |
 
 ## Pagination Convention
 

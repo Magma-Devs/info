@@ -3,14 +3,22 @@ import { fetchTotalSupply, fetchCirculatingSupply, fetchBlockAtTimestamp } from 
 
 const ULAVA_TO_LAVA = 1_000_000n;
 
+// Lava mainnet genesis is ~2024-04-17 (unix 1713350000).
+// Reject timestamps before genesis since there are no blocks to query.
+const LAVA_GENESIS_UNIX = 1_713_350_000;
+
 function parseTimestamp(raw: string): number | null {
   const asNum = Number(raw);
+  let unix: number;
   if (!Number.isNaN(asNum) && asNum > 1_000_000_000 && asNum < 1e13) {
-    return asNum;
+    unix = asNum;
+  } else {
+    const ms = Date.parse(raw);
+    if (Number.isNaN(ms)) return null;
+    unix = Math.floor(ms / 1000);
   }
-  const ms = Date.parse(raw);
-  if (Number.isNaN(ms)) return null;
-  return Math.floor(ms / 1000);
+  if (unix < LAVA_GENESIS_UNIX) return null;
+  return unix;
 }
 
 export async function supplyRoutes(app: FastifyInstance) {

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { fetchAllSpecs, fetchLavaUsdPriceAt } from "../rpc/lava.js";
+import { fetchAllSpecs, fetchLavaUsdPrice, fetchLavaUsdPriceAt } from "../rpc/lava.js";
 
 export async function lavaRoutes(app: FastifyInstance) {
   // GET /lava/specs — all chain specs (consumed by frontend useChainNames hook)
@@ -28,38 +28,36 @@ export async function lavaRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { date: raw } = request.query;
 
-    if (!raw) {
-      const res = await fetch(
-        `${process.env.COINGECKO_API_URL ?? "https://api.coingecko.com/api/v3"}/simple/price?ids=lava-network&vs_currencies=usd`,
-      );
-      if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-      const data = (await res.json()) as { "lava-network"?: { usd?: number } };
-      return { price: data["lava-network"]?.usd ?? null, date: null };
-    }
-
-    // Parse as unix seconds or YYYY-MM-DD
-    let d: Date;
-    const asNum = Number(raw);
-    if (!Number.isNaN(asNum) && asNum > 1_000_000_000 && asNum < 1e13) {
-      d = new Date(asNum * 1000);
-    } else {
-      const ms = Date.parse(raw);
-      if (Number.isNaN(ms)) {
-        reply.status(400);
-        return { error: "Invalid date. Use YYYY-MM-DD or unix seconds." };
+    try {
+      if (!raw) {
+        const price = await fetchLavaUsdPrice();
+        return { price };
       }
-      d = new Date(ms);
-    }
 
-    if (d > new Date()) {
-      reply.status(400);
-      return { error: "Date cannot be in the future." };
-    }
+      // Parse as unix seconds or YYYY-MM-DD
+      let d: Date;
+      const asNum = Number(raw);
+      if (!Number.isNaN(asNum) && asNum > 1_000_000_000 && asNum < 1e13) {
+        d = new Date(asNum * 1000);
+      } else {
+        const ms = Date.parse(raw);
+        if (Number.isNaN(ms)) {
+          reply.status(400);
+          return { error: "Invalid date. Use YYYY-MM-DD or unix seconds." };
+        }
+        d = new Date(ms);
+      }
 
-    const price = await fetchLavaUsdPriceAt(d);
-    return {
-      price,
-      date: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`,
-    };
+      if (d > new Date()) {
+        reply.status(400);
+        return { error: "Date cannot be in the future." };
+      }
+
+      const price = await fetchLavaUsdPriceAt(d);
+      const date = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+      return { price, date };
+    } catch {
+      return reply.status(502).send({ error: "Price unavailable" });
+    }
   });
 }
