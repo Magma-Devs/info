@@ -1,0 +1,231 @@
+import type { FastifyInstance } from "fastify";
+import { gql } from "../graphql/client.js";
+import { fetchProvidersForSpec, fetchAllProviders } from "../rpc/lava.js";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const SPEC_ID_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+const MAX_RANGE_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
+
+function validateSpecId(s: string): boolean {
+  return s.length > 2 && s.length <= 50 && SPEC_ID_RE.test(s);
+}
+
+function computeAdjustedRewards(
+  avgLat: number, avgAvail: number, avgSync: number, qosCus: number,
+): number {
+  if (qosCus === 0) return 0;
+  return qosCus / 2 + Math.cbrt(avgLat * avgAvail * avgSync) * (qosCus / 2);
+}
+
+function computeMetrics(sum: AggregateSum) {
+  const totalCu = Number(sum.cu);
+  const totalRelays = Number(sum.relays);
+  const qosWeight = Number(sum.qosWeight);
+  const exQosWeight = Number(sum.exQosWeight);
+
+  const avgLatency = qosWeight > 0 ? Number(sum.qosLatencyW ?? 0) / qosWeight : 0;
+  const avgAvailability = qosWeight > 0 ? Number(sum.qosAvailW ?? 0) / qosWeight : 0;
+  const avgSync = qosWeight > 0 ? Number(sum.qosSyncW ?? 0) / qosWeight : 0;
+  const avgLatencyExc = exQosWeight > 0 ? Number(sum.exQosLatencyW ?? 0) / exQosWeight : 0;
+  const avgAvailabilityExc = exQosWeight > 0 ? Number(sum.exQosAvailW ?? 0) / exQosWeight : 0;
+  const avgSyncExc = exQosWeight > 0 ? Number(sum.exQosSyncW ?? 0) / exQosWeight : 0;
+  const qosCus = qosWeight > 0 ? totalCu : 0;
+
+  return {
+    relays: totalRelays, cus: totalCu, qosCus,
+    avgLatency, avgAvailability, avgSync,
+    avgLatencyExc, avgAvailabilityExc, avgSyncExc,
+    adjustedRewards: computeAdjustedRewards(avgLatency, avgAvailability, avgSync, qosCus),
+  };
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+interface AggregateSum {
+  cu: string;
+  relays: string;
+  qosSyncW: number | null;
+  qosAvailW: number | null;
+  qosLatencyW: number | null;
+  qosWeight: string;
+  exQosSyncW: number | null;
+  exQosAvailW: number | null;
+  exQosLatencyW: number | null;
+  exQosWeight: string;
+}
+
+interface AggregateGroup {
+  keys: string[];
+  sum: AggregateSum;
+}
+
+const SUM_FIELDS = `cu relays
+              qosSyncW qosAvailW qosLatencyW qosWeight
+              exQosSyncW exQosAvailW exQosLatencyW exQosWeight`;
+
+// ── Route ────────────────────────────────────────────────────────────────────
+
+export async function adjustedRewardsRoutes(app: FastifyInstance) {
+  app.get("/adjusted-rewards", {
+    schema: {
+      tags: ["Adjusted Rewards"],
+      summary: "Adjusted rewards grouped by provider or spec (nested)",
+      querystring: {
+        type: "object" as const,
+        properties: {
+          specs: {
+            type: "array" as const,
+            items: { type: "string" as const },
+            description: "Chain/spec IDs to include. Omit for all specs.",
+          },
+          from: { type: "string" as const, description: "Start date YYYY-MM-DD" },
+          to: { type: "string" as const, description: "End date YYYY-MM-DD" },
+          groupBy: {
+            type: "string" as const,
+            enum: ["provider", "spec"],
+            description: "Top-level grouping key (default: provider)",
+          },
+        },
+        required: ["from", "to"] as const,
+      },
+    },
+    config: { cacheTTL: 300 },
+  }, async (request, reply) => {
+    const q = request.query as {
+      specs?: string[];
+      from: string;
+      to: string;
+      groupBy?: "provider" | "spec";
+    };
+
+    const groupBy = q.groupBy ?? "provider";
+
+    // ── Validate spec IDs ──────────────────────────────────────────
+    if (q.specs) {
+      for (const s of q.specs) {
+        if (!validateSpecId(s)) {
+          return reply.status(400).send({ error: `Error - bad spec format: ${s}` });
+        }
+      }
+    }
+
+    // ── Validate & normalize dates ─────────────────────────────────
+    if (q.from.length !== 10 || q.to.length !== 10) {
+      return reply.status(400).send({ error: "Error - bad date format" });
+    }
+
+    let dateFrom = new Date(q.from + "T00:00:00Z");
+    let dateTo = new Date(q.to + "T00:00:00Z");
+
+    if (isNaN(dateFrom.getTime())) {
+      return reply.status(400).send({ error: "Error - bad from date format" });
+    }
+    if (isNaN(dateTo.getTime())) {
+      return reply.status(400).send({ error: "Error - bad to date format" });
+    }
+
+    if (dateTo < dateFrom) {
+      [dateFrom, dateTo] = [dateTo, dateFrom];
+    }
+
+    const from = dateFrom.toISOString().slice(0, 10);
+    const to = dateTo.toISOString().slice(0, 10);
+
+    if (dateTo.getTime() - dateFrom.getTime() > MAX_RANGE_MS) {
+      return reply.status(400).send({
+        error: "Error - date range should not exceed 6 months",
+      });
+    }
+
+    // ── Resolve specs ─────────────────────────────────────────────
+    const specs = q.specs && q.specs.length > 0 ? [...new Set(q.specs)] : null;
+
+    // ── Build GraphQL filter ──────────────────────────────────────
+    const filterParts = [
+      `date: { greaterThanOrEqualTo: $from, lessThanOrEqualTo: $to }`,
+    ];
+    const varDefs = [`$from: Date!`, `$to: Date!`];
+    const vars: Record<string, unknown> = { from, to };
+
+    if (specs) {
+      filterParts.push(`chainId: { in: $specs }`);
+      varDefs.push(`$specs: [String!]`);
+      vars.specs = specs;
+    }
+
+    const filter = filterParts.join(", ");
+
+    // ── Query MV grouped by (spec, provider) ──────────────────────
+    const [mvData, providerMap] = await Promise.all([
+      gql<{
+        mvRelayDailies: { groupedAggregates: AggregateGroup[] };
+      }>(`query(${varDefs.join(", ")}) {
+        mvRelayDailies(filter: { ${filter} }) {
+          groupedAggregates(groupBy: [CHAIN_ID, PROVIDER]) {
+            keys
+            sum { ${SUM_FIELDS} }
+          }
+        }
+      }`, vars),
+
+      (async () => {
+        const map = new Map<string, string>();
+        if (specs) {
+          const fetches = await Promise.all(
+            specs.map((s) => fetchProvidersForSpec(s)),
+          );
+          for (const providers of fetches) {
+            for (const p of providers) {
+              if (!map.has(p.address)) map.set(p.address, p.moniker);
+            }
+          }
+        } else {
+          for (const p of await fetchAllProviders()) {
+            map.set(p.address, p.moniker);
+          }
+        }
+        return map;
+      })(),
+    ]);
+
+    // ── Compute metrics for every (spec, provider) pair ───────────
+    const rows = mvData.mvRelayDailies.groupedAggregates.map((agg) => ({
+      spec: agg.keys[0],
+      provider: agg.keys[1],
+      moniker: providerMap.get(agg.keys[1]) ?? "",
+      ...computeMetrics(agg.sum),
+    }));
+
+    // ── Nest results ──────────────────────────────────────────────
+    if (groupBy === "spec") {
+      // { "NEAR": [ { provider, moniker, metrics… }, … ], "ETH1": [ … ] }
+      const grouped: Record<string, Array<Omit<typeof rows[number], "spec">>> = {};
+      for (const row of rows) {
+        const { spec, ...entry } = row;
+        (grouped[spec] ??= []).push(entry);
+      }
+      for (const arr of Object.values(grouped)) {
+        arr.sort((a, b) => b.adjustedRewards - a.adjustedRewards);
+      }
+      return { data: grouped };
+    }
+
+    // groupBy === "provider"
+    // { "lava@…": { moniker, specs: { "NEAR": { metrics… }, "ETH1": { … } } } }
+    const grouped: Record<string, {
+      moniker: string;
+      specs: Record<string, ReturnType<typeof computeMetrics>>;
+    }> = {};
+
+    for (const row of rows) {
+      const { provider, moniker, spec, ...metrics } = row;
+      if (!grouped[provider]) {
+        grouped[provider] = { moniker, specs: {} };
+      }
+      grouped[provider].specs[spec] = metrics;
+    }
+
+    return { data: grouped };
+  });
+}
