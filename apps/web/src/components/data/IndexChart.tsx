@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -21,17 +21,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { BarChart3, Loader2, ChevronsUpDown } from "lucide-react";
+import { BarChart3, Loader2 } from "lucide-react";
 import { formatNumberKMB } from "@/lib/format";
-import { getChainIcon } from "@/lib/chain-icons";
+import { ChainSelect } from "./ChainSelect";
 
 /* ─── Constants ─── */
-
-const CHAIN_COLORS = [
-  "#ff4d4d", "#33cc33", "#6666ff", "#e6e600", "#ff4dff",
-  "#33cccc", "#ffa64d", "#9966ff", "#33cc99", "#ff4da6",
-  "#cc9933", "#6699ff", "#cc33cc", "#99cc33", "#ff6633",
-];
 
 const ALL_CHAINS_COLOR = "#8b5cf6";
 
@@ -111,103 +105,6 @@ function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
-/* ─── Chain Icon (with fallback) ─── */
-
-function ChainIcon({ chainId }: { chainId: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) {
-    return (
-      <span className="w-4 h-4 rounded-sm shrink-0 bg-muted flex items-center justify-center text-[9px] font-medium text-muted-foreground">
-        {chainId.charAt(0).toUpperCase()}
-      </span>
-    );
-  }
-  return (
-    <img
-      src={getChainIcon(chainId)}
-      alt=""
-      className="w-4 h-4 rounded-sm shrink-0"
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
-/* ─── Chain Multi-Select Combobox ─── */
-
-function ChainCombobox({
-  chains,
-  selected,
-  onToggle,
-}: {
-  chains: string[];
-  selected: string[];
-  onToggle: (chain: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node))
-        setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const filtered = chains
-    .filter((c) => c.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => a.localeCompare(b));
-  const count = selected.length;
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-[200px] bg-card border border-border rounded px-3 py-1.5 text-sm text-foreground hover:bg-muted/50"
-      >
-        <span className="truncate">
-          {count > 0
-            ? `${count} chain${count > 1 ? "s" : ""} selected`
-            : "Select chains..."}
-        </span>
-        <ChevronsUpDown className="h-4 w-4 ml-2 opacity-50 shrink-0" />
-      </button>
-      {open && (
-        <div className="absolute top-full mt-1 right-0 w-[220px] bg-card border border-border rounded-lg shadow-lg z-50 p-2">
-          <input
-            type="text"
-            placeholder="Search chains..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-muted border border-border rounded px-2 py-1.5 text-sm text-foreground mb-2 outline-none"
-          />
-          <div className="max-h-[200px] overflow-y-auto">
-            {filtered.map((chain) => (
-              <label
-                key={chain}
-                className="flex items-center gap-2 p-1.5 text-sm cursor-pointer hover:bg-muted rounded"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.includes(chain)}
-                  onChange={() => onToggle(chain)}
-                  className="accent-[#ac4c39] shrink-0"
-                />
-                <ChainIcon chainId={chain} />
-                <span className="truncate">{chain}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════
    IndexChart — main component
    ═══════════════════════════════════════════════ */
@@ -218,28 +115,18 @@ export function IndexChart({
   rangeDays,
   onRangeChange,
 }: IndexChartProps) {
-  const [showAllChains, setShowAllChains] = useState(true);
-  const [selectedChains, setSelectedChains] = useState<string[]>([]);
+  const [selectedChain, setSelectedChain] = useState("all");
 
-  // Sort chains by total relays desc, assign colors
-  const { allChains, chainColors } = useMemo(() => {
-    if (!data?.length)
-      return {
-        allChains: [] as string[],
-        chainColors: {} as Record<string, string>,
-      };
+  // Sort chains by total relays desc
+  const allChains = useMemo(() => {
+    if (!data?.length) return [];
     const totals: Record<string, number> = {};
     for (const p of data) {
       totals[p.chainId] = (totals[p.chainId] || 0) + Number(p.relays);
     }
-    const sorted = Object.entries(totals)
+    return Object.entries(totals)
       .sort((a, b) => b[1] - a[1])
       .map(([c]) => c);
-    const colors: Record<string, string> = {};
-    sorted.forEach((chain, i) => {
-      colors[chain] = CHAIN_COLORS[i % CHAIN_COLORS.length];
-    });
-    return { allChains: sorted, chainColors: colors };
   }, [data]);
 
   // Pivot data: one row per date with totalRelays + per-chain columns + combined QoS
@@ -249,6 +136,7 @@ export function IndexChart({
     const byDay = new Map<string, Record<string, number | string | null>>();
 
     for (const p of data) {
+      if (selectedChain !== "all" && p.chainId !== selectedChain) continue;
       const relays = Number(p.relays);
       const existing = byDay.get(p.date);
 
@@ -297,47 +185,14 @@ export function IndexChart({
         delete result._w;
         return result;
       });
-  }, [data]);
+  }, [data, selectedChain]);
 
-  // Areas to render: "All Chains" aggregate OR individual chains
-  const areasToRender = useMemo(() => {
-    const areas: { key: string; color: string; label: string }[] = [];
-    if (showAllChains) {
-      areas.push({
-        key: "totalRelays",
-        color: ALL_CHAINS_COLOR,
-        label: "All Chains",
-      });
+  const areaConfig = useMemo(() => {
+    if (selectedChain === "all") {
+      return { key: "totalRelays", color: ALL_CHAINS_COLOR, label: "All Chains" };
     }
-    for (const chain of selectedChains) {
-      areas.push({
-        key: chain,
-        color: chainColors[chain] || "#888",
-        label: chain,
-      });
-    }
-    if (areas.length === 0) {
-      areas.push({
-        key: "totalRelays",
-        color: ALL_CHAINS_COLOR,
-        label: "All Chains",
-      });
-    }
-    return areas;
-  }, [showAllChains, selectedChains, chainColors]);
-
-  const toggleChain = useCallback((chain: string) => {
-    setSelectedChains((prev) =>
-      prev.includes(chain)
-        ? prev.filter((c) => c !== chain)
-        : [...prev, chain],
-    );
-  }, []);
-
-  const handleAllChainsChange = useCallback((checked: boolean) => {
-    setShowAllChains(checked);
-    if (checked) setSelectedChains([]);
-  }, []);
+    return { key: selectedChain, color: ALL_CHAINS_COLOR, label: selectedChain };
+  }, [selectedChain]);
 
   // Custom legend
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -377,26 +232,7 @@ export function IndexChart({
           </CardDescription>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="allChains"
-              checked={showAllChains}
-              onChange={(e) => handleAllChainsChange(e.target.checked)}
-              className="accent-[#ac4c39]"
-            />
-            <label
-              htmlFor="allChains"
-              className="text-sm font-medium whitespace-nowrap cursor-pointer"
-            >
-              All Chains
-            </label>
-          </div>
-          <ChainCombobox
-            chains={allChains}
-            selected={selectedChains}
-            onToggle={toggleChain}
-          />
+          <ChainSelect chains={allChains} selected={selectedChain} onChange={setSelectedChain} />
           <div className="flex gap-1">
             {[
               { label: "30d", days: 30 },
@@ -459,27 +295,24 @@ export function IndexChart({
                       stopOpacity={0.8}
                     />
                   </linearGradient>
-                  {areasToRender.map(({ key, color }) => (
-                    <linearGradient
-                      key={key}
-                      id={`fill-${key}`}
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="5%"
-                        stopColor={color}
-                        stopOpacity={0.8}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor={color}
-                        stopOpacity={0.1}
-                      />
-                    </linearGradient>
-                  ))}
+                  <linearGradient
+                    id={`fill-${areaConfig.key}`}
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="5%"
+                      stopColor={areaConfig.color}
+                      stopOpacity={0.8}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={areaConfig.color}
+                      stopOpacity={0.1}
+                    />
+                  </linearGradient>
                 </defs>
 
                 <CartesianGrid
@@ -529,18 +362,14 @@ export function IndexChart({
                   dot={false}
                 />
 
-                {areasToRender.map(({ key, color, label }) => (
-                  <Area
-                    key={key}
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey={key}
-                    name={label}
-                    stroke={color}
-                    fill={`url(#fill-${key})`}
-                    stackId="chains"
-                  />
-                ))}
+                <Area
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey={areaConfig.key}
+                  name={areaConfig.label}
+                  stroke={areaConfig.color}
+                  fill={`url(#fill-${areaConfig.key})`}
+                />
 
                 <Brush
                   dataKey="date"
