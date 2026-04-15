@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { gql } from "../graphql/client.js";
+import { gqlSafe } from "../graphql/client.js";
 import { fetchProvidersForSpec, fetchAllProviders } from "../rpc/lava.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ export async function adjustedRewardsRoutes(app: FastifyInstance) {
 
     // ── Query MV grouped by (spec, provider) ──────────────────────
     const [mvData, providerMap] = await Promise.all([
-      gql<{
+      gqlSafe<{
         mvRelayDailies: { groupedAggregates: AggregateGroup[] };
       }>(`query(${varDefs.join(", ")}) {
         mvRelayDailies(filter: { ${filter} }) {
@@ -167,7 +167,7 @@ export async function adjustedRewardsRoutes(app: FastifyInstance) {
             sum { ${SUM_FIELDS} }
           }
         }
-      }`, vars),
+      }`, vars, { mvRelayDailies: { groupedAggregates: [] } }),
 
       (async () => {
         const map = new Map<string, string>();

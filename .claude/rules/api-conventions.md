@@ -29,6 +29,10 @@ paths:
 - Date filters use `Date` type (`YYYY-MM-DD`), not `Datetime`
 - QoS is computed from weighted sums: `qosSyncW / qosWeight`
 
+## Swagger / OpenAPI
+- Every route must include `schema.tags` and `schema.summary` so it appears in Swagger UI (`/docs`)
+- When adding a new route with a new tag, also add the tag to the central list in `apps/api/src/plugins/swagger.ts`
+
 ## Chain values
 - Commission values from chain are already percentages (75 = 75%), not decimals
 - Token amounts are in ulava (1 LAVA = 1,000,000 ulava) — divide by 1e6 for display
