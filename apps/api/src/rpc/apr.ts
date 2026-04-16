@@ -205,6 +205,12 @@ function formatCommission(commission: string): string {
   return `${n.toFixed(1)}%`;
 }
 
+// Field naming is intentionally mixed on this endpoint: the four snake_case
+// keys below (`30_days_cu_served`, `30_days_relays_served`,
+// `rewards_10k_lava_delegation`, `rewards_last_month`) match jsinfo's
+// `/all_providers_apr` shape 1:1. External consumers (burn-ui / lava-ops)
+// depend on that exact contract — renaming them to camelCase would be a
+// breaking change. The remaining fields were camelCase in jsinfo too.
 export interface AllProviderAprEntry {
   address: string;
   moniker: string;
