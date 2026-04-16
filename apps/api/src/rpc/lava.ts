@@ -129,6 +129,29 @@ async function fetchRewardPoolsAmount(): Promise<bigint> {
   return total;
 }
 
+const PROVIDER_REWARD_POOLS = [
+  "providers_rewards_distribution_pool",
+  "providers_rewards_allocation_pool",
+  "iprpc_pool",
+];
+
+/** Fetch total ulava in provider-side reward pools (excludes validator pools). */
+export async function fetchProviderRewardPoolsAmount(): Promise<bigint> {
+  const data = await fetchRest<{
+    pools: Array<{ name: string; balance: Array<{ denom: string; amount: string }> }>;
+  }>("/lavanet/lava/rewards/pools");
+
+  let total = 0n;
+  for (const pool of data.pools ?? []) {
+    if (PROVIDER_REWARD_POOLS.includes(pool.name)) {
+      for (const coin of pool.balance ?? []) {
+        if (coin.denom === "ulava") total += BigInt(coin.amount);
+      }
+    }
+  }
+  return total;
+}
+
 interface VestingStats {
   continuousVesting: bigint;
   periodicVesting: bigint;
