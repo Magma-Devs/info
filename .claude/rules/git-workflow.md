@@ -4,6 +4,7 @@
 - Use conventional commit format: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`
 - Keep commits atomic — one logical change per commit
 - Write the "why" in the commit body if the diff doesn't make it obvious
+- Never add `Co-Authored-By` trailers — no AI attribution in commit history
 
 ## Branches
 - Feature branches: `feat/<short-description>`

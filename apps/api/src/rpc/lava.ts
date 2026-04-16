@@ -105,7 +105,31 @@ export async function fetchBlockAtTimestamp(targetUnix: number): Promise<number>
   return lo;
 }
 
-const REWARD_POOLS = [
+interface RewardPool {
+  name: string;
+  balance: Array<{ denom: string; amount: string }>;
+}
+
+/** Shared fetch for reward pools — both consumers filter by pool name. */
+async function fetchRewardPools(): Promise<RewardPool[]> {
+  const data = await fetchRest<{ pools: RewardPool[] }>("/lavanet/lava/rewards/pools");
+  return data.pools ?? [];
+}
+
+function sumPoolsUlava(pools: RewardPool[], names: string[]): bigint {
+  const nameSet = new Set(names);
+  let total = 0n;
+  for (const pool of pools) {
+    if (nameSet.has(pool.name)) {
+      for (const coin of pool.balance ?? []) {
+        if (coin.denom === "ulava") total += BigInt(coin.amount);
+      }
+    }
+  }
+  return total;
+}
+
+const ALL_REWARD_POOLS = [
   "validators_rewards_distribution_pool",
   "validators_rewards_allocation_pool",
   "providers_rewards_distribution_pool",
@@ -114,19 +138,7 @@ const REWARD_POOLS = [
 ];
 
 async function fetchRewardPoolsAmount(): Promise<bigint> {
-  const data = await fetchRest<{
-    pools: Array<{ name: string; balance: Array<{ denom: string; amount: string }> }>;
-  }>("/lavanet/lava/rewards/pools");
-
-  let total = 0n;
-  for (const pool of data.pools ?? []) {
-    if (REWARD_POOLS.includes(pool.name)) {
-      for (const coin of pool.balance ?? []) {
-        if (coin.denom === "ulava") total += BigInt(coin.amount);
-      }
-    }
-  }
-  return total;
+  return sumPoolsUlava(await fetchRewardPools(), ALL_REWARD_POOLS);
 }
 
 const PROVIDER_REWARD_POOLS = [
@@ -137,19 +149,7 @@ const PROVIDER_REWARD_POOLS = [
 
 /** Fetch total ulava in provider-side reward pools (excludes validator pools). */
 export async function fetchProviderRewardPoolsAmount(): Promise<bigint> {
-  const data = await fetchRest<{
-    pools: Array<{ name: string; balance: Array<{ denom: string; amount: string }> }>;
-  }>("/lavanet/lava/rewards/pools");
-
-  let total = 0n;
-  for (const pool of data.pools ?? []) {
-    if (PROVIDER_REWARD_POOLS.includes(pool.name)) {
-      for (const coin of pool.balance ?? []) {
-        if (coin.denom === "ulava") total += BigInt(coin.amount);
-      }
-    }
-  }
-  return total;
+  return sumPoolsUlava(await fetchRewardPools(), PROVIDER_REWARD_POOLS);
 }
 
 interface VestingStats {
@@ -347,12 +347,7 @@ function chainDisplayName(chainID: string, chainName: string): string {
   return titleCase(chainName);
 }
 
-/** Base specs that aren't real chains — excluded from all chain lists */
-const BASE_SPECS = new Set([
-  "SUIGRPC", "SUIJSONRPC",
-  "COSMOSSDK", "COSMOSSDK50", "COSMOSWASM",
-  "ETHERMINT", "TENDERMINT", "IBC",
-]);
+import { BASE_SPECS } from "@info/shared/constants";
 
 export async function fetchAllSpecs(): Promise<Array<{ index: string; name: string }>> {
   const data = await fetchRest<{
