@@ -15,18 +15,18 @@
  */
 import { Redis } from "ioredis";
 import pino from "pino";
+import { config } from "../config.js";
 import { runProbeLoop } from "../services/health-probe-loop.js";
 
 const log = pino({ name: "health-probe-bin" });
 
 async function main() {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) {
+  if (!config.redis.url) {
     log.error("REDIS_URL is required");
     process.exit(1);
   }
 
-  const redis = new Redis(redisUrl);
+  const redis = new Redis(config.redis.url);
 
   let running = true;
   const shutdown = (signal: string) => {

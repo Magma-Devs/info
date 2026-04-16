@@ -1,13 +1,14 @@
 import pino from "pino";
+import { config } from "../config.js";
 
 export const logger = pino({ name: "rpc" });
 
-export const LAVA_REST_URL = process.env.LAVA_REST_URL ?? "https://lava.rest.lava.build";
-
-// Concurrent in-flight RPC calls per batch loop. Operators running dedicated
-// RPC endpoints can raise this (env: RPC_BATCH_SIZE). Public endpoints should
-// keep a conservative value (~5) to avoid rate limiting.
-export const RPC_BATCH_SIZE = Math.max(1, parseInt(process.env.RPC_BATCH_SIZE ?? "25", 10));
+/**
+ * Concurrent in-flight RPC calls per batch loop. Operators running dedicated
+ * RPC endpoints can raise this (env: RPC_BATCH_SIZE). Public endpoints should
+ * keep a conservative value (~5) to avoid rate limiting.
+ */
+export const RPC_BATCH_SIZE = config.lava.rpcBatchSize;
 
 // Request coalescing: concurrent fetches for the same path share one in-flight request
 const inflightRpc = new Map<string, Promise<unknown>>();
@@ -21,7 +22,7 @@ export async function fetchRest<T>(path: string, blockHeight?: number): Promise<
     const headers: Record<string, string> = {};
     if (blockHeight) headers["x-cosmos-block-height"] = String(blockHeight);
 
-    const res = await fetch(`${LAVA_REST_URL}${path}`, {
+    const res = await fetch(`${config.lava.restUrl}${path}`, {
       headers,
       signal: AbortSignal.timeout(15_000),
     });

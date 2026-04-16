@@ -1,5 +1,6 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
+import { config } from "../config.js";
 import { runProbeLoop } from "../services/health-probe-loop.js";
 
 /**
@@ -11,7 +12,7 @@ import { runProbeLoop } from "../services/health-probe-loop.js";
  * convenience during local dev: set `ENABLE_HEALTH_PROBE=true` to enable.
  */
 export const healthProbePlugin = fp(async (app: FastifyInstance) => {
-  if (process.env.ENABLE_HEALTH_PROBE !== "true") return;
+  if (!config.healthProbe.enabled) return;
   if (!app.redis) {
     app.log.warn("Health probe requires Redis — REDIS_URL not set, skipping");
     return;

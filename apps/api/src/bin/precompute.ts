@@ -23,6 +23,7 @@
 import { Redis } from "ioredis";
 import pino from "pino";
 import { ulavaToLava } from "@info/shared/utils";
+import { config } from "../config.js";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchCirculatingSupply } from "../rpc/supply.js";
 import { computeAPR, computeAllProvidersApr } from "../rpc/apr.js";
@@ -94,14 +95,13 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function main() {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) {
+  if (!config.redis.url) {
     log.error("REDIS_URL is required");
     process.exit(1);
   }
 
-  const intervalMs = parseInt(process.env.PRECOMPUTE_INTERVAL_MS ?? "900000", 10);
-  const redis = new Redis(redisUrl);
+  const intervalMs = config.precompute.intervalMs;
+  const redis = new Redis(config.redis.url);
 
   let running = true;
   const shutdown = (signal: string) => {

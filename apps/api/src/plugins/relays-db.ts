@@ -1,6 +1,7 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
 import postgres from "postgres";
+import { config } from "../config.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -9,7 +10,7 @@ declare module "fastify" {
 }
 
 export const relaysDbPlugin = fp(async (app: FastifyInstance) => {
-  const url = process.env.RELAYS_DB_URL;
+  const url = config.relaysDb.url;
   if (!url) {
     app.decorate("relaysDb", null);
     app.log.warn("RELAYS_DB_URL not set — optimizer metrics disabled");

@@ -1,6 +1,7 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
 import { Redis } from "ioredis";
+import { config } from "../config.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -9,7 +10,7 @@ declare module "fastify" {
 }
 
 export const redisPlugin = fp(async (app: FastifyInstance) => {
-  const url = process.env.REDIS_URL;
+  const url = config.redis.url;
   if (!url) {
     app.decorate("redis", null);
     return;
