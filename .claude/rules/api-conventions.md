@@ -27,7 +27,8 @@ paths:
 ## GraphQL queries
 - Use materialized views (`mvRelayDailies`, `mvConsumerRelayDailies`) for aggregate queries — never query raw `relayPayments` (18.8M rows)
 - Date filters use `Date` type (`YYYY-MM-DD`), not `Datetime`
-- QoS is computed from weighted sums: `qosSyncW / qosWeight`
+- QoS is computed from relay-weighted sums by default: `qosSyncW / qosWeight`
+- Exception: `/provider-rewards` uses unweighted row-level averaging (`qosSyncSum / qosCount`) for parity with the delta reference implementation
 
 ## Swagger / OpenAPI
 - Every route must include `schema.tags` and `schema.summary` so it appears in Swagger UI (`/docs`)

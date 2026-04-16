@@ -169,6 +169,26 @@ describe("GET /provider-rewards", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("rejects calendar-invalid dates (Feb 30)", async () => {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-rewards?from=2025-02-30&to=2025-04-01",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toMatch(/bad from date/);
+  });
+
+  it("rejects calendar-invalid dates (Apr 31)", async () => {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-rewards?from=2025-01-01&to=2025-04-31",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toMatch(/bad to date/);
+  });
+
   it("rejects date range exceeding 6 months", async () => {
     const app = await buildApp();
     const res = await app.inject({

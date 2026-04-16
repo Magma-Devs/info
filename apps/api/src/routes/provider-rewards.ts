@@ -5,10 +5,31 @@ import { fetchProvidersForSpec, fetchAllProviders } from "../rpc/lava.js";
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const SPEC_ID_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MAX_RANGE_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const PAST_WINDOW_TTL = 86_400; // 1 day — immutable historical window
+const LIVE_WINDOW_TTL = 300;    // 5 min — aligned with MV refresh cadence
 
 function validateSpecId(s: string): boolean {
   return s.length > 2 && s.length <= 50 && SPEC_ID_RE.test(s);
+}
+
+// Parses YYYY-MM-DD strictly. Rejects calendar-invalid dates like 2025-02-30
+// (which `new Date()` would silently roll over to 2025-03-02).
+function parseStrictDate(s: string): Date | null {
+  const m = DATE_RE.exec(s);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const ts = Date.UTC(y, mo - 1, d);
+  const rt = new Date(ts);
+  if (rt.getUTCFullYear() !== y || rt.getUTCMonth() !== mo - 1 || rt.getUTCDate() !== d) {
+    return null;
+  }
+  return rt;
 }
 
 function computeAdjustedRewards(
@@ -82,19 +103,10 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     }
 
     // ── Validate & normalize dates ─────────────────────────────────
-    if (q.from.length !== 10 || q.to.length !== 10) {
-      return reply.status(400).send({ error: "Error - bad date format" });
-    }
-
-    let dateFrom = new Date(q.from + "T00:00:00Z");
-    let dateTo = new Date(q.to + "T00:00:00Z");
-
-    if (isNaN(dateFrom.getTime())) {
-      return reply.status(400).send({ error: "Error - bad from date format" });
-    }
-    if (isNaN(dateTo.getTime())) {
-      return reply.status(400).send({ error: "Error - bad to date format" });
-    }
+    let dateFrom = parseStrictDate(q.from);
+    if (!dateFrom) return reply.status(400).send({ error: "Error - bad from date format" });
+    let dateTo = parseStrictDate(q.to);
+    if (!dateTo) return reply.status(400).send({ error: "Error - bad to date format" });
 
     if (dateTo < dateFrom) {
       [dateFrom, dateTo] = [dateTo, dateFrom];
@@ -108,6 +120,17 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
         error: "Error - date range should not exceed 6 months",
       });
     }
+
+    // Past windows are immutable (MV refreshes catch up to yesterday within a
+    // day), so cache them long; current windows follow MV refresh cadence.
+    const todayUtc = Date.UTC(
+      new Date().getUTCFullYear(),
+      new Date().getUTCMonth(),
+      new Date().getUTCDate(),
+    );
+    request.cacheTTL = dateTo.getTime() <= todayUtc - ONE_DAY_MS
+      ? PAST_WINDOW_TTL
+      : LIVE_WINDOW_TTL;
 
     // ── Resolve specs ─────────────────────────────────────────────
     const specs = q.specs && q.specs.length > 0 ? [...new Set(q.specs)] : null;
@@ -161,6 +184,12 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     ]);
 
     // ── Compute adjusted rewards per provider ─────────────────────
+    // NOTE: Unlike other routes, this endpoint uses unweighted row-level QoS
+    // averaging (qos{Sync,Avail,Latency}Sum / qosCount) for parity with the
+    // delta reference implementation, not the project-default weighted form
+    // (qosSyncW / qosWeight). CU sums stay as Number because CU is not ulava
+    // — totals are well within Number.MAX_SAFE_INTEGER and the response must
+    // be JSON-serializable floats.
     interface ProviderTotal {
       moniker: string; adjustedRewards: number; relays: number; cus: number;
       qosCus: number; qosCount: number;

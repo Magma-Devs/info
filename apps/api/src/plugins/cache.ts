@@ -5,6 +5,13 @@ declare module "fastify" {
   interface FastifyContextConfig {
     cacheTTL?: number;
   }
+  interface FastifyRequest {
+    cacheTTL?: number;
+  }
+}
+
+function resolveTtl(request: FastifyRequest): number | undefined {
+  return request.cacheTTL ?? request.routeOptions.config?.cacheTTL;
 }
 
 function buildCacheKey(request: FastifyRequest): string {
@@ -27,7 +34,7 @@ function buildCacheKey(request: FastifyRequest): string {
  */
 export const cachePlugin = fp(async (app: FastifyInstance) => {
   app.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
-    const ttl = request.routeOptions.config?.cacheTTL;
+    const ttl = resolveTtl(request);
     if (!ttl) return;
 
     const client = app.redis;
@@ -47,7 +54,7 @@ export const cachePlugin = fp(async (app: FastifyInstance) => {
   });
 
   app.addHook("onSend", async (request: FastifyRequest, reply: FastifyReply, payload: string) => {
-    const ttl = request.routeOptions.config?.cacheTTL;
+    const ttl = resolveTtl(request);
     if (!ttl) return payload;
     if (reply.getHeader("X-Cache") === "HIT") return payload;
     if (reply.statusCode >= 400) return payload;
