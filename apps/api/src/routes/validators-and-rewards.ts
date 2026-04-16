@@ -14,6 +14,10 @@ export async function validatorsAndRewardsRoutes(app: FastifyInstance) {
   // validator: fetches distribution rewards, outstanding rewards, estimated
   // rewards, delegations, and unbonding delegations — all converted to USD.
   //
+  // Consumers: external (burn-ui dashboards, lava-ops pipelines). NOT called
+  // from this repo's web frontend. Don't delete it thinking it's dead — the
+  // /lava_mainnet_validators_and_rewards shape is the public contract.
+  //
   // Prefers the precomputed value from bin/precompute.ts; falls back to live
   // compute when the precompute worker hasn't populated the key yet.
   app.get("/validators-and-rewards", {
