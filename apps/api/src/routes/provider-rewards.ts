@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { gqlSafe } from "../graphql/client.js";
-import { fetchProvidersForSpec, fetchAllProviders, fetchLavaUsdPrice, fetchLavaUsdPriceAt, fetchProviderRewardPoolsAmount } from "../rpc/lava.js";
+import { fetchProvidersForSpec, fetchAllProviders } from "../rpc/lava.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
   app.get("/provider-rewards", {
     schema: {
       tags: ["Provider Rewards"],
-      summary: "Per-provider reward distribution in LAVA and USD",
+      summary: "Per-provider adjusted reward shares based on relay QoS data",
       querystring: {
         type: "object" as const,
         properties: {
@@ -127,9 +127,8 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
 
     const filter = filterParts.join(", ");
 
-    // ── Fetch MV data, provider names, LAVA price, and reward pool in parallel ──
-    const isHistorical = dateTo < new Date();
-    const [mvData, providerMap, lavaPrice, providerPoolUlava] = await Promise.all([
+    // ── Fetch MV data and provider names in parallel ─────────────
+    const [mvData, providerMap] = await Promise.all([
       gqlSafe<{
         mvRelayDailies: { groupedAggregates: AggregateGroup[] };
       }>(`query(${varDefs.join(", ")}) {
@@ -159,19 +158,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
         }
         return map;
       })(),
-
-      (isHistorical ? fetchLavaUsdPriceAt(dateTo) : fetchLavaUsdPrice())
-        .catch(() => null as number | null),
-
-      fetchProviderRewardPoolsAmount()
-        .catch(() => null as bigint | null),
     ]);
-
-    // Convert provider pool from ulava to LAVA (1 LAVA = 1_000_000 ulava).
-    // Safe: pool balance is well under Number.MAX_SAFE_INTEGER (~9B LAVA).
-    const providerPoolLava = providerPoolUlava != null
-      ? Number(providerPoolUlava) / 1_000_000
-      : null;
 
     // ── Compute adjusted rewards per provider ─────────────────────
     interface ProviderTotal {
@@ -235,7 +222,6 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     const providers = [...providerTotals.entries()]
       .map(([address, p]) => {
         const share = totalAdjusted > 0 ? p.adjustedRewards / totalAdjusted : 0;
-        const canEstimateUsd = lavaPrice != null && providerPoolLava != null;
         return {
           provider: address,
           moniker: p.moniker,
@@ -250,14 +236,12 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
           avgSyncExc: p.exQosCount > 0 ? p.exQosSyncSum / p.exQosCount : 0,
           adjustedRewards: p.adjustedRewards,
           rewardShare: share,
-          estimatedRewardsLava: providerPoolLava != null ? share * providerPoolLava : null,
-          estimatedRewardsUsd: canEstimateUsd ? share * providerPoolLava! * lavaPrice! : null,
         };
       })
       .sort((a, b) => b.adjustedRewards - a.adjustedRewards);
 
     return {
-      meta: { from, to, lavaUsdPrice: lavaPrice, providerPoolLava, totalAdjustedRewards: totalAdjusted },
+      meta: { from, to, totalAdjustedRewards: totalAdjusted },
       data: providers,
     };
   });
