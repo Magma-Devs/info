@@ -12,6 +12,11 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },
+  "pnpm": {
+    "overrides": {
+      "follow-redirects": ">=1.16.0"
+    }
+  },
   "devDependencies": {
     "vite": "^6.0.0",
     "vitest": "4"
