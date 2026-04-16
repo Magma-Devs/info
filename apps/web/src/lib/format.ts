@@ -1,3 +1,5 @@
+import { ulavaToLavaNumber } from "@info/shared/utils";
+
 /** Format number with thousand separators */
 export function formatNumber(value: number | string | bigint): string {
   const n = typeof value === "bigint" ? Number(value) : Number(value);
@@ -15,12 +17,10 @@ export function formatNumberKMB(value: number | string): string {
   return n.toFixed(0);
 }
 
-/** Convert ulava to LAVA with formatting */
+/** Convert ulava to LAVA with thousand-separator formatting */
 export function formatLava(ulava: string | bigint | number): string {
   try {
-    const value = typeof ulava === "bigint" ? ulava : BigInt(String(ulava).replace(/ulava$/, ""));
-    const lava = Number(value / 1_000_000n);
-    return new Intl.NumberFormat("en-US").format(lava);
+    return new Intl.NumberFormat("en-US").format(ulavaToLavaNumber(ulava));
   } catch {
     return "0";
   }
@@ -29,9 +29,7 @@ export function formatLava(ulava: string | bigint | number): string {
 /** Convert ulava to LAVA with K/M/B shorthand */
 export function formatLavaKMB(ulava: string | bigint | number): string {
   try {
-    const value = typeof ulava === "bigint" ? ulava : BigInt(String(ulava).replace(/ulava$/, ""));
-    const lava = Number(value / 1_000_000n);
-    return formatNumberKMB(lava);
+    return formatNumberKMB(ulavaToLavaNumber(ulava));
   } catch {
     return "0";
   }
