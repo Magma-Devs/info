@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import compress from "@fastify/compress";
 import { redisPlugin } from "./plugins/redis.js";
 import { cachePlugin } from "./plugins/cache.js";
 import { paginationPlugin } from "./plugins/pagination.js";
@@ -44,6 +45,7 @@ async function main() {
 
   await app.register(cors, { origin: CORS_ORIGINS, methods: ["GET", "HEAD", "OPTIONS", "DELETE"] });
   await app.register(helmet, { contentSecurityPolicy: false }); // CSP handled by Next.js frontend
+  await app.register(compress, { global: true, threshold: 1024, encodings: ["br", "gzip"] });
   await app.register(rateLimit, {
     max: parseInt(process.env.RATE_LIMIT_MAX ?? "100", 10),
     timeWindow: "1 minute",
