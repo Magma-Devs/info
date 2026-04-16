@@ -60,9 +60,51 @@ interface AggregateGroup {
   sum: AggregateSum;
 }
 
+interface ComputedRow {
+  relays: number;
+  cus: number;
+  qosCus: number;
+  avgLatency: number;
+  avgAvailability: number;
+  avgSync: number;
+  avgLatencyExc: number;
+  avgAvailabilityExc: number;
+  avgSyncExc: number;
+  adjustedRewards: number;
+}
+
 const SUM_FIELDS = `cu relays
               qosSyncSum qosAvailSum qosLatencySum qosCount qosCu
               exQosSyncSum exQosAvailSum exQosLatencySum exQosCount`;
+
+// Per-group computation. Identical math for provider-level pooled groups
+// and per-(provider, spec) groups — the groupBy determines what a "group" means.
+function computeFromSum(sum: AggregateSum): ComputedRow {
+  const qosCount = Number(sum.qosCount);
+  const exQosCount = Number(sum.exQosCount);
+  const latSum = Number(sum.qosLatencySum ?? 0);
+  const availSum = Number(sum.qosAvailSum ?? 0);
+  const syncSum = Number(sum.qosSyncSum ?? 0);
+  const exLatSum = Number(sum.exQosLatencySum ?? 0);
+  const exAvailSum = Number(sum.exQosAvailSum ?? 0);
+  const exSyncSum = Number(sum.exQosSyncSum ?? 0);
+  const qosCus = Number(sum.qosCu ?? 0);
+  const avgLatency = qosCount > 0 ? latSum / qosCount : 0;
+  const avgAvailability = qosCount > 0 ? availSum / qosCount : 0;
+  const avgSync = qosCount > 0 ? syncSum / qosCount : 0;
+  return {
+    relays: Number(sum.relays),
+    cus: Number(sum.cu),
+    qosCus,
+    avgLatency,
+    avgAvailability,
+    avgSync,
+    avgLatencyExc: exQosCount > 0 ? exLatSum / exQosCount : 0,
+    avgAvailabilityExc: exQosCount > 0 ? exAvailSum / exQosCount : 0,
+    avgSyncExc: exQosCount > 0 ? exSyncSum / exQosCount : 0,
+    adjustedRewards: computeAdjustedRewards(avgLatency, avgAvailability, avgSync, qosCus),
+  };
+}
 
 // ── Route ────────────────────────────────────────────────────────────────────
 
@@ -70,7 +112,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
   app.get("/provider-rewards", {
     schema: {
       tags: ["Provider Rewards"],
-      summary: "Per-provider adjusted reward shares based on relay QoS data",
+      summary: "Per-provider (or per-provider-per-spec) adjusted reward shares based on relay QoS data",
       querystring: {
         type: "object" as const,
         properties: {
@@ -81,6 +123,12 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
           },
           from: { type: "string" as const, description: "Start date YYYY-MM-DD" },
           to: { type: "string" as const, description: "End date YYYY-MM-DD" },
+          groupBy: {
+            type: "string" as const,
+            enum: ["provider", "spec"] as const,
+            description:
+              "Aggregation level. 'provider' (default) pools all chains and returns one row per provider — matches delta's monthly CSV output. 'spec' returns one row per (provider, spec) with per-spec reward shares.",
+          },
         },
         required: ["from", "to"] as const,
       },
@@ -91,7 +139,10 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
       specs?: string[];
       from: string;
       to: string;
+      groupBy?: "provider" | "spec";
     };
+
+    const groupBy: "provider" | "spec" = q.groupBy === "spec" ? "spec" : "provider";
 
     // ── Validate spec IDs ──────────────────────────────────────────
     if (q.specs) {
@@ -150,13 +201,21 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
 
     const filter = filterParts.join(", ");
 
+    // ── GraphQL groupBy selection ─────────────────────────────────
+    // 'provider' mode pools across all chains (required for formula parity
+    // with delta — cbrt(avg·avg·avg) is non-linear so per-chain-then-sum
+    // would diverge on multi-chain providers).
+    // 'spec' mode keeps the chain dimension because each row represents a
+    // distinct (provider, spec) reward entry.
+    const gqlGroup = groupBy === "spec" ? "[CHAIN_ID, PROVIDER]" : "[PROVIDER]";
+
     // ── Fetch MV data and provider names in parallel ─────────────
     const [mvData, providerMap] = await Promise.all([
       gqlSafe<{
         mvRelayDailies: { groupedAggregates: AggregateGroup[] };
       }>(`query(${varDefs.join(", ")}) {
         mvRelayDailies(filter: { ${filter} }) {
-          groupedAggregates(groupBy: [CHAIN_ID, PROVIDER]) {
+          groupedAggregates(groupBy: ${gqlGroup}) {
             keys
             sum { ${SUM_FIELDS} }
           }
@@ -183,95 +242,81 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
       })(),
     ]);
 
-    // ── Compute adjusted rewards per provider ─────────────────────
     // NOTE: Unlike other routes, this endpoint uses unweighted row-level QoS
     // averaging (qos{Sync,Avail,Latency}Sum / qosCount) for parity with the
     // delta reference implementation, not the project-default weighted form
     // (qosSyncW / qosWeight). CU sums stay as Number because CU is not ulava
     // — totals are well within Number.MAX_SAFE_INTEGER and the response must
     // be JSON-serializable floats.
-    interface ProviderTotal {
-      moniker: string; adjustedRewards: number; relays: number; cus: number;
-      qosCus: number; qosCount: number;
-      qosLatencySum: number; qosAvailSum: number; qosSyncSum: number;
-      exQosCount: number;
-      exQosLatencySum: number; exQosAvailSum: number; exQosSyncSum: number;
-    }
-    const providerTotals = new Map<string, ProviderTotal>();
+    const groups = mvData.mvRelayDailies.groupedAggregates;
 
-    for (const agg of mvData.mvRelayDailies.groupedAggregates) {
-      const provider = agg.keys[1];
-      const moniker = providerMap.get(provider) ?? "";
-      const sum = agg.sum;
-      const totalCu = Number(sum.cu);
-      const totalRelays = Number(sum.relays);
-      const qosCount = Number(sum.qosCount);
-      const exQosCount = Number(sum.exQosCount);
-
-      const latSum = Number(sum.qosLatencySum ?? 0);
-      const availSum = Number(sum.qosAvailSum ?? 0);
-      const syncSum = Number(sum.qosSyncSum ?? 0);
-      const avgLatency = qosCount > 0 ? latSum / qosCount : 0;
-      const avgAvailability = qosCount > 0 ? availSum / qosCount : 0;
-      const avgSync = qosCount > 0 ? syncSum / qosCount : 0;
-      const qosCus = Number(sum.qosCu ?? 0);
-      const adj = computeAdjustedRewards(avgLatency, avgAvailability, avgSync, qosCus);
-
-      const exLatSum = Number(sum.exQosLatencySum ?? 0);
-      const exAvailSum = Number(sum.exQosAvailSum ?? 0);
-      const exSyncSum = Number(sum.exQosSyncSum ?? 0);
-
-      const existing = providerTotals.get(provider);
-      if (existing) {
-        existing.adjustedRewards += adj;
-        existing.relays += totalRelays;
-        existing.cus += totalCu;
-        existing.qosCus += qosCus;
-        existing.qosCount += qosCount;
-        existing.qosLatencySum += latSum;
-        existing.qosAvailSum += availSum;
-        existing.qosSyncSum += syncSum;
-        existing.exQosCount += exQosCount;
-        existing.exQosLatencySum += exLatSum;
-        existing.exQosAvailSum += exAvailSum;
-        existing.exQosSyncSum += exSyncSum;
-      } else {
-        providerTotals.set(provider, {
-          moniker, adjustedRewards: adj, relays: totalRelays, cus: totalCu,
-          qosCus, qosCount, qosLatencySum: latSum, qosAvailSum: availSum, qosSyncSum: syncSum,
-          exQosCount, exQosLatencySum: exLatSum, exQosAvailSum: exAvailSum, exQosSyncSum: exSyncSum,
-        });
-      }
-    }
-
-    // ── Compute shares and USD values ─────────────────────────────
-    let totalAdjusted = 0;
-    for (const p of providerTotals.values()) totalAdjusted += p.adjustedRewards;
-
-    const providers = [...providerTotals.entries()]
-      .map(([address, p]) => {
-        const share = totalAdjusted > 0 ? p.adjustedRewards / totalAdjusted : 0;
+    if (groupBy === "spec") {
+      // One row per (provider, spec). Keys: [chainId, provider].
+      const rows = groups.map((agg) => {
+        const spec = agg.keys[0];
+        const provider = agg.keys[1];
         return {
-          provider: address,
-          moniker: p.moniker,
-          relays: p.relays,
-          cus: p.cus,
-          qosCus: p.qosCus,
-          avgLatency: p.qosCount > 0 ? p.qosLatencySum / p.qosCount : 0,
-          avgAvailability: p.qosCount > 0 ? p.qosAvailSum / p.qosCount : 0,
-          avgSync: p.qosCount > 0 ? p.qosSyncSum / p.qosCount : 0,
-          avgLatencyExc: p.exQosCount > 0 ? p.exQosLatencySum / p.exQosCount : 0,
-          avgAvailabilityExc: p.exQosCount > 0 ? p.exQosAvailSum / p.exQosCount : 0,
-          avgSyncExc: p.exQosCount > 0 ? p.exQosSyncSum / p.exQosCount : 0,
-          adjustedRewards: p.adjustedRewards,
-          rewardShare: share,
+          provider,
+          spec,
+          moniker: providerMap.get(provider) ?? "",
+          ...computeFromSum(agg.sum),
+          rewardShare: 0, // filled in below after per-spec totals are known
         };
-      })
-      .sort((a, b) => b.adjustedRewards - a.adjustedRewards);
+      });
+
+      // Within-spec share normalization — each spec's shares sum to 1.
+      // (Cross-spec comparison is meaningless because different specs emit
+      // different reward amounts per relay.)
+      const perSpecTotal = new Map<string, number>();
+      for (const r of rows) {
+        perSpecTotal.set(r.spec, (perSpecTotal.get(r.spec) ?? 0) + r.adjustedRewards);
+      }
+      for (const r of rows) {
+        const specTotal = perSpecTotal.get(r.spec) ?? 0;
+        r.rewardShare = specTotal > 0 ? r.adjustedRewards / specTotal : 0;
+      }
+
+      rows.sort((a, b) =>
+        a.spec === b.spec
+          ? b.adjustedRewards - a.adjustedRewards
+          : a.spec.localeCompare(b.spec),
+      );
+
+      let totalAdjusted = 0;
+      const bySpec: Record<string, number> = {};
+      for (const [spec, total] of perSpecTotal) {
+        totalAdjusted += total;
+        bySpec[spec] = total;
+      }
+
+      return {
+        meta: { from, to, groupBy: "spec" as const, totalAdjustedRewards: totalAdjusted, bySpec },
+        data: rows,
+      };
+    }
+
+    // Default: one row per provider. Keys: [provider].
+    const rows = groups.map((agg) => {
+      const provider = agg.keys[0];
+      return {
+        provider,
+        moniker: providerMap.get(provider) ?? "",
+        ...computeFromSum(agg.sum),
+        rewardShare: 0,
+      };
+    });
+
+    let totalAdjusted = 0;
+    for (const r of rows) totalAdjusted += r.adjustedRewards;
+    for (const r of rows) {
+      r.rewardShare = totalAdjusted > 0 ? r.adjustedRewards / totalAdjusted : 0;
+    }
+
+    rows.sort((a, b) => b.adjustedRewards - a.adjustedRewards);
 
     return {
-      meta: { from, to, totalAdjustedRewards: totalAdjusted },
-      data: providers,
+      meta: { from, to, groupBy: "provider" as const, totalAdjustedRewards: totalAdjusted },
+      data: rows,
     };
   });
 }
