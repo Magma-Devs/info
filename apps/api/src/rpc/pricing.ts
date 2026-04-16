@@ -1,12 +1,11 @@
 import { ulavaToLavaNumber } from "@info/shared/utils";
+import { config } from "../config.js";
 import { fetchRest } from "./rest.js";
 import { fetchStakingPool } from "./supply.js";
 
-const COINGECKO_API_URL = process.env.COINGECKO_API_URL ?? "https://api.coingecko.com/api/v3";
-
 export async function fetchLavaUsdPrice(): Promise<number> {
   const res = await fetch(
-    `${COINGECKO_API_URL}/simple/price?ids=lava-network&vs_currencies=usd`,
+    `${config.external.coingeckoApiUrl}/simple/price?ids=lava-network&vs_currencies=usd`,
     { signal: AbortSignal.timeout(15_000) },
   );
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
@@ -76,7 +75,7 @@ export async function prewarmPriceCache(): Promise<void> {
   const ids = [...new Set(Object.values(DENOM_COINGECKO_ID))].join(",");
   try {
     const res = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
+      `${config.external.coingeckoApiUrl}/simple/price?ids=${ids}&vs_currencies=usd`,
       { signal: AbortSignal.timeout(15_000) },
     );
     if (!res.ok) return;
@@ -102,7 +101,7 @@ export async function fetchTokenUsdPrice(baseDenom: string): Promise<number> {
 
   try {
     const res = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`,
+      `${config.external.coingeckoApiUrl}/simple/price?ids=${id}&vs_currencies=usd`,
       { signal: AbortSignal.timeout(15_000) },
     );
     if (!res.ok) return cached?.price ?? 0;

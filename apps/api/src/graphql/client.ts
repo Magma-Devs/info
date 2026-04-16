@@ -1,9 +1,8 @@
 import pino from "pino";
 import { Agent, setGlobalDispatcher } from "undici";
+import { config } from "../config.js";
 
 const logger = pino({ name: "graphql" });
-const INDEXER_GRAPHQL_URL = process.env.INDEXER_GRAPHQL_URL ?? "http://localhost:3000";
-const GQL_TIMEOUT_MS = parseInt(process.env.INDEXER_TIMEOUT_MS ?? "15000", 10);
 
 // Shared connection pool — reuses TCP/TLS across outbound requests so each
 // call saves the ~50-100ms handshake cost. Applies to all fetch() in the
@@ -17,11 +16,11 @@ setGlobalDispatcher(
 );
 
 export async function gql<T = unknown>(query: string, variables?: Record<string, unknown>): Promise<T> {
-  const res = await fetch(INDEXER_GRAPHQL_URL, {
+  const res = await fetch(config.indexer.graphqlUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query, variables }),
-    signal: AbortSignal.timeout(GQL_TIMEOUT_MS),
+    signal: AbortSignal.timeout(config.indexer.timeoutMs),
   });
 
   if (!res.ok) throw new Error(`GraphQL request failed: ${res.status}`);

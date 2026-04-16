@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { config } from "../config.js";
 import { fetchLatestBlockHeight } from "../rpc/lava.js";
 import { sendApiError } from "../plugins/error-handler.js";
 
@@ -13,7 +14,7 @@ export async function healthRoutes(app: FastifyInstance) {
     return { health: "ok" };
   });
 
-  if (process.env.NODE_ENV !== "production") {
+  if (!config.isProd) {
     app.delete("/cache", async (_request, reply) => {
       const client = app.redis;
       if (!client) return sendApiError(reply, 404, "Redis not connected");

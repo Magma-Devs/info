@@ -1,3 +1,5 @@
+import { config } from "../config.js";
+
 // Lava mainnet genesis timestamp (block 1) — used to narrow binary search range.
 const LAVA_GENESIS_UNIX = 1_713_350_000; // ~2024-04-17
 
@@ -9,8 +11,7 @@ export async function fetchLatestBlockHeight(): Promise<{
   height: number;
   time: string;
 }> {
-  const LAVA_RPC_URL = process.env.LAVA_RPC_URL ?? "https://lava.tendermintrpc.lava.build:443";
-  const res = await fetch(`${LAVA_RPC_URL}/status`, {
+  const res = await fetch(`${config.lava.rpcUrl}/status`, {
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`RPC ${res.status}`);
@@ -29,10 +30,8 @@ export async function fetchBlockAtTimestamp(targetUnix: number): Promise<number>
   const cached = blockAtTsCache.get(targetUnix);
   if (cached !== undefined) return cached;
 
-  const LAVA_RPC_URL = process.env.LAVA_RPC_URL ?? "https://lava.tendermintrpc.lava.build:443";
-
   async function blockTime(height: number): Promise<number> {
-    const res = await fetch(`${LAVA_RPC_URL}/block?height=${height}`, {
+    const res = await fetch(`${config.lava.rpcUrl}/block?height=${height}`, {
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(`RPC ${res.status}`);

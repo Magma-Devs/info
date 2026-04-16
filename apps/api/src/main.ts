@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import compress from "@fastify/compress";
+import { config } from "./config.js";
 import { redisPlugin } from "./plugins/redis.js";
 import { cachePlugin } from "./plugins/cache.js";
 import { errorHandlerPlugin } from "./plugins/error-handler.js";
@@ -26,27 +27,21 @@ import { providerClaimableRewardsRoutes } from "./routes/provider-claimable-rewa
 import { validatorsAndRewardsRoutes } from "./routes/validators-and-rewards.js";
 import { burnRateRoutes } from "./routes/burn-rate.js";
 
-const PORT = parseInt(process.env.API_PORT ?? "8080", 10);
-const HOST = process.env.API_HOST ?? "0.0.0.0";
-const CORS_ORIGINS = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
-  : true; // default: allow all in dev; set CORS_ORIGINS in production
-
 async function main() {
   const app = Fastify({
     logger: {
-      transport:
-        process.env.NODE_ENV === "development"
-          ? { target: "pino-pretty" }
-          : undefined,
+      transport: config.isDev ? { target: "pino-pretty" } : undefined,
     },
   });
 
-  await app.register(cors, { origin: CORS_ORIGINS, methods: ["GET", "HEAD", "OPTIONS", "DELETE"] });
+  await app.register(cors, {
+    origin: config.server.corsOrigins,
+    methods: ["GET", "HEAD", "OPTIONS", "DELETE"],
+  });
   await app.register(helmet, { contentSecurityPolicy: false }); // CSP handled by Next.js frontend
   await app.register(compress, { global: true, threshold: 1024, encodings: ["br", "gzip"] });
   await app.register(rateLimit, {
-    max: parseInt(process.env.RATE_LIMIT_MAX ?? "100", 10),
+    max: config.server.rateLimitMax,
     timeWindow: "1 minute",
     allowList: ["127.0.0.1", "::1"],
   });
@@ -75,8 +70,8 @@ async function main() {
 
   await app.register(healthProbePlugin);
 
-  await app.listen({ port: PORT, host: HOST });
-  app.log.info(`API server listening on ${HOST}:${PORT}`);
+  await app.listen({ port: config.server.port, host: config.server.host });
+  app.log.info(`API server listening on ${config.server.host}:${config.server.port}`);
 
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.on(signal, () => {

@@ -1,6 +1,7 @@
 import type { Redis } from "ioredis";
 import pino from "pino";
 import { normalizeBlock } from "@info/shared/constants";
+import { config } from "../config.js";
 import { fetchAllSpecs, fetchProvidersForSpec, RPC_BATCH_SIZE } from "../rpc/lava.js";
 import type { ProviderEndpoint } from "../rpc/lava.js";
 import { probeProvider } from "./grpc-probe.js";
@@ -97,7 +98,7 @@ export interface ProbeLoopOptions {
  */
 export async function runProbeLoop(opts: ProbeLoopOptions): Promise<void> {
   const { redis, isRunning } = opts;
-  const intervalMs = opts.intervalMs ?? parseInt(process.env.HEALTH_PROBE_INTERVAL_MS ?? "30000", 10);
+  const intervalMs = opts.intervalMs ?? config.healthProbe.intervalMs;
 
   logger.info("Health probe started");
 

@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { fetchRest } from "./rest.js";
 import { fetchAllSpecs } from "./specs.js";
 
@@ -35,9 +36,8 @@ export async function fetchProviderAvatar(provider: string, identityHint?: strin
     }
     if (!identity) return null;
 
-    const KEYBASE_API_URL = process.env.KEYBASE_API_URL ?? "https://keybase.io/_/api/1.0";
     const res = await fetch(
-      `${KEYBASE_API_URL}/user/lookup.json?key_suffix=${encodeURIComponent(identity)}&fields=pictures`,
+      `${config.external.keybaseApiUrl}/user/lookup.json?key_suffix=${encodeURIComponent(identity)}&fields=pictures`,
       { signal: AbortSignal.timeout(10_000) },
     );
     if (!res.ok) return null;
