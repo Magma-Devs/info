@@ -271,7 +271,7 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 | Token amounts | In ulava (1 LAVA = 1,000,000 ulava). Use `BigInt` — `Number` overflows |
 | Materialized views | Must use `mvRelayDailies` / `mvConsumerRelayDailies` for aggregates. Raw `relayPayments` (18.8M rows) will timeout |
 | MV date filters | Use `Date` type with `YYYY-MM-DD` format, NOT `Datetime` / ISO |
-| QoS computation | Weighted: `qosSyncW / qosWeight`, not simple average |
+| QoS computation | Default is relay-weighted: `qosSyncW / qosWeight`. Exception: `/provider-rewards` uses unweighted row-level averaging (`qosSyncSum / qosCount`) for delta parity |
 | Geolocation | Bitmask, not enum. A provider can be in multiple regions |
 | Base specs | COSMOSSDK, COSMOSSDK50, COSMOSWASM, ETHERMINT, TENDERMINT, IBC, SUIGRPC, SUIJSONRPC — exclude from chain lists |
 | React hooks | All `useMemo`/`useState`/`useApi` calls MUST come before conditional early returns |
