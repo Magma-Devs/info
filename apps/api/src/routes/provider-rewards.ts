@@ -28,6 +28,10 @@ interface AggregateSum {
   qosLatencySum: number | null;
   qosCount: string;
   qosCu: string;
+  exQosSyncSum: number | null;
+  exQosAvailSum: number | null;
+  exQosLatencySum: number | null;
+  exQosCount: string;
 }
 
 interface AggregateGroup {
@@ -36,7 +40,8 @@ interface AggregateGroup {
 }
 
 const SUM_FIELDS = `cu relays
-              qosSyncSum qosAvailSum qosLatencySum qosCount qosCu`;
+              qosSyncSum qosAvailSum qosLatencySum qosCount qosCu
+              exQosSyncSum exQosAvailSum exQosLatencySum exQosCount`;
 
 // ── Route ────────────────────────────────────────────────────────────────────
 
@@ -169,7 +174,14 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
       : null;
 
     // ── Compute adjusted rewards per provider ─────────────────────
-    const providerTotals = new Map<string, { moniker: string; adjustedRewards: number; relays: number; cus: number }>();
+    interface ProviderTotal {
+      moniker: string; adjustedRewards: number; relays: number; cus: number;
+      qosCus: number; qosCount: number;
+      qosLatencySum: number; qosAvailSum: number; qosSyncSum: number;
+      exQosCount: number;
+      exQosLatencySum: number; exQosAvailSum: number; exQosSyncSum: number;
+    }
+    const providerTotals = new Map<string, ProviderTotal>();
 
     for (const agg of mvData.mvRelayDailies.groupedAggregates) {
       const provider = agg.keys[1];
@@ -178,20 +190,41 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
       const totalCu = Number(sum.cu);
       const totalRelays = Number(sum.relays);
       const qosCount = Number(sum.qosCount);
+      const exQosCount = Number(sum.exQosCount);
 
-      const avgLatency = qosCount > 0 ? Number(sum.qosLatencySum ?? 0) / qosCount : 0;
-      const avgAvailability = qosCount > 0 ? Number(sum.qosAvailSum ?? 0) / qosCount : 0;
-      const avgSync = qosCount > 0 ? Number(sum.qosSyncSum ?? 0) / qosCount : 0;
+      const latSum = Number(sum.qosLatencySum ?? 0);
+      const availSum = Number(sum.qosAvailSum ?? 0);
+      const syncSum = Number(sum.qosSyncSum ?? 0);
+      const avgLatency = qosCount > 0 ? latSum / qosCount : 0;
+      const avgAvailability = qosCount > 0 ? availSum / qosCount : 0;
+      const avgSync = qosCount > 0 ? syncSum / qosCount : 0;
       const qosCus = Number(sum.qosCu ?? 0);
       const adj = computeAdjustedRewards(avgLatency, avgAvailability, avgSync, qosCus);
+
+      const exLatSum = Number(sum.exQosLatencySum ?? 0);
+      const exAvailSum = Number(sum.exQosAvailSum ?? 0);
+      const exSyncSum = Number(sum.exQosSyncSum ?? 0);
 
       const existing = providerTotals.get(provider);
       if (existing) {
         existing.adjustedRewards += adj;
         existing.relays += totalRelays;
         existing.cus += totalCu;
+        existing.qosCus += qosCus;
+        existing.qosCount += qosCount;
+        existing.qosLatencySum += latSum;
+        existing.qosAvailSum += availSum;
+        existing.qosSyncSum += syncSum;
+        existing.exQosCount += exQosCount;
+        existing.exQosLatencySum += exLatSum;
+        existing.exQosAvailSum += exAvailSum;
+        existing.exQosSyncSum += exSyncSum;
       } else {
-        providerTotals.set(provider, { moniker, adjustedRewards: adj, relays: totalRelays, cus: totalCu });
+        providerTotals.set(provider, {
+          moniker, adjustedRewards: adj, relays: totalRelays, cus: totalCu,
+          qosCus, qosCount, qosLatencySum: latSum, qosAvailSum: availSum, qosSyncSum: syncSum,
+          exQosCount, exQosLatencySum: exLatSum, exQosAvailSum: exAvailSum, exQosSyncSum: exSyncSum,
+        });
       }
     }
 
@@ -208,6 +241,13 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
           moniker: p.moniker,
           relays: p.relays,
           cus: p.cus,
+          qosCus: p.qosCus,
+          avgLatency: p.qosCount > 0 ? p.qosLatencySum / p.qosCount : 0,
+          avgAvailability: p.qosCount > 0 ? p.qosAvailSum / p.qosCount : 0,
+          avgSync: p.qosCount > 0 ? p.qosSyncSum / p.qosCount : 0,
+          avgLatencyExc: p.exQosCount > 0 ? p.exQosLatencySum / p.exQosCount : 0,
+          avgAvailabilityExc: p.exQosCount > 0 ? p.exQosAvailSum / p.exQosCount : 0,
+          avgSyncExc: p.exQosCount > 0 ? p.exQosSyncSum / p.exQosCount : 0,
           adjustedRewards: p.adjustedRewards,
           rewardShare: share,
           estimatedRewardsLava: providerPoolLava != null ? share * providerPoolLava : null,
