@@ -22,6 +22,9 @@ import { relaysDbPlugin } from "./plugins/relays-db.js";
 import { optimizerMetricsRoutes } from "./routes/optimizer-metrics.js";
 import { providerRewardsRoutes } from "./routes/provider-rewards.js";
 import { providerEstimatedRewardsRoutes } from "./routes/provider-estimated-rewards.js";
+import { providerClaimableRewardsRoutes } from "./routes/provider-claimable-rewards.js";
+import { validatorsAndRewardsRoutes } from "./routes/validators-and-rewards.js";
+import { burnRateRoutes } from "./routes/burn-rate.js";
 
 const PORT = parseInt(process.env.API_PORT ?? "8080", 10);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
@@ -66,6 +69,9 @@ async function main() {
   await app.register(optimizerMetricsRoutes);
   await app.register(providerRewardsRoutes);
   await app.register(providerEstimatedRewardsRoutes);
+  await app.register(providerClaimableRewardsRoutes);
+  await app.register(validatorsAndRewardsRoutes);
+  await app.register(burnRateRoutes);
 
   await app.register(healthProbePlugin);
 

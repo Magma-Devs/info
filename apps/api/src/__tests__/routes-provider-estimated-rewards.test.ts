@@ -7,9 +7,15 @@ vi.mock("../rpc/lava.js", () => ({
   prewarmPriceCache: vi.fn(),
   fetchProvidersWithSpecs: vi.fn(),
   fetchRewardsBySpec: vi.fn(),
+  fetchBlockAtTimestamp: vi.fn(),
 }));
 
-const { prewarmPriceCache, fetchProvidersWithSpecs, fetchRewardsBySpec } = await import("../rpc/lava.js");
+const {
+  prewarmPriceCache,
+  fetchProvidersWithSpecs,
+  fetchRewardsBySpec,
+  fetchBlockAtTimestamp,
+} = await import("../rpc/lava.js");
 const { providerEstimatedRewardsRoutes } = await import("../routes/provider-estimated-rewards.js");
 
 async function buildApp() {
@@ -61,6 +67,9 @@ beforeEach(() => {
     if (addr === "lava@2def") return Promise.resolve(MOCK_REWARDS_BETA);
     return Promise.resolve([]);
   });
+  (fetchBlockAtTimestamp as ReturnType<typeof vi.fn>).mockImplementation(
+    (unix: number) => Promise.resolve(1_000_000 + Math.floor(unix / 1000)),
+  );
 });
 
 describe("GET /provider-estimated-rewards", () => {
@@ -73,6 +82,8 @@ describe("GET /provider-estimated-rewards", () => {
     expect(res.statusCode).toBe(200);
 
     const body = JSON.parse(res.body);
+    expect(body.meta.block).toBeNull();
+    expect(body.meta.spec).toBeNull();
     expect(body.data).toHaveLength(2);
 
     // Sorted by total_usd descending — Alpha ($16) before Beta ($4)
@@ -107,7 +118,6 @@ describe("GET /provider-estimated-rewards", () => {
   });
 
   it("batches provider RPC calls 5 at a time", async () => {
-    // Create 12 providers
     const providers = new Map<string, { moniker: string; identity: string; commission: string; specs: never[] }>();
     for (let i = 0; i < 12; i++) {
       providers.set(`lava@p${i}`, { moniker: `P${i}`, identity: "", commission: "50", specs: [] });
@@ -124,7 +134,135 @@ describe("GET /provider-estimated-rewards", () => {
       url: "/provider-estimated-rewards",
     });
 
-    // 12 providers in batches of 5 → 12 individual calls but across 3 await rounds
     expect(fetchRewardsBySpec).toHaveBeenCalledTimes(12);
+  });
+
+  it("passes block height through to fetchRewardsBySpec", async () => {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards?block=1234567",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.meta.block).toBe(1234567);
+
+    // Every call should have been made with block=1234567 as the third arg
+    const calls = (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [, , blockArg] of calls) {
+      expect(blockArg).toBe(1234567);
+    }
+  });
+
+  it("filters response to a single spec when ?spec= is provided", async () => {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards?spec=ETH1",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.meta.spec).toBe("ETH1");
+
+    // Both providers have ETH1 entries
+    expect(body.data).toHaveLength(2);
+    for (const p of body.data) {
+      for (const r of p.rewards) {
+        expect(r.spec).toBe("ETH1");
+      }
+    }
+
+    // Alpha's total_usd drops from 16 → 10 (NEAR portion dropped)
+    const alpha = body.data.find((p: { provider: string }) => p.provider === "lava@1abc");
+    expect(alpha.total_usd).toBe(10);
+  });
+
+  it("?spec= is case-insensitive and uppercased in meta", async () => {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards?spec=eth1",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.meta.spec).toBe("ETH1");
+    expect(body.data).toHaveLength(2);
+  });
+
+  it("rejects bad spec format", async () => {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards?spec=!",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toMatch(/bad spec format/);
+  });
+
+  it("excludes providers whose filtered rewards become empty", async () => {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards?spec=NEAR",
+    });
+    const body = JSON.parse(res.body);
+    // Only Alpha has NEAR rewards
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0].provider).toBe("lava@1abc");
+    expect(body.data[0].rewards).toHaveLength(1);
+    expect(body.data[0].rewards[0].spec).toBe("NEAR");
+  });
+});
+
+describe("GET /provider-estimated-rewards/blocks", () => {
+  it("returns a list of monthly snapshot blocks", async () => {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards/blocks",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+
+    expect(Array.isArray(body.data)).toBe(true);
+    expect(body.data.length).toBeGreaterThan(0);
+    expect(body.data.length).toBeLessThanOrEqual(12);
+
+    for (const b of body.data) {
+      expect(typeof b.height).toBe("number");
+      expect(typeof b.time).toBe("string");
+      expect(typeof b.date).toBe("string");
+      // Date is the 17th of some month
+      expect(b.date).toMatch(/^\d{4}-\d{2}-17$/);
+    }
+  });
+
+  it("honors ?count=N", async () => {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards/blocks?count=3",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data).toHaveLength(3);
+  });
+
+  it("skips entries where block resolution fails", async () => {
+    (fetchBlockAtTimestamp as ReturnType<typeof vi.fn>).mockImplementation((unix: number) => {
+      // Fail every other lookup
+      if (unix % 2 === 0) return Promise.reject(new Error("rpc error"));
+      return Promise.resolve(1_000_000);
+    });
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards/blocks?count=4",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    // Shouldn't have 4; some were filtered
+    expect(body.data.length).toBeLessThan(4);
   });
 });
