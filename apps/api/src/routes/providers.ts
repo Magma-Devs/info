@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { weightedQos } from "@info/shared/utils";
+import type { PaginatedResponse, ProviderListItem } from "@info/shared/types";
 import { gqlSafe } from "../graphql/client.js";
 import {
   fetchAllProviders,
@@ -33,7 +34,7 @@ export async function providerRoutes(app: FastifyInstance) {
       },
     },
     config: { cacheTTL: 300 },
-  }, async (request) => {
+  }, async (request): Promise<PaginatedResponse<ProviderListItem>> => {
     const { page, limit, offset } = request.pagination;
 
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
@@ -74,7 +75,7 @@ export async function providerRoutes(app: FastifyInstance) {
     const paged = providers.slice(offset, offset + limit);
 
     return {
-      data: paged.map((p) => {
+      data: paged.map((p): ProviderListItem => {
         const relay = relayMap.get(p.address);
         return {
           provider: p.address,
