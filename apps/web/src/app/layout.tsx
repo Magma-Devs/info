@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { ErrorBoundary } from "@/components/data/ErrorBoundary";
+import { SwrProvider } from "./swr-provider";
 
 import "@/styles/globals.css";
 
@@ -56,19 +57,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`min-h-screen bg-background antialiased ${inter.variable} ${inter.className}`}>
-        <div className="flex min-h-screen mx-auto flex-col">
-          <Header />
-          <ErrorBoundary>
-            <main className="body-content">
-              <div className="body-content-boundary">
-                <div className="body-content-boundary-inner">
-                  {children}
+        <SwrProvider>
+          <div className="flex min-h-screen mx-auto flex-col">
+            <Header />
+            <ErrorBoundary>
+              <main className="body-content">
+                <div className="body-content-boundary">
+                  <div className="body-content-boundary-inner">
+                    {children}
+                  </div>
                 </div>
-              </div>
-            </main>
-          </ErrorBoundary>
-          <Footer />
-        </div>
+              </main>
+            </ErrorBoundary>
+            <Footer />
+          </div>
+        </SwrProvider>
       </body>
     </html>
   );
