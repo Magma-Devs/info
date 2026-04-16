@@ -10,13 +10,10 @@ vi.mock("../graphql/client.js", () => ({
 vi.mock("../rpc/lava.js", () => ({
   fetchProvidersForSpec: vi.fn(),
   fetchAllProviders: vi.fn(),
-  fetchLavaUsdPrice: vi.fn(),
-  fetchLavaUsdPriceAt: vi.fn(),
-  fetchProviderRewardPoolsAmount: vi.fn(),
 }));
 
 const { gqlSafe } = await import("../graphql/client.js");
-const { fetchAllProviders, fetchLavaUsdPrice, fetchLavaUsdPriceAt, fetchProviderRewardPoolsAmount } = await import("../rpc/lava.js");
+const { fetchAllProviders } = await import("../rpc/lava.js");
 const { providerRewardsRoutes } = await import("../routes/provider-rewards.js");
 
 async function buildApp() {
@@ -34,21 +31,24 @@ const MOCK_MV_RESPONSE = {
         keys: ["ETH1", "lava@1abc"],
         sum: {
           cu: "1000", relays: "500",
-          qosSyncW: 0.9, qosAvailW: 0.9, qosLatencyW: 0.9, qosWeight: "1",
+          qosSyncSum: 0.9, qosAvailSum: 0.9, qosLatencySum: 0.9, qosCount: "1", qosCu: "1000",
+          exQosSyncSum: 0.8, exQosAvailSum: 0.8, exQosLatencySum: 0.8, exQosCount: "1",
         },
       },
       {
         keys: ["NEAR", "lava@1abc"],
         sum: {
           cu: "1000", relays: "500",
-          qosSyncW: 0.9, qosAvailW: 0.9, qosLatencyW: 0.9, qosWeight: "1",
+          qosSyncSum: 0.9, qosAvailSum: 0.9, qosLatencySum: 0.9, qosCount: "1", qosCu: "1000",
+          exQosSyncSum: 0.8, exQosAvailSum: 0.8, exQosLatencySum: 0.8, exQosCount: "1",
         },
       },
       {
         keys: ["ETH1", "lava@2def"],
         sum: {
           cu: "1000", relays: "500",
-          qosSyncW: 0.9, qosAvailW: 0.9, qosLatencyW: 0.9, qosWeight: "1",
+          qosSyncSum: 0.9, qosAvailSum: 0.9, qosLatencySum: 0.9, qosCount: "1", qosCu: "1000",
+          exQosSyncSum: 0.8, exQosAvailSum: 0.8, exQosLatencySum: 0.8, exQosCount: "1",
         },
       },
     ],
@@ -60,20 +60,14 @@ const MOCK_PROVIDERS = [
   { address: "lava@2def", moniker: "BetaProvider" },
 ];
 
-// 100,000 LAVA = 100_000_000_000 ulava
-const MOCK_PROVIDER_POOL_ULAVA = 100_000_000_000n;
-
 beforeEach(() => {
   vi.resetAllMocks();
   (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MV_RESPONSE);
   (fetchAllProviders as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_PROVIDERS);
-  (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockResolvedValue(0.05);
-  (fetchLavaUsdPriceAt as ReturnType<typeof vi.fn>).mockResolvedValue(0.04);
-  (fetchProviderRewardPoolsAmount as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_PROVIDER_POOL_ULAVA);
 });
 
 describe("GET /provider-rewards", () => {
-  it("returns provider reward distribution with USD values", async () => {
+  it("returns provider reward distribution with QoS fields", async () => {
     const app = await buildApp();
     const res = await app.inject({
       method: "GET",
@@ -84,20 +78,29 @@ describe("GET /provider-rewards", () => {
     const body = JSON.parse(res.body);
     expect(body.meta.from).toBe("2025-01-01");
     expect(body.meta.to).toBe("2025-04-01");
-    expect(body.meta.lavaUsdPrice).toBeDefined();
-    expect(body.meta.providerPoolLava).toBe(100_000); // 100B ulava = 100k LAVA
     expect(body.meta.totalAdjustedRewards).toBeGreaterThan(0);
     expect(body.data).toHaveLength(2);
 
     // AlphaProvider has 2 specs, BetaProvider has 1 — Alpha should have higher total
-    expect(body.data[0].provider).toBe("lava@1abc");
-    expect(body.data[0].moniker).toBe("AlphaProvider");
+    const alpha = body.data[0];
+    expect(alpha.provider).toBe("lava@1abc");
+    expect(alpha.moniker).toBe("AlphaProvider");
     expect(body.data[1].provider).toBe("lava@2def");
 
-    // estimatedRewardsUsd = share × poolLava × lavaPrice (historical price = 0.04)
-    const alpha = body.data[0];
-    expect(alpha.estimatedRewardsLava).toBeCloseTo(alpha.rewardShare * 100_000, 6);
-    expect(alpha.estimatedRewardsUsd).toBeCloseTo(alpha.rewardShare * 100_000 * 0.04, 6);
+    // QoS response fields
+    expect(alpha.avgLatency).toBeCloseTo(0.9, 6);
+    expect(alpha.avgAvailability).toBeCloseTo(0.9, 6);
+    expect(alpha.avgSync).toBeCloseTo(0.9, 6);
+    expect(alpha.avgLatencyExc).toBeCloseTo(0.8, 6);
+    expect(alpha.avgAvailabilityExc).toBeCloseTo(0.8, 6);
+    expect(alpha.avgSyncExc).toBeCloseTo(0.8, 6);
+    expect(alpha.qosCus).toBe(2000); // 1000 per spec × 2 specs
+    expect(alpha.cus).toBe(2000);
+    expect(alpha.relays).toBe(1000);
+
+    // No estimate fields
+    expect(alpha.estimatedRewardsLava).toBeUndefined();
+    expect(alpha.estimatedRewardsUsd).toBeUndefined();
   });
 
   it("reward shares sum to 1", async () => {
@@ -125,16 +128,6 @@ describe("GET /provider-rewards", () => {
     expect(alpha.adjustedRewards).toBeCloseTo(beta.adjustedRewards * 2, 6);
     expect(alpha.rewardShare).toBeCloseTo(2 / 3, 6);
     expect(beta.rewardShare).toBeCloseTo(1 / 3, 6);
-  });
-
-  it("uses historical price for past date ranges", async () => {
-    const app = await buildApp();
-    await app.inject({
-      method: "GET",
-      url: "/provider-rewards?from=2024-01-01&to=2024-04-01",
-    });
-    expect(fetchLavaUsdPriceAt).toHaveBeenCalled();
-    expect(fetchLavaUsdPrice).not.toHaveBeenCalled();
   });
 
   it("returns empty data when no relay data exists", async () => {
@@ -208,56 +201,20 @@ describe("GET /provider-rewards", () => {
     expect(JSON.parse(res.body).error).toMatch(/bad spec format/);
   });
 
-  it("returns null lavaUsdPrice when CoinGecko fails", async () => {
-    (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("CoinGecko down"),
-    );
-    (fetchLavaUsdPriceAt as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("CoinGecko down"),
-    );
-    const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/provider-rewards?from=2025-01-01&to=2025-04-01",
-    });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body.meta.lavaUsdPrice).toBeNull();
-    expect(body.data).toHaveLength(2);
-    expect(body.data[0].estimatedRewardsUsd).toBeNull();
-    // LAVA estimate still works even without USD price
-    expect(body.data[0].estimatedRewardsLava).not.toBeNull();
-  });
-
-  it("returns null estimates when reward pool fetch fails", async () => {
-    (fetchProviderRewardPoolsAmount as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("RPC down"),
-    );
-    const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/provider-rewards?from=2025-01-01&to=2025-04-01",
-    });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body.meta.providerPoolLava).toBeNull();
-    expect(body.data[0].estimatedRewardsLava).toBeNull();
-    expect(body.data[0].estimatedRewardsUsd).toBeNull();
-  });
-
-  it("returns zero adjusted rewards when qosWeight is zero", async () => {
-    const zeroWeightMv = {
+  it("returns zero adjusted rewards when qosCu is zero", async () => {
+    const zeroQosMv = {
       mvRelayDailies: {
         groupedAggregates: [{
           keys: ["ETH1", "lava@1abc"],
           sum: {
             cu: "1000", relays: "500",
-            qosSyncW: null, qosAvailW: null, qosLatencyW: null, qosWeight: "0",
+            qosSyncSum: null, qosAvailSum: null, qosLatencySum: null, qosCount: "0", qosCu: "0",
+            exQosSyncSum: null, exQosAvailSum: null, exQosLatencySum: null, exQosCount: "0",
           },
         }],
       },
     };
-    (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue(zeroWeightMv);
+    (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue(zeroQosMv);
     const app = await buildApp();
     const res = await app.inject({
       method: "GET",
@@ -265,5 +222,7 @@ describe("GET /provider-rewards", () => {
     });
     const body = JSON.parse(res.body);
     expect(body.data[0].adjustedRewards).toBe(0);
+    expect(body.data[0].avgLatency).toBe(0);
+    expect(body.data[0].qosCus).toBe(0);
   });
 });
