@@ -258,7 +258,8 @@ function DesktopSearch() {
       setActiveIndex((i) => (i > 0 ? i - 1 : flatResults.length - 1));
     } else if (e.key === "Enter" && activeIndex >= 0) {
       e.preventDefault();
-      navigate(flatResults[activeIndex]);
+      const result = flatResults[activeIndex];
+      if (result) navigate(result);
     } else if (e.key === "Escape") {
       setOpen(false);
       inputRef.current?.blur();

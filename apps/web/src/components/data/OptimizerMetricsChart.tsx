@@ -159,7 +159,7 @@ function ConsumerDropdown({ consumers, selected, onChange }: { consumers: string
 /* ─── Helpers ─── */
 
 function formatDateParam(d: Date): string {
-  return d.toISOString().split("T")[0];
+  return d.toISOString().split("T")[0]!;
 }
 
 function daysAgo(n: number): Date {
@@ -392,7 +392,7 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
                     tickFormatter={formatTimestamp}
                   >
                     <AreaChart>
-                      <Area type="monotone" dataKey={series[0].key} stroke="#888" fill="#262626" fillOpacity={0.4} />
+                      <Area type="monotone" dataKey={series[0]!.key} stroke="#888" fill="#262626" fillOpacity={0.4} />
                     </AreaChart>
                   </Brush>
                 </ComposedChart>
@@ -491,7 +491,7 @@ export function ChainOptimizerChart({ specId, providerInfo }: { specId: string; 
     topProviders.map((p, i) => ({
       key: p.slice(0, 10),
       label: providerMap.get(p)?.moniker || p.slice(0, 10) + "...",
-      color: PROVIDER_COLORS[i % PROVIDER_COLORS.length],
+      color: PROVIDER_COLORS[i % PROVIDER_COLORS.length]!,
     })),
   [topProviders, providerMap]);
 

@@ -38,7 +38,8 @@ export async function specRoutes(app: FastifyInstance) {
     const relayMap = new Map<string, { cu: string; relays: string }>();
     if (relayData) {
       for (const agg of relayData.mvRelayDailies.groupedAggregates) {
-        relayMap.set(agg.keys[0], { cu: agg.sum.cu, relays: agg.sum.relays });
+        const key = agg.keys[0];
+        if (key) relayMap.set(key, { cu: agg.sum.cu, relays: agg.sum.relays });
       }
     }
 

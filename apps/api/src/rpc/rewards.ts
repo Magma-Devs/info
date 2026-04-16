@@ -85,7 +85,7 @@ async function processRewardTokens(
 
 /** Strip trailing zeros from a decimal string (matching jsinfo FormatTokenAmount) */
 function formatTokenStr(s: string): string {
-  const [whole, frac] = s.split(".");
+  const [whole = "", frac] = s.split(".");
   if (!frac) return whole;
   const trimmed = frac.replace(/0+$/, "");
   return trimmed ? `${whole}.${trimmed}` : whole;

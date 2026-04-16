@@ -16,7 +16,7 @@ function resolveTtl(request: FastifyRequest): number | undefined {
 
 function buildCacheKey(request: FastifyRequest): string {
   // Normalize: collapse double slashes, strip trailing slash, sort query params
-  const [path, qs] = request.url.split("?", 2);
+  const [path = "", qs] = request.url.split("?", 2);
   const normalizedPath = path.replace(/\/+/g, "/").replace(/\/$/, "") || "/";
   const normalizedQs = qs
     ? qs.split("&").sort().join("&")

@@ -61,7 +61,7 @@ function isPublicEndpoint(iPPORT: string): boolean {
   if (host.startsWith("10.")) return false;
   if (host.startsWith("192.168.")) return false;
   if (host.startsWith("172.")) {
-    const second = parseInt(host.split(".")[1], 10);
+    const second = parseInt(host.split(".")[1] ?? "", 10);
     if (second >= 16 && second <= 31) return false;
   }
   if (host.startsWith("169.254.")) return false;
@@ -72,7 +72,7 @@ function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+    [a[i], a[j]] = [a[j]!, a[i]!];
   }
   return a;
 }

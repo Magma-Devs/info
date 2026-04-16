@@ -156,7 +156,7 @@ export async function indexRoutes(app: FastifyInstance) {
     }> = [];
 
     for (const [key, v] of byDayChain) {
-      const [date, chainId] = key.split("|");
+      const [date = "", chainId = ""] = key.split("|");
       result.push({
         date, chainId,
         cu: v.cu.toString(),

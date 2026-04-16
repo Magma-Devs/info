@@ -25,15 +25,15 @@ const APR_MIN = 1e-11;
 /** Percentile calculation matching jsinfo `CalculatePercentile` */
 function calculatePercentile(values: number[], rank: number): number {
   if (values.length === 0 || rank < 0 || rank > 1) return 0;
-  if (values.length === 1) return values[0];
+  if (values.length === 1) return values[0]!;
 
   const sorted = [...values].sort((a, b) => a - b);
   const pos = Math.floor((sorted.length - 1) * rank);
 
   if (sorted.length % 2 === 0) {
-    return sorted[pos] + (sorted[pos + 1] - sorted[pos]) * rank;
+    return sorted[pos]! + (sorted[pos + 1]! - sorted[pos]!) * rank;
   }
-  return sorted[pos];
+  return sorted[pos]!;
 }
 
 /** APR from monthly reward: (1 + rewardUsd/investedUsd)^12 - 1 */
@@ -94,9 +94,11 @@ async function getWeightedApr(redis: Redis, type: string, address: string): Prom
     let weightedSum = 0;
     let weightSum = 0;
     for (let i = 0; i < history.records.length && i < APR_WEIGHTS.length; i++) {
-      const avg = history.records[i].aprSum / history.records[i].count;
-      weightedSum += avg * APR_WEIGHTS[i];
-      weightSum += APR_WEIGHTS[i];
+      const record = history.records[i]!;
+      const weight = APR_WEIGHTS[i]!;
+      const avg = record.aprSum / record.count;
+      weightedSum += avg * weight;
+      weightSum += weight;
     }
     return weightSum > 0 ? weightedSum / weightSum : null;
   } catch {
@@ -165,13 +167,14 @@ async function collectEntityAprs(
     );
 
     for (let j = 0; j < batch.length; j++) {
-      const currentApr = calculateApr(rewards[j].totalUsd, investedUsd);
+      const addr = batch[j]!;
+      const currentApr = calculateApr(rewards[j]!.totalUsd, investedUsd);
       if (currentApr <= 0) continue;
 
       let finalApr = currentApr;
       if (redis) {
-        await storeApr(redis, type, batch[j], currentApr);
-        const weighted = await getWeightedApr(redis, type, batch[j]);
+        await storeApr(redis, type, addr, currentApr);
+        const weighted = await getWeightedApr(redis, type, addr);
         if (weighted !== null) finalApr = weighted;
       }
 
@@ -252,11 +255,11 @@ export async function computeAllProvidersApr(
     ]);
 
     for (let j = 0; j < batch.length; j++) {
-      const addr = batch[j];
+      const addr = batch[j]!;
       const provider = providerMap.get(addr)!;
-      const rewards = rewardResults[j];
-      const rewardsLastMonth = rewardsLastMonthResults[j];
-      const avatar = avatarResults[j];
+      const rewards = rewardResults[j]!;
+      const rewardsLastMonth = rewardsLastMonthResults[j]!;
+      const avatar = avatarResults[j] ?? null;
       const currentApr = calculateApr(rewards.totalUsd, investedUsd);
 
       let finalApr = currentApr;

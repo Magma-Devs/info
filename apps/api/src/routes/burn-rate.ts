@@ -98,10 +98,10 @@ export async function burnRateRoutes(app: FastifyInstance) {
 
     const valid = resolved.filter((b): b is NonNullable<typeof b> => b !== null);
     for (let i = 0; i < valid.length; i++) {
-      const b = valid[i];
+      const b = valid[i]!;
       const prev = i === 0
         ? BigInt(latestSupply.toString())
-        : BigInt(valid[i - 1].supply);
+        : BigInt(valid[i - 1]!.supply);
       const supplyDiff = prev - BigInt(b.supply);
       blocks.push({ ...b, supply_diff: supplyDiff.toString() });
     }
