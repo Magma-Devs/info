@@ -11,32 +11,17 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import type { PaginatedResponse, ProviderListItem } from "@info/shared/types";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
 
-interface Provider {
-  provider: string;
-  moniker: string;
-  identity?: string;
-  activeServices: number;
-  totalStake: string;
-  totalDelegation: string;
-  cuSum30d: string;
-  relaySum30d: string;
-}
-
-interface ProvidersResponse {
-  data: Provider[];
-  pagination: { total: number };
-}
-
-function toBigInt(v: string | undefined): bigint {
+function toBigInt(v: string | null | undefined): bigint {
   try { return BigInt(v ?? "0"); } catch { return 0n; }
 }
 
-const columns: ColumnDef<Provider, unknown>[] = [
+const columns: ColumnDef<ProviderListItem, unknown>[] = [
   {
     id: "moniker",
     header: "Moniker",
@@ -78,7 +63,7 @@ const columns: ColumnDef<Provider, unknown>[] = [
 ];
 
 function ProvidersContent() {
-const { data: resp, isLoading } = useApi<ProvidersResponse>("/providers?limit=10000");
+const { data: resp, isLoading } = useApi<PaginatedResponse<ProviderListItem>>("/providers?limit=10000");
   const providers = useMemo(() => resp?.data ?? [], [resp]);
 
   const [sorting, setSorting] = useState<SortingState>([
