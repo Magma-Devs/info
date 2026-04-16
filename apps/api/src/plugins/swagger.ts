@@ -22,7 +22,7 @@ export const swaggerPlugin = fp(async (app: FastifyInstance) => {
         { name: "Search", description: "Search providers and specs" },
         { name: "Lava", description: "Raw chain data for frontend consumption" },
         { name: "Health", description: "Service health checks" },
-        { name: "Adjusted Rewards", description: "Per-(spec, provider) QoS-adjusted reward metrics" },
+        { name: "Provider Rewards", description: "Per-provider QoS-adjusted reward distribution with USD values" },
       ],
     },
   });
