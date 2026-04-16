@@ -9,6 +9,8 @@
     "start": "node dist/main.js",
     "probe:dev": "tsx watch src/bin/health-probe.ts",
     "probe:start": "node dist/bin/health-probe.js",
+    "precompute:dev": "tsx watch src/bin/precompute.ts",
+    "precompute:start": "node dist/bin/precompute.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
