@@ -1,7 +1,7 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
 import { normalizeBlock } from "@info/shared/constants";
-import { fetchAllSpecs, fetchProvidersForSpec } from "../rpc/lava.js";
+import { fetchAllSpecs, fetchProvidersForSpec, RPC_BATCH_SIZE } from "../rpc/lava.js";
 import type { ProviderEndpoint } from "../rpc/lava.js";
 import { probeProvider } from "../services/grpc-probe.js";
 import { writeHealthStatus } from "../services/health-store.js";
@@ -17,9 +17,9 @@ async function buildProbeTargets(): Promise<ProbeTarget[]> {
   const specs = await fetchAllSpecs();
   const targets: ProbeTarget[] = [];
 
-  // Fetch in batches of 5 to avoid rate limiting
-  for (let i = 0; i < specs.length; i += 5) {
-    const batch = specs.slice(i, i + 5);
+  // Fetch in batches — raise RPC_BATCH_SIZE via env for dedicated RPC endpoints.
+  for (let i = 0; i < specs.length; i += RPC_BATCH_SIZE) {
+    const batch = specs.slice(i, i + RPC_BATCH_SIZE);
     const results = await Promise.all(
       batch.map((s) =>
         fetchProvidersForSpec(s.index)
@@ -113,10 +113,10 @@ export const healthProbePlugin = fp(async (app: FastifyInstance) => {
           const shuffled = shuffle(targets);
           app.log.info({ count: shuffled.length }, "Starting health probe cycle");
 
-          // Probe in batches of 5 to balance throughput vs resource usage
-          for (let i = 0; i < shuffled.length; i += 5) {
+          // Probe in batches — raise RPC_BATCH_SIZE via env for dedicated endpoints.
+          for (let i = 0; i < shuffled.length; i += RPC_BATCH_SIZE) {
             if (!running) break;
-            const batch = shuffled.slice(i, i + 5);
+            const batch = shuffled.slice(i, i + RPC_BATCH_SIZE);
 
             await Promise.allSettled(batch.map(async (target) => {
               const geolocation = target.endpoint.geolocation.toString();
