@@ -27,6 +27,7 @@ interface AggregateSum {
   qosAvailW: number | null;
   qosLatencyW: number | null;
   qosWeight: string;
+  qosCu: string;
 }
 
 interface AggregateGroup {
@@ -35,7 +36,7 @@ interface AggregateGroup {
 }
 
 const SUM_FIELDS = `cu relays
-              qosSyncW qosAvailW qosLatencyW qosWeight`;
+              qosSyncW qosAvailW qosLatencyW qosWeight qosCu`;
 
 // ── Route ────────────────────────────────────────────────────────────────────
 
@@ -181,7 +182,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
       const avgLatency = qosWeight > 0 ? Number(sum.qosLatencyW ?? 0) / qosWeight : 0;
       const avgAvailability = qosWeight > 0 ? Number(sum.qosAvailW ?? 0) / qosWeight : 0;
       const avgSync = qosWeight > 0 ? Number(sum.qosSyncW ?? 0) / qosWeight : 0;
-      const qosCus = qosWeight > 0 ? totalCu : 0;
+      const qosCus = Number(sum.qosCu ?? 0);
       const adj = computeAdjustedRewards(avgLatency, avgAvailability, avgSync, qosCus);
 
       const existing = providerTotals.get(provider);
