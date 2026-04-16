@@ -26,6 +26,14 @@ services:
       redis: { condition: service_healthy }
     volumes:
       - ./apps/api/src:/app/apps/api/src
+    healthcheck:
+      # Fastify listens on IPv4 0.0.0.0; `localhost` in Alpine resolves to ::1
+      # first, which refuses. Hit 127.0.0.1 explicitly.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     environment:
       NODE_ENV: development
       API_PORT: "8080"
@@ -54,6 +62,12 @@ services:
       - ./apps/web/src:/app/apps/web/src
       - ./apps/web/public:/app/apps/web/public
       - ./apps/web/next.config.dev.ts:/app/apps/web/next.config.ts
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
