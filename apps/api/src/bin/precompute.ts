@@ -22,6 +22,7 @@
  */
 import { Redis } from "ioredis";
 import pino from "pino";
+import { ulavaToLava } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchCirculatingSupply } from "../rpc/supply.js";
 import { computeAPR, computeAllProvidersApr } from "../rpc/apr.js";
@@ -31,8 +32,7 @@ import { writePrecomputed } from "../services/precompute-store.js";
 const log = pino({ name: "precompute" });
 
 async function recomputeCirculatingSupply(redis: Redis): Promise<void> {
-  const supply = await fetchCirculatingSupply();
-  const value = (Number(supply / 1_000_000n) + Number(supply % 1_000_000n) / 1_000_000).toString();
+  const value = ulavaToLava(await fetchCirculatingSupply());
   await writePrecomputed(redis, "supply.circulating", value);
 }
 

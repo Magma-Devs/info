@@ -1,3 +1,4 @@
+import { ulavaToLavaNumber } from "@info/shared/utils";
 import { fetchRest } from "./rest.js";
 import { fetchStakingPool } from "./supply.js";
 
@@ -280,12 +281,11 @@ export async function computeTVL(): Promise<{ tvl: string }> {
     ? BigInt(Math.round((arbitrumUsd / lavaPrice) * 1_000_000))
     : 0n;
 
-  // Sum all components in ulava, then convert to USD
-  // Use BigInt division to avoid Number precision loss for large ulava sums
+  // Sum all components in ulava, then convert to USD via shared helper
+  // (full precision: integer-divide + remainder, avoiding Number overflow)
   const totalUlava = bondedTokens + rewardPools + subscriptions
     + osmosis + baseUlava + arbitrumUlava;
-  const totalLava = Number(totalUlava / 1_000_000n) + Number(totalUlava % 1_000_000n) / 1_000_000;
-  const tvlUsd = totalLava * lavaPrice;
+  const tvlUsd = ulavaToLavaNumber(totalUlava) * lavaPrice;
 
   return { tvl: tvlUsd.toFixed(4) };
 }
