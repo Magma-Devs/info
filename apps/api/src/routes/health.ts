@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { config } from "../config.js";
+import { CACHE_TTL, config } from "../config.js";
 import { fetchLatestBlockHeight } from "../rpc/lava.js";
 import { sendApiError } from "../plugins/error-handler.js";
 
@@ -29,7 +29,7 @@ export async function healthRoutes(app: FastifyInstance) {
       tags: ["Health"],
       summary: "Detailed health status with block staleness check",
     },
-    config: { cacheTTL: 10 },
+    config: { cacheTTL: CACHE_TTL.REAL_TIME },
   }, async (_request, reply) => {
     try {
       const block = await fetchLatestBlockHeight();

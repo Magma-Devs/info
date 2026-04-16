@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import { parseYMD } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchProvidersForSpec, fetchAllProviderMonikers } from "../rpc/lava.js";
@@ -9,8 +10,6 @@ import { sendApiError } from "../plugins/error-handler.js";
 const SPEC_ID_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const MAX_RANGE_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const PAST_WINDOW_TTL = 86_400; // 1 day — immutable historical window
-const LIVE_WINDOW_TTL = 300;    // 5 min — aligned with MV refresh cadence
 
 function validateSpecId(s: string): boolean {
   return s.length > 2 && s.length <= 50 && SPEC_ID_RE.test(s);
@@ -118,7 +117,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
         required: ["from", "to"] as const,
       },
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: CACHE_TTL.LIST },
   }, async (request, reply) => {
     const q = request.query as {
       specs?: string[];
@@ -161,8 +160,8 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
       new Date().getUTCDate(),
     );
     request.cacheTTL = dateTo.getTime() <= todayUtc - ONE_DAY_MS
-      ? PAST_WINDOW_TTL
-      : LIVE_WINDOW_TTL;
+      ? CACHE_TTL.HISTORICAL
+      : CACHE_TTL.LIST;
 
     // ── Resolve specs ─────────────────────────────────────────────
     const specs = q.specs && q.specs.length > 0 ? [...new Set(q.specs)] : null;

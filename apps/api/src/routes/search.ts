@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import { fetchAllProviders, fetchAllSpecs } from "../rpc/lava.js";
 
 interface SearchResult {
@@ -23,7 +24,7 @@ export async function searchRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 600 },
+    config: { cacheTTL: CACHE_TTL.SEARCH },
   }, async (request) => {
     const query = request.query as Record<string, string>;
     const q = query.q?.toLowerCase() ?? "";

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import {
   RPC_BATCH_SIZE,
   fetchAllProviders,
@@ -17,7 +18,7 @@ export async function providerClaimableRewardsRoutes(app: FastifyInstance) {
       tags: ["Provider Rewards"],
       summary: "Per-provider self-delegation claimable rewards (multi-denom + USD)",
     },
-    config: { cacheTTL: 7200 },
+    config: { cacheTTL: CACHE_TTL.SLOW_MOVING },
   }, async () => {
     await prewarmPriceCache();
     const providers = await fetchAllProviders();

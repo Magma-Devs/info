@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import { weightedQos } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchLatestBlockHeight, fetchAllProviders } from "../rpc/lava.js";
@@ -9,7 +10,7 @@ export async function indexRoutes(app: FastifyInstance) {
       tags: ["Index"],
       summary: "Dashboard stats — alltime totals, 30d totals, stake, provider count, latest block",
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: CACHE_TTL.LIST },
   }, async () => {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -58,7 +59,7 @@ export async function indexRoutes(app: FastifyInstance) {
       tags: ["Index"],
       summary: "Top 20 chains by alltime CU",
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: CACHE_TTL.LIST },
   }, async () => {
     const data = await gqlSafe<{
       mvRelayDailies: {
@@ -94,7 +95,7 @@ export async function indexRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: CACHE_TTL.LIST },
   }, async (request) => {
     const q = request.query as Record<string, string>;
     const to = q.to ? q.to : new Date().toISOString().slice(0, 10);

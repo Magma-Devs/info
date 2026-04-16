@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import {
   RPC_BATCH_SIZE,
   fetchBlockAtTimestamp,
@@ -69,7 +70,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 86_400 },
+    config: { cacheTTL: CACHE_TTL.HISTORICAL },
   }, async (request) => {
     const q = request.query as { count?: number };
     const count = q.count ?? DEFAULT_MONTHLY_BLOCKS;
@@ -113,7 +114,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 1800 },
+    config: { cacheTTL: CACHE_TTL.APR },
   }, async (request, reply) => {
     const q = request.query as { block?: number; spec?: string };
     const block = q.block && q.block > 0 ? q.block : undefined;
@@ -127,7 +128,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
     }
 
     // Historical blocks are immutable, so cache aggressively.
-    if (block) request.cacheTTL = 86_400;
+    if (block) request.cacheTTL = CACHE_TTL.HISTORICAL;
 
     await prewarmPriceCache();
     // Tokens at block N are priced with the CURRENT LAVA price (matches lava-ops
