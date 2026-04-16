@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
+import { parseYMD } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchProvidersForSpec, fetchAllProviders } from "../rpc/lava.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const SPEC_ID_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
-const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MAX_RANGE_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const PAST_WINDOW_TTL = 86_400; // 1 day — immutable historical window
@@ -13,23 +13,6 @@ const LIVE_WINDOW_TTL = 300;    // 5 min — aligned with MV refresh cadence
 
 function validateSpecId(s: string): boolean {
   return s.length > 2 && s.length <= 50 && SPEC_ID_RE.test(s);
-}
-
-// Parses YYYY-MM-DD strictly. Rejects calendar-invalid dates like 2025-02-30
-// (which `new Date()` would silently roll over to 2025-03-02).
-function parseStrictDate(s: string): Date | null {
-  const m = DATE_RE.exec(s);
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
-  const ts = Date.UTC(y, mo - 1, d);
-  const rt = new Date(ts);
-  if (rt.getUTCFullYear() !== y || rt.getUTCMonth() !== mo - 1 || rt.getUTCDate() !== d) {
-    return null;
-  }
-  return rt;
 }
 
 function computeAdjustedRewards(
@@ -155,9 +138,9 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     }
 
     // ── Validate & normalize dates ─────────────────────────────────
-    let dateFrom = parseStrictDate(q.from);
+    let dateFrom = parseYMD(q.from);
     if (!dateFrom) return reply.status(400).send({ error: "Error - bad from date format" });
-    let dateTo = parseStrictDate(q.to);
+    let dateTo = parseYMD(q.to);
     if (!dateTo) return reply.status(400).send({ error: "Error - bad to date format" });
 
     if (dateTo < dateFrom) {
