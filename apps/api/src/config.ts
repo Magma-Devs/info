@@ -73,4 +73,27 @@ export const config = {
   },
 } as const;
 
+/**
+ * Per-route cache TTLs (seconds). Group by freshness tier so TTL tweaks are
+ * one edit — rather than hunting through 30 route files for magic numbers.
+ */
+export const CACHE_TTL = {
+  /** Block-height / realtime chain probes. */
+  REAL_TIME: 10,
+  /** Per-provider health records pulled from Redis. */
+  HEALTH_PROBE: 30,
+  /** Default list/aggregate cache window; aligns with MV refresh cadence. */
+  LIST: 300,
+  /** Search results — slightly longer than lists since queries repeat. */
+  SEARCH: 600,
+  /** APR computation (expensive, derived from per-entity RPC fan-out). */
+  APR: 1800,
+  /** Slow-moving validator / claimable rewards data. */
+  SLOW_MOVING: 7200,
+  /** Optimizer metrics — aggregated hourly scores. */
+  OPTIMIZER: 21_600,
+  /** Historical/immutable data (past-block snapshots, avatars). */
+  HISTORICAL: 86_400,
+} as const;
+
 export default config;

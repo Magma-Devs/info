@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import { fetchValidatorsWithRewards, type ValidatorWithRewards } from "../rpc/lava.js";
 import { readPrecomputed } from "../services/precompute-store.js";
 
@@ -20,7 +21,7 @@ export async function validatorsAndRewardsRoutes(app: FastifyInstance) {
       tags: ["Validators"],
       summary: "All bonded validators with rewards, delegations, and unbonding — matches jsinfo shape",
     },
-    config: { cacheTTL: 7200 },
+    config: { cacheTTL: CACHE_TTL.SLOW_MOVING },
   }, async (request) => {
     const cached = await readPrecomputed<ValidatorsAndRewardsData>(request.server.redis, "validators_and_rewards");
     if (cached) return { data: cached.value };

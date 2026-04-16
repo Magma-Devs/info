@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import { computeAPR } from "../rpc/lava.js";
 import { readPrecomputed } from "../services/precompute-store.js";
 
@@ -13,7 +14,7 @@ export async function aprRoutes(app: FastifyInstance) {
   // compute when the precompute worker hasn't populated the key yet.
   app.get("/apr", {
     schema: { tags: ["APR"], summary: "Restaking and staking APR percentiles (80th, capped at 30%)" },
-    config: { cacheTTL: 1800 },
+    config: { cacheTTL: CACHE_TTL.APR },
   }, async (request) => {
     const cached = await readPrecomputed<AprResult>(request.server.redis, "apr");
     if (cached) return cached.value;

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import { computeAllProvidersApr, type AllProviderAprEntry } from "../rpc/lava.js";
 import { gqlSafe } from "../graphql/client.js";
 import { readPrecomputed } from "../services/precompute-store.js";
@@ -9,7 +10,7 @@ export async function allProvidersAprRoutes(app: FastifyInstance) {
   // compute when the precompute worker hasn't populated the key yet.
   app.get("/", {
     schema: { tags: ["APR"], summary: "Per-provider APR with commission, 30d relays, and reward breakdown" },
-    config: { cacheTTL: 1800 },
+    config: { cacheTTL: CACHE_TTL.APR },
   }, async (request) => {
     const cached = await readPrecomputed<AllProviderAprEntry[]>(request.server.redis, "all_providers_apr");
     if (cached) return cached.value;

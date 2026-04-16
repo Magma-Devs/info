@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import {
   fetchBlockAtTimestamp,
   fetchLatestBlockHeight,
@@ -57,7 +58,7 @@ export async function burnRateRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 86_400 },
+    config: { cacheTTL: CACHE_TTL.HISTORICAL },
   }, async (request) => {
     const q = request.query as { months?: number };
     const count = q.months ?? DEFAULT_MONTHS;

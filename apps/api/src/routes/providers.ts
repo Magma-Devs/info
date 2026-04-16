@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import { weightedQos } from "@info/shared/utils";
 import type { ProviderListItem } from "@info/shared/types";
 import { gqlSafe } from "../graphql/client.js";
@@ -25,7 +26,7 @@ export async function providerRoutes(app: FastifyInstance) {
   // and complicates client filtering; return the full array sorted by stake.
   app.get("/", {
     schema: { tags: ["Providers"], summary: "All providers with 30d relay stats, sorted by total stake desc" },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: CACHE_TTL.LIST },
   }, async (): Promise<{ data: ProviderListItem[] }> => {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -88,7 +89,7 @@ export async function providerRoutes(app: FastifyInstance) {
       tags: ["Providers"],
       summary: "Provider detail — stakes across all specs with health data",
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: CACHE_TTL.LIST },
   }, async (request) => {
     const { addr } = request.params;
     const specs = await fetchAllSpecs();
@@ -146,7 +147,7 @@ export async function providerRoutes(app: FastifyInstance) {
       tags: ["Providers"],
       summary: "Provider stakes per spec",
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: CACHE_TTL.LIST },
   }, async (request) => {
     const { addr } = request.params;
     const specs = await fetchAllSpecs();
@@ -180,7 +181,7 @@ export async function providerRoutes(app: FastifyInstance) {
       tags: ["Providers"],
       summary: "Provider health probe results",
     },
-    config: { cacheTTL: 30 },
+    config: { cacheTTL: CACHE_TTL.HEALTH_PROBE },
   }, async (request) => {
     const { addr } = request.params;
     if (!app.redis) return { data: [] };
@@ -208,7 +209,7 @@ export async function providerRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: CACHE_TTL.LIST },
   }, async (request) => {
     const { addr } = request.params;
     const query = request.query as Record<string, string>;
@@ -311,7 +312,7 @@ export async function providerRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 86400 },
+    config: { cacheTTL: CACHE_TTL.HISTORICAL },
   }, async (request) => {
     const { addr } = request.params;
     const query = request.query as Record<string, string>;
@@ -326,7 +327,7 @@ export async function providerRoutes(app: FastifyInstance) {
       tags: ["Providers"],
       summary: "Delegator rewards from dualstaking module",
     },
-    config: { cacheTTL: 300 },
+    config: { cacheTTL: CACHE_TTL.LIST },
   }, async (request) => {
     const { addr } = request.params;
     const rewards = await fetchDelegatorRewards(addr);

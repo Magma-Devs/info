@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { CACHE_TTL } from "../config.js";
 import { parseYMD } from "@info/shared/utils";
 import { sendApiError } from "../plugins/error-handler.js";
 
@@ -154,7 +155,7 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 21600 },
+    config: { cacheTTL: CACHE_TTL.OPTIMIZER },
   }, async (request, reply) => {
     if (!app.relaysDb) return sendApiError(reply, 503, "Optimizer metrics not configured");
 
@@ -219,7 +220,7 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: 21600 },
+    config: { cacheTTL: CACHE_TTL.OPTIMIZER },
   }, async (request, reply) => {
     if (!app.relaysDb) return sendApiError(reply, 503, "Optimizer metrics not configured");
 
