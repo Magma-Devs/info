@@ -5,13 +5,12 @@ import {
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
-  getPaginationRowModel,
   flexRender,
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
-import type { PaginatedResponse, ProviderListItem } from "@info/shared/types";
+import type { ProviderListItem } from "@info/shared/types";
 import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
 import { ProviderLink } from "@/components/data/ProviderLink";
@@ -63,7 +62,7 @@ const columns: ColumnDef<ProviderListItem, unknown>[] = [
 ];
 
 function ProvidersContent() {
-const { data: resp, isLoading } = useApi<PaginatedResponse<ProviderListItem>>("/providers?limit=10000");
+  const { data: resp, isLoading } = useApi<{ data: ProviderListItem[] }>("/providers");
   const providers = useMemo(() => resp?.data ?? [], [resp]);
 
   const [sorting, setSorting] = useState<SortingState>([
@@ -77,15 +76,13 @@ const { data: resp, isLoading } = useApi<PaginatedResponse<ProviderListItem>>("/
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize: 20 } },
   });
 
   if (isLoading) return <Loading />;
 
   return (
     <div className="space-y-6">
-<div className="rounded-xl border border-border bg-card shadow">
+      <div className="rounded-xl border border-border bg-card shadow">
         <div className="p-6 border-b border-border">
           <h2 className="text-lg font-semibold">
             Active Providers ({providers.length})
@@ -139,31 +136,6 @@ const { data: resp, isLoading } = useApi<PaginatedResponse<ProviderListItem>>("/
               </tbody>
             </table>
           </div>
-
-          {table.getPageCount() > 1 && (
-            <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
-              <span>
-                Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
-                {" "}({providers.length} providers)
-              </span>
-              <div className="flex gap-2">
-                <button
-                  disabled={!table.getCanPreviousPage()}
-                  onClick={() => table.previousPage()}
-                  className="px-3 py-1 rounded border border-border disabled:opacity-30 hover:bg-muted"
-                >
-                  Previous
-                </button>
-                <button
-                  disabled={!table.getCanNextPage()}
-                  onClick={() => table.nextPage()}
-                  className="px-3 py-1 rounded border border-border disabled:opacity-30 hover:bg-muted"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

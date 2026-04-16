@@ -5,7 +5,6 @@ import rateLimit from "@fastify/rate-limit";
 import compress from "@fastify/compress";
 import { redisPlugin } from "./plugins/redis.js";
 import { cachePlugin } from "./plugins/cache.js";
-import { paginationPlugin } from "./plugins/pagination.js";
 import { errorHandlerPlugin } from "./plugins/error-handler.js";
 import { swaggerPlugin } from "./plugins/swagger.js";
 import { healthProbePlugin } from "./plugins/health-probe.js";
@@ -56,7 +55,6 @@ async function main() {
   await app.register(redisPlugin);
   await app.register(relaysDbPlugin);
   await app.register(cachePlugin);
-  await app.register(paginationPlugin);
 
   await app.register(healthRoutes);
   await app.register(indexRoutes, { prefix: "/index" });

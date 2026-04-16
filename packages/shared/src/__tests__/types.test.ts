@@ -3,11 +3,6 @@ import {
   PROVIDER_STATUS,
   HEALTH_STATUS,
   EVENT_TYPES,
-  type ProviderStatus,
-  type HealthStatus,
-  type EventType,
-  type PaginatedResponse,
-  type PaginationParams,
   type ApiError,
   type HealthCheckResult,
   type BlockchainEvent,
@@ -77,20 +72,6 @@ describe("IGNORED_EVENT_TYPES", () => {
 });
 
 describe("type shapes (compile-time verification via runtime construction)", () => {
-  it("PaginatedResponse shape", () => {
-    const resp: PaginatedResponse<{ id: number }> = {
-      data: [{ id: 1 }],
-      pagination: { total: 1, page: 1, limit: 20, pages: 1 },
-    };
-    expect(resp.data).toHaveLength(1);
-    expect(resp.pagination.total).toBe(1);
-  });
-
-  it("PaginationParams shape", () => {
-    const params: PaginationParams = { page: 1, limit: 20, sort: "name", order: "asc" };
-    expect(params.page).toBe(1);
-  });
-
   it("ApiError shape", () => {
     const err: ApiError = { error: "NotFound", message: "Not found", statusCode: 404 };
     expect(err.statusCode).toBe(404);

@@ -92,15 +92,10 @@ async function readFromIndex(
 export async function readHealthForProvider(
   redis: Redis,
   provider: string,
-  page: number,
-  limit: number,
-): Promise<{ data: HealthRecord[]; total: number }> {
+): Promise<HealthRecord[]> {
   const records = await readFromIndex(redis, providerIndexKey(provider));
   records.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-
-  const total = records.length;
-  const offset = (page - 1) * limit;
-  return { data: records.slice(offset, offset + limit), total };
+  return records;
 }
 
 export interface InterfaceHealth {

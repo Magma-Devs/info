@@ -71,33 +71,18 @@ describe("health-store", () => {
 
   describe("readHealthForProvider", () => {
     it("returns empty for unknown provider", async () => {
-      const result = await readHealthForProvider(redis as any, "lava@unknown", 1, 20);
-      expect(result.data).toEqual([]);
-      expect(result.total).toBe(0);
+      const result = await readHealthForProvider(redis as any, "lava@unknown");
+      expect(result).toEqual([]);
     });
 
     it("returns all health records for a provider", async () => {
       await writeHealthStatus(redis as any, "lava@test", "ETH1", "jsonrpc", "2", "healthy", { latency: 10 });
       await writeHealthStatus(redis as any, "lava@test", "LAVA", "grpc", "1", "unhealthy", { message: "timeout" });
 
-      const result = await readHealthForProvider(redis as any, "lava@test", 1, 20);
-      expect(result.total).toBe(2);
-      expect(result.data).toHaveLength(2);
-      const specs = result.data.map((r) => r.spec).sort();
+      const result = await readHealthForProvider(redis as any, "lava@test");
+      expect(result).toHaveLength(2);
+      const specs = result.map((r) => r.spec).sort();
       expect(specs).toEqual(["ETH1", "LAVA"]);
-    });
-
-    it("paginates correctly", async () => {
-      await writeHealthStatus(redis as any, "lava@test", "ETH1", "jsonrpc", "2", "healthy", {});
-      await writeHealthStatus(redis as any, "lava@test", "LAVA", "grpc", "1", "healthy", {});
-      await writeHealthStatus(redis as any, "lava@test", "BSC", "jsonrpc", "2", "healthy", {});
-
-      const page1 = await readHealthForProvider(redis as any, "lava@test", 1, 2);
-      expect(page1.data).toHaveLength(2);
-      expect(page1.total).toBe(3);
-
-      const page2 = await readHealthForProvider(redis as any, "lava@test", 2, 2);
-      expect(page2.data).toHaveLength(1);
     });
   });
 

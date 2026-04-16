@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Fastify from "fastify";
-import { paginationPlugin } from "../plugins/pagination.js";
 import { errorHandlerPlugin } from "../plugins/error-handler.js";
 
 vi.mock("../graphql/client.js", () => ({
@@ -19,7 +18,6 @@ const { providerRewardsRoutes } = await import("../routes/provider-rewards.js");
 async function buildApp() {
   const app = Fastify({ logger: false });
   await app.register(errorHandlerPlugin);
-  await app.register(paginationPlugin);
   await app.register(providerRewardsRoutes);
   return app;
 }
