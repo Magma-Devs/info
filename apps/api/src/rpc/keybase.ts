@@ -27,6 +27,15 @@ async function fetchProviderMetadata(provider: string): Promise<{
   }
 }
 
+/**
+ * Keybase identity fingerprints are hex strings up to 32 chars. Anything
+ * that doesn't match is either malformed chain data or an attempt to slip
+ * other characters into the outbound URL. Reject early; encodeURIComponent
+ * still runs below as defense-in-depth so any future loosening here
+ * doesn't reopen an SSRF vector.
+ */
+const KEYBASE_IDENTITY_RE = /^[A-Fa-f0-9]{1,64}$/;
+
 export async function fetchProviderAvatar(provider: string, identityHint?: string): Promise<string | null> {
   try {
     let identity = identityHint;
@@ -35,6 +44,7 @@ export async function fetchProviderAvatar(provider: string, identityHint?: strin
       identity = meta?.description?.identity ?? undefined;
     }
     if (!identity) return null;
+    if (!KEYBASE_IDENTITY_RE.test(identity)) return null;
 
     const res = await fetch(
       `${config.external.keybaseApiUrl}/user/lookup.json?key_suffix=${encodeURIComponent(identity)}&fields=pictures`,
