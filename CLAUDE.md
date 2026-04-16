@@ -39,22 +39,14 @@ pnpm test         # vitest
                                  ┌──────────────▼────────────────────────┐
                                  │  SubQuery Indexer (:3000)             │
                                  │  PostgreSQL + PostGraphile            │
-                                 │  lava-indexer-test repo               │
+                                 │  lava-indexer repo                    │
                                  │                                       │
-                                 │  Tables (6):                          │
+                                 │  Tables (1):                          │
                                  │    relay_payments (18.8M rows)        │
-                                 │    blockchain_events                  │
-                                 │    provider_reports                   │
-                                 │    provider_block_reports             │
-                                 │    conflict_votes                     │
-                                 │    conflict_responses                 │
                                  │                                       │
-                                 │  Materialized Views (auto-created):   │
+                                 │  Materialized View (auto-created):    │
                                  │    mv_relay_daily                     │
                                  │      → (date, chain_id, provider)     │
-                                 │      → cu, relays, qos weighted sums  │
-                                 │    mv_consumer_relay_daily            │
-                                 │      → (date, chain_id, consumer)     │
                                  │      → cu, relays, qos weighted sums  │
                                  │  Refreshed every 5 min via pg_cron    │
                                  └───────────────────────────────────────┘
@@ -88,12 +80,11 @@ No cache calls inside handlers. TTL guidelines:
 - APR: 1800s (expensive — iterates all providers/validators)
 - Avatars: 86400s (24h)
 
-### Materialized Views (Critical)
+### Materialized View (Critical)
 
 **Never query raw `relayPayments` (18.8M rows) — it will timeout.** Always use:
 
-- `mvRelayDailies` — aggregated by `(date, chain_id, provider)`. Has: `cu`, `relays`, `qosSyncW`, `qosAvailW`, `qosLatencyW`, `qosWeight`, `exQosSyncW`, `exQosAvailW`, `exQosLatencyW`, `exQosWeight`
-- `mvConsumerRelayDailies` — aggregated by `(date, chain_id, consumer)`. Same fields minus excellence QoS.
+- `mvRelayDailies` — aggregated by `(date, chain_id, provider)`. Has: `cu`, `relays`, `qosSyncW`, `qosAvailW`, `qosLatencyW`, `qosWeight`, `exQosSyncW`, `exQosAvailW`, `exQosLatencyW`, `exQosWeight`, plus delta-compatible per-row sums (`qosSyncSum`, `qosAvailSum`, `qosLatencySum`, `qosCount`, `qosCu`, `exQosSyncSum`, `exQosAvailSum`, `exQosLatencySum`, `exQosCount`).
 
 Date filters must use `Date` type with `YYYY-MM-DD` format (not `Datetime`, not ISO):
 ```graphql
@@ -107,7 +98,7 @@ QoS is computed from weighted sums, not simple averages:
 const qosSync = qosWeight > 0 ? qosSyncW / qosWeight : null;
 ```
 
-MVs are auto-created by PostgreSQL event triggers in `lava-indexer-test/docker/init.sql` and refreshed every 5 minutes via pg_cron.
+The MV is auto-created by a PostgreSQL event trigger in `lava-indexer/docker/init.sql` and refreshed every 5 minutes via pg_cron.
 
 ## Monorepo Layout
 
@@ -273,7 +264,7 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 |------|---------|
 | Commission values | Already percentages from chain (75 = 75%). Do NOT multiply by 100 |
 | Token amounts | In ulava (1 LAVA = 1,000,000 ulava). Use `BigInt` — `Number` overflows |
-| Materialized views | Must use `mvRelayDailies` / `mvConsumerRelayDailies` for aggregates. Raw `relayPayments` (18.8M rows) will timeout |
+| Materialized view | Must use `mvRelayDailies` for relay aggregates. Raw `relayPayments` (18.8M rows) will timeout |
 | MV date filters | Use `Date` type with `YYYY-MM-DD` format, NOT `Datetime` / ISO |
 | QoS computation | Default is relay-weighted: `qosSyncW / qosWeight`. Exception: `/provider-rewards` uses unweighted row-level averaging (`qosSyncSum / qosCount`) for delta parity |
 | Geolocation | Bitmask, not enum. A provider can be in multiple regions |
