@@ -153,10 +153,6 @@ const PROVIDER_REWARD_POOLS = [
 ];
 
 /** Fetch total ulava in provider-side reward pools (excludes validator pools). */
-export async function fetchProviderRewardPoolsAmount(): Promise<bigint> {
-  return sumPoolsUlava(await fetchRewardPools(), PROVIDER_REWARD_POOLS);
-}
-
 interface VestingStats {
   continuousVesting: bigint;
   periodicVesting: bigint;
@@ -363,7 +359,7 @@ export async function fetchAllSpecs(): Promise<Array<{ index: string; name: stri
     .map((c) => ({ index: c.chainID, name: chainDisplayName(c.chainID, c.chainName) }));
 }
 
-export async function fetchStakingPool(): Promise<{ bonded_tokens: string; not_bonded_tokens: string }> {
+async function fetchStakingPool(): Promise<{ bonded_tokens: string; not_bonded_tokens: string }> {
   const data = await fetchRest<{ pool: { bonded_tokens: string; not_bonded_tokens: string } }>(
     "/cosmos/staking/v1beta1/pool",
   );
@@ -390,25 +386,6 @@ export async function fetchLavaUsdPrice(): Promise<number> {
   const data = (await res.json()) as { "lava-network"?: { usd?: number } };
   const price = data["lava-network"]?.usd;
   if (!price || price <= 0) throw new Error("Invalid LAVA price from CoinGecko");
-  return price;
-}
-
-// Fetch LAVA USD price at a specific date via CoinGecko /coins/{id}/history.
-// date is a Date object; CoinGecko expects dd-mm-yyyy format.
-export async function fetchLavaUsdPriceAt(date: Date): Promise<number> {
-  const dd = String(date.getUTCDate()).padStart(2, "0");
-  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = date.getUTCFullYear();
-  const res = await fetch(
-    `${COINGECKO_API_URL}/coins/lava-network/history?date=${dd}-${mm}-${yyyy}&localization=false`,
-    { signal: AbortSignal.timeout(15_000) },
-  );
-  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-  const data = (await res.json()) as {
-    market_data?: { current_price?: { usd?: number } };
-  };
-  const price = data.market_data?.current_price?.usd;
-  if (!price || price <= 0) throw new Error(`No LAVA price for ${yyyy}-${mm}-${dd}`);
   return price;
 }
 
@@ -1129,7 +1106,7 @@ export async function fetchValidatorsWithRewards(): Promise<{
 }
 
 /** Fetch all bonded validator operator addresses */
-export async function fetchBondedValidators(): Promise<string[]> {
+async function fetchBondedValidators(): Promise<string[]> {
   const validators: string[] = [];
   let nextKey: string | null = null;
   do {
