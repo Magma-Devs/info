@@ -63,12 +63,16 @@ export async function probeProvider(
     lavaLatestBlock: number;
   }>((resolve, reject) => {
     const deadline = new Date(Date.now() + PROBE_TIMEOUT_MS);
-    const probe = client.probe as (
+    // grpc-js client methods need `this` = client; calling a detached
+    // reference like `const p = client.probe; p(...)` crashes inside
+    // checkOptionalUnaryResponseArguments. Keep the call on the client.
+    type ProbeFn = (
       req: unknown,
       opts: unknown,
       cb: (err: grpc.ServiceError | null, response: unknown) => void,
     ) => void;
-    probe(
+    (client.probe as ProbeFn).call(
+      client,
       { guid, specId, apiInterface, withVerifications: false },
       { deadline },
       (err: grpc.ServiceError | null, response: unknown) => {
