@@ -622,7 +622,7 @@ const PRICE_CACHE_MS = 300_000;
  * Pre-warm the price cache with a single batch CoinGecko call for all known denoms.
  * CoinGecko supports comma-separated IDs in one request.
  */
-async function prewarmPriceCache(): Promise<void> {
+export async function prewarmPriceCache(): Promise<void> {
   const now = Date.now();
   // Skip if all entries are still fresh
   const allFresh = Object.keys(DENOM_COINGECKO_ID).every((d) => {
@@ -803,7 +803,7 @@ async function fetchEstimatedRewards(
  * Matches jsinfo's rewards_last_month: calls estimated_provider_rewards/{addr}/
  * then splits "Boost: ETH1", "Pools: ETH1", "Subscription: ETH1" into per-spec groups.
  */
-async function fetchRewardsBySpec(
+export async function fetchRewardsBySpec(
   address: string,
   specNameMap: Map<string, string>,
 ): Promise<RewardsBySpecEntry[]> {
@@ -1078,7 +1078,7 @@ interface ProviderSpecEntry {
   moniker: string;
 }
 
-interface RewardsBySpecEntry {
+export interface RewardsBySpecEntry {
   chain: string;
   spec: string;
   tokens: RewardToken[];
@@ -1104,7 +1104,7 @@ export interface AllProviderAprEntry {
 }
 
 /** Build per-provider spec data + address list + spec name map from chain RPC */
-async function fetchProvidersWithSpecs(): Promise<{
+export async function fetchProvidersWithSpecs(): Promise<{
   providers: Map<string, { moniker: string; identity: string; commission: string; specs: ProviderSpecEntry[] }>;
   specNames: Map<string, string>;
 }> {
