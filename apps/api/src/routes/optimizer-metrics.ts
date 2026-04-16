@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { parseYMD } from "@info/shared/utils";
 
 interface MetricRow {
   hourly_timestamp: Date;
@@ -161,8 +162,11 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
     try {
       const { addr } = request.params as { addr: string };
       const query = request.query as { from?: string; to?: string; consumer?: string; chain_id?: string };
-      const from = clampFrom(query.from ? new Date(query.from) : defaultFrom());
-      const to = query.to ? new Date(query.to) : new Date();
+      const fromRaw = query.from ? parseYMD(query.from) : defaultFrom();
+      if (!fromRaw) return reply.status(400).send({ error: "invalid from (expected YYYY-MM-DD)" });
+      const to = query.to ? parseYMD(query.to) : new Date();
+      if (!to) return reply.status(400).send({ error: "invalid to (expected YYYY-MM-DD)" });
+      const from = clampFrom(fromRaw);
 
       const conditions = [
         app.relaysDb`provider = ${addr}`,
@@ -227,8 +231,11 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
     try {
       const { specId } = request.params as { specId: string };
       const query = request.query as { from?: string; to?: string; consumer?: string };
-      const from = clampFrom(query.from ? new Date(query.from) : defaultFrom());
-      const to = query.to ? new Date(query.to) : new Date();
+      const fromRaw = query.from ? parseYMD(query.from) : defaultFrom();
+      if (!fromRaw) return reply.status(400).send({ error: "invalid from (expected YYYY-MM-DD)" });
+      const to = query.to ? parseYMD(query.to) : new Date();
+      if (!to) return reply.status(400).send({ error: "invalid to (expected YYYY-MM-DD)" });
+      const from = clampFrom(fromRaw);
 
       const conditions = [
         app.relaysDb`chain = ${specId}`,
