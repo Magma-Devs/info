@@ -161,7 +161,8 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
         .catch(() => null as bigint | null),
     ]);
 
-    // Convert provider pool from ulava to LAVA (1 LAVA = 1_000_000 ulava)
+    // Convert provider pool from ulava to LAVA (1 LAVA = 1_000_000 ulava).
+    // Safe: pool balance is well under Number.MAX_SAFE_INTEGER (~9B LAVA).
     const providerPoolLava = providerPoolUlava != null
       ? Number(providerPoolUlava) / 1_000_000
       : null;
