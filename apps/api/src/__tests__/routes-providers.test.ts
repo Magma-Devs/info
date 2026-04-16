@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Fastify from "fastify";
-import { paginationPlugin } from "../plugins/pagination.js";
 import { errorHandlerPlugin } from "../plugins/error-handler.js";
 
 vi.mock("../graphql/client.js", () => ({ gqlSafe: vi.fn() }));
@@ -23,7 +22,6 @@ const { providerRoutes } = await import("../routes/providers.js");
 async function buildApp() {
   const app = Fastify({ logger: false });
   await app.register(errorHandlerPlugin);
-  await app.register(paginationPlugin);
   await app.register(providerRoutes, { prefix: "/providers" });
   return app;
 }
@@ -44,21 +42,20 @@ const MOCK_ALL_PROVIDERS = [
 ];
 
 describe("GET /providers", () => {
-  it("paginates and sorts providers by totalStake desc", async () => {
+  it("returns the full list sorted by totalStake desc, enriched with 30d relay data", async () => {
     (fetchAllProviders as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_ALL_PROVIDERS);
     (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
       mvRelayDailies: { groupedAggregates: [{ keys: ["lava@alpha"], sum: { cu: "500", relays: "100" } }] },
     });
 
     const app = await buildApp();
-    const res = await app.inject({ method: "GET", url: "/providers?page=1&limit=10" });
+    const res = await app.inject({ method: "GET", url: "/providers" });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.data).toHaveLength(2);
     expect(body.data[0].provider).toBe("lava@alpha"); // bigger stake first
     expect(body.data[0].cuSum30d).toBe("500");
     expect(body.data[1].cuSum30d).toBeNull();
-    expect(body.pagination).toEqual({ total: 2, page: 1, limit: 10, pages: 1 });
   });
 });
 

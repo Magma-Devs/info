@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { weightedQos } from "@info/shared/utils";
-import type { PaginatedResponse, ProviderListItem } from "@info/shared/types";
+import type { ProviderListItem } from "@info/shared/types";
 import { gqlSafe } from "../graphql/client.js";
 import {
   fetchAllProviders,
@@ -20,23 +20,13 @@ const addrSchema = {
 };
 
 export async function providerRoutes(app: FastifyInstance) {
-  // GET /providers — chain RPC + indexer relay data
+  // GET /providers — full provider list with 30d relay stats.
+  // Network-wide provider count sits in the tens, so pagination buys nothing
+  // and complicates client filtering; return the full array sorted by stake.
   app.get("/", {
-    schema: {
-      tags: ["Providers"],
-      summary: "Paginated provider list with 30d relay stats",
-      querystring: {
-        type: "object" as const,
-        properties: {
-          page: { type: "integer" as const, default: 1 },
-          limit: { type: "integer" as const, default: 20 },
-        },
-      },
-    },
+    schema: { tags: ["Providers"], summary: "All providers with 30d relay stats, sorted by total stake desc" },
     config: { cacheTTL: 300 },
-  }, async (request): Promise<PaginatedResponse<ProviderListItem>> => {
-    const { page, limit, offset } = request.pagination;
-
+  }, async (): Promise<{ data: ProviderListItem[] }> => {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10);
@@ -68,15 +58,13 @@ export async function providerRoutes(app: FastifyInstance) {
       }
     }
 
-    const total = providers.length;
     providers.sort((a, b) => {
       const diff = BigInt(b.totalStake) - BigInt(a.totalStake);
       return diff > 0n ? 1 : diff < 0n ? -1 : 0;
     });
-    const paged = providers.slice(offset, offset + limit);
 
     return {
-      data: paged.map((p): ProviderListItem => {
+      data: providers.map((p): ProviderListItem => {
         const relay = relayMap.get(p.address);
         return {
           provider: p.address,
@@ -90,7 +78,6 @@ export async function providerRoutes(app: FastifyInstance) {
           relaySum30d: relay?.relays ?? null,
         };
       }),
-      pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     };
   });
 
@@ -186,28 +173,23 @@ export async function providerRoutes(app: FastifyInstance) {
     return { data: results.filter(Boolean) };
   });
 
-  // GET /providers/:addr/health — from Redis
+  // GET /providers/:addr/health — from Redis (per-interface probe records)
   app.get<{ Params: { addr: string } }>("/:addr/health", {
     schema: {
       ...addrSchema,
       tags: ["Providers"],
-      summary: "Provider health probe results (paginated)",
+      summary: "Provider health probe results",
     },
     config: { cacheTTL: 30 },
   }, async (request) => {
     const { addr } = request.params;
-    const { page, limit } = request.pagination;
-
-    if (!app.redis) {
-      return { data: [], pagination: { total: 0, page, limit, pages: 0 } };
-    }
+    if (!app.redis) return { data: [] };
 
     try {
-      const result = await readHealthForProvider(app.redis, addr, page, limit);
-      const total = result.total;
-      return { data: result.data, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
+      const data = await readHealthForProvider(app.redis, addr);
+      return { data };
     } catch {
-      return { data: [], pagination: { total: 0, page, limit, pages: 0 } };
+      return { data: [] };
     }
   });
 
