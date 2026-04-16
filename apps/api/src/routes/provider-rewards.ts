@@ -109,7 +109,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
 
     // ── Build GraphQL filter ──────────────────────────────────────
     const filterParts = [
-      `date: { greaterThanOrEqualTo: $from, lessThanOrEqualTo: $to }`,
+      `date: { greaterThanOrEqualTo: $from, lessThan: $to }`,
     ];
     const varDefs = [`$from: Date!`, `$to: Date!`];
     const vars: Record<string, unknown> = { from, to };
