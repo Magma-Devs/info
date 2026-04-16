@@ -19,7 +19,7 @@ export function formatNumberKMB(value: number | string): string {
 export function formatLava(ulava: string | bigint | number): string {
   try {
     const value = typeof ulava === "bigint" ? ulava : BigInt(String(ulava).replace(/ulava$/, ""));
-    const lava = Number(value / BigInt(1e6));
+    const lava = Number(value / 1_000_000n);
     return new Intl.NumberFormat("en-US").format(lava);
   } catch {
     return "0";
@@ -30,7 +30,7 @@ export function formatLava(ulava: string | bigint | number): string {
 export function formatLavaKMB(ulava: string | bigint | number): string {
   try {
     const value = typeof ulava === "bigint" ? ulava : BigInt(String(ulava).replace(/ulava$/, ""));
-    const lava = Number(value / BigInt(1e6));
+    const lava = Number(value / 1_000_000n);
     return formatNumberKMB(lava);
   } catch {
     return "0";
