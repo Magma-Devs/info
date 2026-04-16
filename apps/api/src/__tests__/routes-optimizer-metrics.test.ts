@@ -26,7 +26,7 @@ describe("GET /providers/:addr/optimizer-metrics", () => {
       url: "/providers/lava@abc/optimizer-metrics",
     });
     expect(res.statusCode).toBe(503);
-    expect(JSON.parse(res.body).error).toContain("not configured");
+    expect(JSON.parse(res.body).message).toContain("not configured");
   });
 
   it("rejects invalid `from` date with 400", async () => {
@@ -36,7 +36,7 @@ describe("GET /providers/:addr/optimizer-metrics", () => {
       url: "/providers/lava@abc/optimizer-metrics?from=not-a-date",
     });
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toContain("invalid from");
+    expect(JSON.parse(res.body).message).toContain("invalid from");
   });
 
   it("rejects invalid `to` date with 400", async () => {
@@ -46,7 +46,7 @@ describe("GET /providers/:addr/optimizer-metrics", () => {
       url: "/providers/lava@abc/optimizer-metrics?to=2025-02-30",
     });
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toContain("invalid to");
+    expect(JSON.parse(res.body).message).toContain("invalid to");
   });
 });
 

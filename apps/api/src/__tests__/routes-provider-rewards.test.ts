@@ -209,7 +209,7 @@ describe("GET /provider-rewards (default groupBy=provider)", () => {
       url: "/provider-rewards?from=2025-02-30&to=2025-04-01",
     });
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toMatch(/bad from date/);
+    expect(JSON.parse(res.body).message).toMatch(/bad from date/);
   });
 
   it("rejects calendar-invalid dates (Apr 31)", async () => {
@@ -219,7 +219,7 @@ describe("GET /provider-rewards (default groupBy=provider)", () => {
       url: "/provider-rewards?from=2025-01-01&to=2025-04-31",
     });
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toMatch(/bad to date/);
+    expect(JSON.parse(res.body).message).toMatch(/bad to date/);
   });
 
   it("rejects date range exceeding 6 months", async () => {
@@ -229,7 +229,7 @@ describe("GET /provider-rewards (default groupBy=provider)", () => {
       url: "/provider-rewards?from=2024-01-01&to=2025-01-01",
     });
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toMatch(/6 months/);
+    expect(JSON.parse(res.body).message).toMatch(/6 months/);
   });
 
   it("swaps dates when to < from", async () => {
@@ -251,7 +251,7 @@ describe("GET /provider-rewards (default groupBy=provider)", () => {
       url: "/provider-rewards?from=2025-01-01&to=2025-04-01&specs=a",
     });
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toMatch(/bad spec format/);
+    expect(JSON.parse(res.body).message).toMatch(/bad spec format/);
   });
 
   it("returns zero adjusted rewards when qosCu is zero", async () => {

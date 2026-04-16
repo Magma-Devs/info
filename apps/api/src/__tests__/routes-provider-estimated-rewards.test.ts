@@ -199,7 +199,7 @@ describe("GET /provider-estimated-rewards", () => {
       url: "/provider-estimated-rewards?spec=!",
     });
     expect(res.statusCode).toBe(400);
-    expect(JSON.parse(res.body).error).toMatch(/bad spec format/);
+    expect(JSON.parse(res.body).message).toMatch(/bad spec format/);
   });
 
   it("excludes providers whose filtered rewards become empty", async () => {

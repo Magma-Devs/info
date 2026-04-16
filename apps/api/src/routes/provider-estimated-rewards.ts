@@ -8,6 +8,7 @@ import {
   prewarmPriceCache,
   type RewardsBySpecEntry,
 } from "../rpc/lava.js";
+import { sendApiError } from "../plugins/error-handler.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -120,7 +121,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
     let spec: string | undefined;
     if (q.spec !== undefined) {
       if (!validateSpecId(q.spec)) {
-        return reply.status(400).send({ error: `Error - bad spec format: ${q.spec}` });
+        return sendApiError(reply, 400, `bad spec format: ${q.spec}`);
       }
       spec = q.spec.toUpperCase();
     }

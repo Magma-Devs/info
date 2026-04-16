@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { parseYMD } from "@info/shared/utils";
+import { sendApiError } from "../plugins/error-handler.js";
 
 interface MetricRow {
   hourly_timestamp: Date;
@@ -155,18 +156,15 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
     },
     config: { cacheTTL: 21600 },
   }, async (request, reply) => {
-    if (!app.relaysDb) {
-      reply.status(503);
-      return { error: "Optimizer metrics not configured" };
-    }
+    if (!app.relaysDb) return sendApiError(reply, 503, "Optimizer metrics not configured");
 
     try {
       const { addr } = request.params as { addr: string };
       const query = request.query as { from?: string; to?: string; consumer?: string; chain_id?: string };
       const fromRaw = query.from ? parseYMD(query.from) : defaultFrom();
-      if (!fromRaw) return reply.status(400).send({ error: "invalid from (expected YYYY-MM-DD)" });
+      if (!fromRaw) return sendApiError(reply, 400, "invalid from (expected YYYY-MM-DD)");
       const to = query.to ? parseYMD(query.to) : new Date();
-      if (!to) return reply.status(400).send({ error: "invalid to (expected YYYY-MM-DD)" });
+      if (!to) return sendApiError(reply, 400, "invalid to (expected YYYY-MM-DD)");
       const from = clampFrom(fromRaw);
 
       const conditions = [
@@ -198,8 +196,7 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
       return { metrics, possibleConsumers, possibleChainIds, filters: { provider: addr, from, to } };
     } catch (err) {
       request.log.error({ err }, "Failed to query optimizer metrics for provider");
-      reply.status(503);
-      return { error: "Optimizer metrics temporarily unavailable" };
+      return sendApiError(reply, 503, "Optimizer metrics temporarily unavailable");
     }
   });
 
@@ -224,18 +221,15 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
     },
     config: { cacheTTL: 21600 },
   }, async (request, reply) => {
-    if (!app.relaysDb) {
-      reply.status(503);
-      return { error: "Optimizer metrics not configured" };
-    }
+    if (!app.relaysDb) return sendApiError(reply, 503, "Optimizer metrics not configured");
 
     try {
       const { specId } = request.params as { specId: string };
       const query = request.query as { from?: string; to?: string; consumer?: string };
       const fromRaw = query.from ? parseYMD(query.from) : defaultFrom();
-      if (!fromRaw) return reply.status(400).send({ error: "invalid from (expected YYYY-MM-DD)" });
+      if (!fromRaw) return sendApiError(reply, 400, "invalid from (expected YYYY-MM-DD)");
       const to = query.to ? parseYMD(query.to) : new Date();
-      if (!to) return reply.status(400).send({ error: "invalid to (expected YYYY-MM-DD)" });
+      if (!to) return sendApiError(reply, 400, "invalid to (expected YYYY-MM-DD)");
       const from = clampFrom(fromRaw);
 
       const conditions = [
@@ -264,8 +258,7 @@ export async function optimizerMetricsRoutes(app: FastifyInstance) {
       return { metrics, possibleConsumers, providers, filters: { specId, from, to } };
     } catch (err) {
       request.log.error({ err }, "Failed to query optimizer metrics for spec");
-      reply.status(503);
-      return { error: "Optimizer metrics temporarily unavailable" };
+      return sendApiError(reply, 503, "Optimizer metrics temporarily unavailable");
     }
   });
 }
