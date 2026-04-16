@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { gqlSafe } from "../graphql/client.js";
-import { fetchProvidersForSpec, fetchAllProviders } from "../rpc/lava.js";
+import { fetchProvidersForSpec, fetchAllProviders, fetchLavaUsdPrice, fetchLavaUsdPriceAt } from "../rpc/lava.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -18,28 +18,6 @@ function computeAdjustedRewards(
   return qosCus / 2 + Math.cbrt(avgLat * avgAvail * avgSync) * (qosCus / 2);
 }
 
-function computeMetrics(sum: AggregateSum) {
-  const totalCu = Number(sum.cu);
-  const totalRelays = Number(sum.relays);
-  const qosWeight = Number(sum.qosWeight);
-  const exQosWeight = Number(sum.exQosWeight);
-
-  const avgLatency = qosWeight > 0 ? Number(sum.qosLatencyW ?? 0) / qosWeight : 0;
-  const avgAvailability = qosWeight > 0 ? Number(sum.qosAvailW ?? 0) / qosWeight : 0;
-  const avgSync = qosWeight > 0 ? Number(sum.qosSyncW ?? 0) / qosWeight : 0;
-  const avgLatencyExc = exQosWeight > 0 ? Number(sum.exQosLatencyW ?? 0) / exQosWeight : 0;
-  const avgAvailabilityExc = exQosWeight > 0 ? Number(sum.exQosAvailW ?? 0) / exQosWeight : 0;
-  const avgSyncExc = exQosWeight > 0 ? Number(sum.exQosSyncW ?? 0) / exQosWeight : 0;
-  const qosCus = qosWeight > 0 ? totalCu : 0;
-
-  return {
-    relays: totalRelays, cus: totalCu, qosCus,
-    avgLatency, avgAvailability, avgSync,
-    avgLatencyExc, avgAvailabilityExc, avgSyncExc,
-    adjustedRewards: computeAdjustedRewards(avgLatency, avgAvailability, avgSync, qosCus),
-  };
-}
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface AggregateSum {
@@ -49,10 +27,6 @@ interface AggregateSum {
   qosAvailW: number | null;
   qosLatencyW: number | null;
   qosWeight: string;
-  exQosSyncW: number | null;
-  exQosAvailW: number | null;
-  exQosLatencyW: number | null;
-  exQosWeight: string;
 }
 
 interface AggregateGroup {
@@ -61,16 +35,15 @@ interface AggregateGroup {
 }
 
 const SUM_FIELDS = `cu relays
-              qosSyncW qosAvailW qosLatencyW qosWeight
-              exQosSyncW exQosAvailW exQosLatencyW exQosWeight`;
+              qosSyncW qosAvailW qosLatencyW qosWeight`;
 
 // ── Route ────────────────────────────────────────────────────────────────────
 
-export async function adjustedRewardsRoutes(app: FastifyInstance) {
-  app.get("/adjusted-rewards", {
+export async function providerRewardsRoutes(app: FastifyInstance) {
+  app.get("/provider-rewards", {
     schema: {
-      tags: ["Adjusted Rewards"],
-      summary: "Adjusted rewards grouped by provider or spec (nested)",
+      tags: ["Provider Rewards"],
+      summary: "Per-provider reward distribution in LAVA and USD",
       querystring: {
         type: "object" as const,
         properties: {
@@ -81,11 +54,6 @@ export async function adjustedRewardsRoutes(app: FastifyInstance) {
           },
           from: { type: "string" as const, description: "Start date YYYY-MM-DD" },
           to: { type: "string" as const, description: "End date YYYY-MM-DD" },
-          groupBy: {
-            type: "string" as const,
-            enum: ["provider", "spec"],
-            description: "Top-level grouping key (default: provider)",
-          },
         },
         required: ["from", "to"] as const,
       },
@@ -96,10 +64,7 @@ export async function adjustedRewardsRoutes(app: FastifyInstance) {
       specs?: string[];
       from: string;
       to: string;
-      groupBy?: "provider" | "spec";
     };
-
-    const groupBy = q.groupBy ?? "provider";
 
     // ── Validate spec IDs ──────────────────────────────────────────
     if (q.specs) {
@@ -156,8 +121,9 @@ export async function adjustedRewardsRoutes(app: FastifyInstance) {
 
     const filter = filterParts.join(", ");
 
-    // ── Query MV grouped by (spec, provider) ──────────────────────
-    const [mvData, providerMap] = await Promise.all([
+    // ── Fetch MV data, provider names, and LAVA price in parallel ──
+    const isHistorical = dateTo < new Date();
+    const [mvData, providerMap, lavaPrice] = await Promise.all([
       gqlSafe<{
         mvRelayDailies: { groupedAggregates: AggregateGroup[] };
       }>(`query(${varDefs.join(", ")}) {
@@ -187,45 +153,60 @@ export async function adjustedRewardsRoutes(app: FastifyInstance) {
         }
         return map;
       })(),
+
+      (isHistorical ? fetchLavaUsdPriceAt(dateTo) : fetchLavaUsdPrice())
+        .catch(() => null as number | null),
     ]);
 
-    // ── Compute metrics for every (spec, provider) pair ───────────
-    const rows = mvData.mvRelayDailies.groupedAggregates.map((agg) => ({
-      spec: agg.keys[0],
-      provider: agg.keys[1],
-      moniker: providerMap.get(agg.keys[1]) ?? "",
-      ...computeMetrics(agg.sum),
-    }));
+    // ── Compute adjusted rewards per provider ─────────────────────
+    const providerTotals = new Map<string, { moniker: string; adjustedRewards: number; relays: number; cus: number }>();
 
-    // ── Nest results ──────────────────────────────────────────────
-    if (groupBy === "spec") {
-      // { "NEAR": [ { provider, moniker, metrics… }, … ], "ETH1": [ … ] }
-      const grouped: Record<string, Array<Omit<typeof rows[number], "spec">>> = {};
-      for (const row of rows) {
-        const { spec, ...entry } = row;
-        (grouped[spec] ??= []).push(entry);
+    for (const agg of mvData.mvRelayDailies.groupedAggregates) {
+      const provider = agg.keys[1];
+      const moniker = providerMap.get(provider) ?? "";
+      const sum = agg.sum;
+      const totalCu = Number(sum.cu);
+      const totalRelays = Number(sum.relays);
+      const qosWeight = Number(sum.qosWeight);
+
+      const avgLatency = qosWeight > 0 ? Number(sum.qosLatencyW ?? 0) / qosWeight : 0;
+      const avgAvailability = qosWeight > 0 ? Number(sum.qosAvailW ?? 0) / qosWeight : 0;
+      const avgSync = qosWeight > 0 ? Number(sum.qosSyncW ?? 0) / qosWeight : 0;
+      const qosCus = qosWeight > 0 ? totalCu : 0;
+      const adj = computeAdjustedRewards(avgLatency, avgAvailability, avgSync, qosCus);
+
+      const existing = providerTotals.get(provider);
+      if (existing) {
+        existing.adjustedRewards += adj;
+        existing.relays += totalRelays;
+        existing.cus += totalCu;
+      } else {
+        providerTotals.set(provider, { moniker, adjustedRewards: adj, relays: totalRelays, cus: totalCu });
       }
-      for (const arr of Object.values(grouped)) {
-        arr.sort((a, b) => b.adjustedRewards - a.adjustedRewards);
-      }
-      return { data: grouped };
     }
 
-    // groupBy === "provider"
-    // { "lava@…": { moniker, specs: { "NEAR": { metrics… }, "ETH1": { … } } } }
-    const grouped: Record<string, {
-      moniker: string;
-      specs: Record<string, ReturnType<typeof computeMetrics>>;
-    }> = {};
+    // ── Compute shares and USD values ─────────────────────────────
+    let totalAdjusted = 0;
+    for (const p of providerTotals.values()) totalAdjusted += p.adjustedRewards;
 
-    for (const row of rows) {
-      const { provider, moniker, spec, ...metrics } = row;
-      if (!grouped[provider]) {
-        grouped[provider] = { moniker, specs: {} };
-      }
-      grouped[provider].specs[spec] = metrics;
-    }
+    const providers = [...providerTotals.entries()]
+      .map(([address, p]) => {
+        const share = totalAdjusted > 0 ? p.adjustedRewards / totalAdjusted : 0;
+        return {
+          provider: address,
+          moniker: p.moniker,
+          relays: p.relays,
+          cus: p.cus,
+          adjustedRewards: p.adjustedRewards,
+          rewardShare: share,
+          estimatedRewardsUsd: lavaPrice != null ? share * lavaPrice : null,
+        };
+      })
+      .sort((a, b) => b.adjustedRewards - a.adjustedRewards);
 
-    return { data: grouped };
+    return {
+      meta: { from, to, lavaUsdPrice: lavaPrice, totalAdjustedRewards: totalAdjusted },
+      data: providers,
+    };
   });
 }

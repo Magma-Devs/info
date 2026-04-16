@@ -176,7 +176,7 @@ packages/
 
 | Endpoint | Cache | Source | Description |
 |----------|-------|--------|-------------|
-| `GET /supply/total` | 300s | Chain RPC | Total supply in LAVA (plain text). `fetchTotalSupply() / 1_000_000`. Optional `?timestamp=` (unix seconds or ISO-8601) for historical supply — resolves timestamp to block height via binary search on Tendermint RPC, then queries supply at that block via `x-cosmos-block-height` header |
+| `GET /supply/total` | 300s | Chain RPC | Total supply in LAVA (plain text). `fetchTotalSupply() / 1_000_000` |
 | `GET /supply/circulating` | 300s | Chain RPC | Circulating supply in LAVA (plain text). Formula: `total - continuousVesting - periodicVesting - rewardPools`. Paginates through all ~53K accounts to calculate locked vesting amounts. 5 reward pools subtracted: validators_rewards_distribution_pool, validators_rewards_allocation_pool, providers_rewards_distribution_pool, providers_rewards_allocation_pool, iprpc_pool |
 
 ### Other (root-level)
@@ -190,7 +190,7 @@ packages/
 | `GET /apr` | 1800s | Chain RPC + CoinGecko | Per-entity APR percentiles matching jsinfo. Queries `estimated_{provider,validator}_rewards` for all providers/validators with 10k LAVA benchmark, converts multi-denom rewards to USD, compounds monthly, takes 80th percentile, caps at 30%. Returns `{ restaking_apr_percentile, staking_apr_percentile }`. Uses 7-day weighted Redis history when available |
 | `GET /all_providers_apr` | 1800s | Chain RPC + CoinGecko + Indexer MV | Per-provider APR data matching jsinfo. Returns array of providers with: APR, commission, 30d CU/relays, 10k LAVA reward breakdown, per-spec rewards (rewards_last_month), specs, avatar |
 | `GET /lava/specs` | 300s | Chain RPC | All chain specs (raw, used by frontend `useChainNames` hook) |
-| `GET /lava/price` | 300s | CoinGecko | LAVA USD price. Optional `?date=` (YYYY-MM-DD or unix seconds) for historical price via CoinGecko `/coins/{id}/history`. Returns `{ price }` (current) or `{ price, date }` (historical) |
+| `GET /provider-rewards?from=&to=` | 300s | Indexer MV + CoinGecko | Per-provider QoS-adjusted reward distribution. Required: `from`, `to` (YYYY-MM-DD, max 6 months). Optional: `specs` (chain filter). Returns `{ meta: { from, to, lavaUsdPrice, totalAdjustedRewards }, data: [{ provider, moniker, relays, cus, adjustedRewards, rewardShare, estimatedRewardsUsd }] }`. Uses historical LAVA price when date range is in the past. Price gracefully degrades to null on CoinGecko failure |
 
 ## Pagination Convention
 
