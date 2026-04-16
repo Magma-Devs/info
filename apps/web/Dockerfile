@@ -27,5 +27,7 @@ COPY --from=builder /app/apps/web/public apps/web/public
 ENV NODE_ENV=production
 USER node
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://localhost:3000/ || exit 1
+# `localhost` inside the container resolves to ::1 first; Next binds to IPv4
+# only so ::1 refuses. Hit 127.0.0.1 explicitly.
+HEALTHCHECK --interval=30s --timeout=5s CMD wget -qO- http://127.0.0.1:3000/ || exit 1
 CMD ["node", "apps/web/server.js"]
