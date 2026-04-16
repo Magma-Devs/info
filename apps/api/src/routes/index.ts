@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { weightedQos } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchLatestBlockHeight, fetchAllProviders } from "../rpc/lava.js";
 
@@ -160,9 +161,7 @@ export async function indexRoutes(app: FastifyInstance) {
         date, chainId,
         cu: v.cu.toString(),
         relays: v.relays.toString(),
-        qosSync: v.qosWeight > 0 ? v.qosSyncW / v.qosWeight : null,
-        qosAvailability: v.qosWeight > 0 ? v.qosAvailW / v.qosWeight : null,
-        qosLatency: v.qosWeight > 0 ? v.qosLatW / v.qosWeight : null,
+        ...weightedQos(v.qosSyncW, v.qosAvailW, v.qosLatW, v.qosWeight),
       });
     }
 

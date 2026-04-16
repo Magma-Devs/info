@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { weightedQos } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import {
   fetchAllProviders,
@@ -295,19 +296,19 @@ export async function providerRoutes(app: FastifyInstance) {
 
     return {
       data: data.mvRelayDailies.nodes.map((n) => {
-        const w = Number(n.qosWeight);
-        const ew = Number(n.exQosWeight);
+        const qos = weightedQos(n.qosSyncW, n.qosAvailW, n.qosLatencyW, Number(n.qosWeight));
+        const ex = weightedQos(n.exQosSyncW, n.exQosAvailW, n.exQosLatencyW, Number(n.exQosWeight));
         return {
           date: n.date,
           chainId: n.chainId,
           cu: n.cu,
           relays: n.relays,
-          qosSync: w > 0 ? (n.qosSyncW ?? 0) / w : null,
-          qosAvailability: w > 0 ? (n.qosAvailW ?? 0) / w : null,
-          qosLatency: w > 0 ? (n.qosLatencyW ?? 0) / w : null,
-          excellenceQosSync: ew > 0 ? (n.exQosSyncW ?? 0) / ew : null,
-          excellenceQosAvailability: ew > 0 ? (n.exQosAvailW ?? 0) / ew : null,
-          excellenceQosLatency: ew > 0 ? (n.exQosLatencyW ?? 0) / ew : null,
+          qosSync: qos.qosSync,
+          qosAvailability: qos.qosAvailability,
+          qosLatency: qos.qosLatency,
+          excellenceQosSync: ex.qosSync,
+          excellenceQosAvailability: ex.qosAvailability,
+          excellenceQosLatency: ex.qosLatency,
         };
       }),
     };
