@@ -174,7 +174,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
     if (vals.length === 0) return null;
     const counts = new Map<string, number>();
     for (const v of vals) counts.set(v, (counts.get(v) ?? 0) + 1);
-    const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]![0];
     return Number(best) + "%";
   }, [provider]);
 

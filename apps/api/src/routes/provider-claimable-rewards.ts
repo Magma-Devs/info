@@ -30,8 +30,8 @@ export async function providerClaimableRewardsRoutes(app: FastifyInstance) {
         batch.map((p) => fetchDelegatorRewards(p.address)),
       );
       for (let j = 0; j < batch.length; j++) {
-        const addr = batch[j].address;
-        const entries = await processClaimableRewards(results[j], addr);
+        const addr = batch[j]!.address;
+        const entries = await processClaimableRewards(results[j]!, addr);
         if (entries.length > 0) {
           out[addr] = { rewards: entries, timestamp: ts };
         }

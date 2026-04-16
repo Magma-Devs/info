@@ -56,7 +56,8 @@ async function recomputeAllProvidersApr(redis: Redis): Promise<void> {
   const relay30d = new Map<string, { cu: string; relays: string }>();
   if (relayData) {
     for (const agg of relayData.mvRelayDailies.groupedAggregates) {
-      relay30d.set(agg.keys[0], { cu: agg.sum.cu, relays: agg.sum.relays });
+      const provider = agg.keys[0];
+      if (provider) relay30d.set(provider, { cu: agg.sum.cu, relays: agg.sum.relays });
     }
   }
 

@@ -96,7 +96,8 @@ function aggregate(rows: NormalizedMetric[], keyFn: (r: NormalizedMetric) => str
 
   const result: NormalizedMetric[] = [];
   for (const [, group] of groups) {
-    const base = { ...group[0] };
+    if (group.length === 0) continue;
+    const base: NormalizedMetric = { ...group[0]! };
     for (const k of METRIC_KEYS) {
       const values = group.map((r) => r[k]).filter((v): v is number => v != null);
       (base as Record<string, unknown>)[k] = values.length > 0 ? avg(values) : null;

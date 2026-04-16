@@ -152,9 +152,9 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       );
 
       for (let j = 0; j < batch.length; j++) {
-        const addr = batch[j];
+        const addr = batch[j]!;
         const provider = providerMap.get(addr)!;
-        let rewards = rewardResults[j];
+        let rewards = rewardResults[j]!;
         if (spec) rewards = rewards.filter((r) => r.spec === spec);
         if (rewards.length === 0) continue;
 

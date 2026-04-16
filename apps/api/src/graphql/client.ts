@@ -27,7 +27,7 @@ export async function gql<T = unknown>(query: string, variables?: Record<string,
   if (!res.ok) throw new Error(`GraphQL request failed: ${res.status}`);
 
   const json = (await res.json()) as { data?: T; errors?: Array<{ message: string }> };
-  if (json.errors?.length) throw new Error(json.errors[0].message);
+  if (json.errors?.length) throw new Error(json.errors[0]!.message);
   return json.data as T;
 }
 

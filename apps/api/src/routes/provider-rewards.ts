@@ -231,8 +231,8 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     if (groupBy === "spec") {
       // One row per (provider, spec). Keys: [chainId, provider].
       const rows = groups.map((agg) => {
-        const spec = agg.keys[0];
-        const provider = agg.keys[1];
+        const spec = agg.keys[0] ?? "";
+        const provider = agg.keys[1] ?? "";
         return {
           provider,
           spec,
@@ -275,7 +275,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
 
     // Default: one row per provider. Keys: [provider].
     const rows = groups.map((agg) => {
-      const provider = agg.keys[0];
+      const provider = agg.keys[0] ?? "";
       return {
         provider,
         moniker: providerMap.get(provider) ?? "",

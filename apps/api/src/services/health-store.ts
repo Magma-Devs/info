@@ -76,7 +76,7 @@ async function readFromIndex(
       if (val) {
         records.push(JSON.parse(val) as HealthRecord);
       } else {
-        staleKeys.push(batch[j]);
+        staleKeys.push(batch[j]!);
       }
     }
   }
@@ -149,7 +149,7 @@ export async function readHealthMapForProvider(
     const unhealthyCount = interfaces.filter((i) => i.status !== "healthy").length;
     const oldestTimestamp = recs.reduce(
       (oldest, r) => (r.timestamp < oldest ? r.timestamp : oldest),
-      recs[0].timestamp,
+      recs[0]!.timestamp,
     );
 
     result.set(spec, {
@@ -192,7 +192,7 @@ export async function readHealthByProviderForSpec(
     const unhealthyCount = interfaces.filter((i) => i.status !== "healthy").length;
     const oldestTimestamp = recs.reduce(
       (oldest, r) => (r.timestamp < oldest ? r.timestamp : oldest),
-      recs[0].timestamp,
+      recs[0]!.timestamp,
     );
 
     result.set(provider, {

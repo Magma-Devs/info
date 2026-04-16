@@ -63,7 +63,12 @@ export async function probeProvider(
     lavaLatestBlock: number;
   }>((resolve, reject) => {
     const deadline = new Date(Date.now() + PROBE_TIMEOUT_MS);
-    client.probe(
+    const probe = client.probe as (
+      req: unknown,
+      opts: unknown,
+      cb: (err: grpc.ServiceError | null, response: unknown) => void,
+    ) => void;
+    probe(
       { guid, specId, apiInterface, withVerifications: false },
       { deadline },
       (err: grpc.ServiceError | null, response: unknown) => {

@@ -141,17 +141,14 @@ export function IndexChart({
       const existing = byDay.get(p.date);
 
       if (existing) {
-        existing[p.chainId] =
-          ((existing[p.chainId] as number) || 0) + relays;
-        (existing as Record<string, number>).totalRelays += relays;
+        const rec = existing as Record<string, number>;
+        existing[p.chainId] = (Number(existing[p.chainId]) || 0) + relays;
+        rec.totalRelays = (rec.totalRelays ?? 0) + relays;
         if (p.qosSync != null) {
-          (existing as Record<string, number>)._qSW +=
-            (p.qosSync ?? 0) * relays;
-          (existing as Record<string, number>)._qAW +=
-            (p.qosAvailability ?? 0) * relays;
-          (existing as Record<string, number>)._qLW +=
-            (p.qosLatency ?? 0) * relays;
-          (existing as Record<string, number>)._w += relays;
+          rec._qSW = (rec._qSW ?? 0) + (p.qosSync ?? 0) * relays;
+          rec._qAW = (rec._qAW ?? 0) + (p.qosAvailability ?? 0) * relays;
+          rec._qLW = (rec._qLW ?? 0) + (p.qosLatency ?? 0) * relays;
+          rec._w = (rec._w ?? 0) + relays;
         }
       } else {
         byDay.set(p.date, {
