@@ -9,11 +9,11 @@ vi.mock("../graphql/client.js", () => ({
 
 vi.mock("../rpc/lava.js", () => ({
   fetchProvidersForSpec: vi.fn(),
-  fetchAllProviders: vi.fn(),
+  fetchAllProviderMonikers: vi.fn(),
 }));
 
 const { gqlSafe } = await import("../graphql/client.js");
-const { fetchAllProviders } = await import("../rpc/lava.js");
+const { fetchAllProviderMonikers } = await import("../rpc/lava.js");
 const { providerRewardsRoutes } = await import("../routes/provider-rewards.js");
 
 async function buildApp() {
@@ -82,15 +82,15 @@ const MOCK_MV_SPEC = {
   },
 };
 
-const MOCK_PROVIDERS = [
-  { address: "lava@1abc", moniker: "AlphaProvider" },
-  { address: "lava@2def", moniker: "BetaProvider" },
-];
+const MOCK_MONIKER_MAP = new Map([
+  ["lava@1abc", "AlphaProvider"],
+  ["lava@2def", "BetaProvider"],
+]);
 
 beforeEach(() => {
   vi.resetAllMocks();
   (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MV_PROVIDER);
-  (fetchAllProviders as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_PROVIDERS);
+  (fetchAllProviderMonikers as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MONIKER_MAP);
 });
 
 describe("GET /provider-rewards (default groupBy=provider)", () => {

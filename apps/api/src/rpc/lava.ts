@@ -1507,6 +1507,30 @@ export function fetchAllProviders(): Promise<AllProvidersResult> {
   return pendingProviders;
 }
 
+// Moniker-only cache. Routes that need just address→moniker shouldn't pay
+// the full fetchAllProviders cost (stake/delegation/commission/specs) on
+// cache misses. 60s TTL is short enough to stay fresh, long enough to
+// deduplicate the 3+ reward routes that all call it in the same minute.
+const MONIKER_CACHE_TTL_MS = 60_000;
+let monikerCache: { at: number; map: Map<string, string> } | null = null;
+let pendingMonikers: Promise<Map<string, string>> | null = null;
+
+/** address → moniker map. 60-second in-process cache shared across routes. */
+export function fetchAllProviderMonikers(): Promise<Map<string, string>> {
+  if (monikerCache && Date.now() - monikerCache.at < MONIKER_CACHE_TTL_MS) {
+    return Promise.resolve(monikerCache.map);
+  }
+  if (pendingMonikers) return pendingMonikers;
+  pendingMonikers = (async () => {
+    const providers = await fetchAllProviders();
+    const map = new Map<string, string>();
+    for (const p of providers) map.set(p.address, p.moniker);
+    monikerCache = { at: Date.now(), map };
+    return map;
+  })().finally(() => { pendingMonikers = null; });
+  return pendingMonikers;
+}
+
 async function fetchAllProvidersImpl(): Promise<AllProvidersResult> {
   const specs = await fetchAllSpecs();
 

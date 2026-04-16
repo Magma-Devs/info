@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { parseYMD } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
-import { fetchProvidersForSpec, fetchAllProviders } from "../rpc/lava.js";
+import { fetchProvidersForSpec, fetchAllProviderMonikers } from "../rpc/lava.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -207,19 +207,13 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
       }`, vars, { mvRelayDailies: { groupedAggregates: [] } }),
 
       (async () => {
+        if (!specs) return fetchAllProviderMonikers();
+        // Spec-scoped: only need monikers for providers on the filtered specs.
         const map = new Map<string, string>();
-        if (specs) {
-          const fetches = await Promise.all(
-            specs.map((s) => fetchProvidersForSpec(s)),
-          );
-          for (const providers of fetches) {
-            for (const p of providers) {
-              if (!map.has(p.address)) map.set(p.address, p.moniker);
-            }
-          }
-        } else {
-          for (const p of await fetchAllProviders()) {
-            map.set(p.address, p.moniker);
+        const fetches = await Promise.all(specs.map((s) => fetchProvidersForSpec(s)));
+        for (const providers of fetches) {
+          for (const p of providers) {
+            if (!map.has(p.address)) map.set(p.address, p.moniker);
           }
         }
         return map;
