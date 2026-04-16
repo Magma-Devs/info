@@ -3,16 +3,33 @@ import { config } from "../config.js";
 import { fetchRest } from "./rest.js";
 import { fetchStakingPool } from "./supply.js";
 
+/** In-memory price cache (5 min TTL) — shared across fetchLavaUsdPrice + fetchTokenUsdPrice + prewarmPriceCache */
+const priceCache = new Map<string, { price: number; ts: number }>();
+const PRICE_CACHE_MS = 300_000;
+
+// Coalesce concurrent fetchLavaUsdPrice() callers on a cache miss so
+// multiple routes starting in parallel share a single CoinGecko request.
+let pendingLavaPrice: Promise<number> | null = null;
+
 export async function fetchLavaUsdPrice(): Promise<number> {
-  const res = await fetch(
-    `${config.external.coingeckoApiUrl}/simple/price?ids=lava-network&vs_currencies=usd`,
-    { signal: AbortSignal.timeout(15_000) },
-  );
-  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
-  const data = (await res.json()) as { "lava-network"?: { usd?: number } };
-  const price = data["lava-network"]?.usd;
-  if (!price || price <= 0) throw new Error("Invalid LAVA price from CoinGecko");
-  return price;
+  const cached = priceCache.get("lava");
+  if (cached && Date.now() - cached.ts < PRICE_CACHE_MS) return cached.price;
+  if (pendingLavaPrice) return pendingLavaPrice;
+
+  pendingLavaPrice = (async () => {
+    const res = await fetch(
+      `${config.external.coingeckoApiUrl}/simple/price?ids=lava-network&vs_currencies=usd`,
+      { signal: AbortSignal.timeout(15_000) },
+    );
+    if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+    const data = (await res.json()) as { "lava-network"?: { usd?: number } };
+    const price = data["lava-network"]?.usd;
+    if (!price || price <= 0) throw new Error("Invalid LAVA price from CoinGecko");
+    priceCache.set("lava", { price, ts: Date.now() });
+    return price;
+  })().finally(() => { pendingLavaPrice = null; });
+
+  return pendingLavaPrice;
 }
 
 /** Denom → base unit conversion (matching jsinfo DENOM_CONVERSIONS) */
@@ -54,10 +71,6 @@ export const DENOM_COINGECKO_ID: Record<string, string> = {
   cre: "crescent-network", xprt: "persistence", usdc: "usd-coin",
   move: "movement",
 };
-
-/** In-memory price cache (5 min TTL) */
-const priceCache = new Map<string, { price: number; ts: number }>();
-const PRICE_CACHE_MS = 300_000;
 
 /**
  * Pre-warm the price cache with a single batch CoinGecko call for all known denoms.
