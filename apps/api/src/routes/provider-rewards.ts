@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { parseYMD } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchProvidersForSpec, fetchAllProviderMonikers } from "../rpc/lava.js";
+import { sendApiError } from "../plugins/error-handler.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -131,17 +132,15 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     // ── Validate spec IDs ──────────────────────────────────────────
     if (q.specs) {
       for (const s of q.specs) {
-        if (!validateSpecId(s)) {
-          return reply.status(400).send({ error: `Error - bad spec format: ${s}` });
-        }
+        if (!validateSpecId(s)) return sendApiError(reply, 400, `bad spec format: ${s}`);
       }
     }
 
     // ── Validate & normalize dates ─────────────────────────────────
     let dateFrom = parseYMD(q.from);
-    if (!dateFrom) return reply.status(400).send({ error: "Error - bad from date format" });
+    if (!dateFrom) return sendApiError(reply, 400, "bad from date format (expected YYYY-MM-DD)");
     let dateTo = parseYMD(q.to);
-    if (!dateTo) return reply.status(400).send({ error: "Error - bad to date format" });
+    if (!dateTo) return sendApiError(reply, 400, "bad to date format (expected YYYY-MM-DD)");
 
     if (dateTo < dateFrom) {
       [dateFrom, dateTo] = [dateTo, dateFrom];
@@ -151,9 +150,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     const to = dateTo.toISOString().slice(0, 10);
 
     if (dateTo.getTime() - dateFrom.getTime() > MAX_RANGE_MS) {
-      return reply.status(400).send({
-        error: "Error - date range should not exceed 6 months",
-      });
+      return sendApiError(reply, 400, "date range should not exceed 6 months");
     }
 
     // Past windows are immutable (MV refreshes catch up to yesterday within a

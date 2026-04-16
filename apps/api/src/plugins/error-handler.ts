@@ -1,5 +1,17 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyError, FastifyRequest, FastifyReply } from "fastify";
+import type { ApiError } from "@info/shared/types";
+
+/** Emit the standard ApiError shape from a route handler for 4xx/5xx responses. */
+export function sendApiError(reply: FastifyReply, statusCode: number, message: string): ApiError {
+  reply.status(statusCode);
+  const error = statusCode === 400 ? "Bad Request"
+    : statusCode === 404 ? "Not Found"
+    : statusCode === 503 ? "Service Unavailable"
+    : "Error";
+  const body: ApiError = { error, message, statusCode };
+  return body;
+}
 
 export const errorHandlerPlugin = fp(async (app: FastifyInstance) => {
   app.setErrorHandler((error: FastifyError, request: FastifyRequest, reply: FastifyReply) => {
