@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { gqlSafe } from "../graphql/client.js";
-import { fetchProvidersForSpec, fetchAllProviders, fetchLavaUsdPrice, fetchLavaUsdPriceAt } from "../rpc/lava.js";
+import { fetchProvidersForSpec, fetchAllProviders, fetchLavaUsdPrice, fetchLavaUsdPriceAt, fetchProviderRewardPoolsAmount } from "../rpc/lava.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -121,9 +121,9 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
 
     const filter = filterParts.join(", ");
 
-    // ── Fetch MV data, provider names, and LAVA price in parallel ──
+    // ── Fetch MV data, provider names, LAVA price, and reward pool in parallel ──
     const isHistorical = dateTo < new Date();
-    const [mvData, providerMap, lavaPrice] = await Promise.all([
+    const [mvData, providerMap, lavaPrice, providerPoolUlava] = await Promise.all([
       gqlSafe<{
         mvRelayDailies: { groupedAggregates: AggregateGroup[] };
       }>(`query(${varDefs.join(", ")}) {
@@ -156,7 +156,15 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
 
       (isHistorical ? fetchLavaUsdPriceAt(dateTo) : fetchLavaUsdPrice())
         .catch(() => null as number | null),
+
+      fetchProviderRewardPoolsAmount()
+        .catch(() => null as bigint | null),
     ]);
+
+    // Convert provider pool from ulava to LAVA (1 LAVA = 1_000_000 ulava)
+    const providerPoolLava = providerPoolUlava != null
+      ? Number(providerPoolUlava) / 1_000_000
+      : null;
 
     // ── Compute adjusted rewards per provider ─────────────────────
     const providerTotals = new Map<string, { moniker: string; adjustedRewards: number; relays: number; cus: number }>();
@@ -192,6 +200,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     const providers = [...providerTotals.entries()]
       .map(([address, p]) => {
         const share = totalAdjusted > 0 ? p.adjustedRewards / totalAdjusted : 0;
+        const canEstimateUsd = lavaPrice != null && providerPoolLava != null;
         return {
           provider: address,
           moniker: p.moniker,
@@ -199,13 +208,14 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
           cus: p.cus,
           adjustedRewards: p.adjustedRewards,
           rewardShare: share,
-          estimatedRewardsUsd: lavaPrice != null ? share * lavaPrice : null,
+          estimatedRewardsLava: providerPoolLava != null ? share * providerPoolLava : null,
+          estimatedRewardsUsd: canEstimateUsd ? share * providerPoolLava! * lavaPrice! : null,
         };
       })
       .sort((a, b) => b.adjustedRewards - a.adjustedRewards);
 
     return {
-      meta: { from, to, lavaUsdPrice: lavaPrice, totalAdjustedRewards: totalAdjusted },
+      meta: { from, to, lavaUsdPrice: lavaPrice, providerPoolLava, totalAdjustedRewards: totalAdjusted },
       data: providers,
     };
   });
