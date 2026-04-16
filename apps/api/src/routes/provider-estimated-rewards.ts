@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import {
+  RPC_BATCH_SIZE,
   fetchBlockAtTimestamp,
+  fetchLavaUsdPrice,
   fetchProvidersWithSpecs,
   fetchRewardsBySpec,
   prewarmPriceCache,
@@ -55,6 +57,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       summary: "Historical monthly-17th blocks for which provider rewards can be queried",
       querystring: {
         type: "object" as const,
+        additionalProperties: false,
         properties: {
           count: {
             type: "integer" as const,
@@ -95,6 +98,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       summary: "Per-provider chain rewards (from estimated_provider_rewards RPC), grouped by spec",
       querystring: {
         type: "object" as const,
+        additionalProperties: false,
         properties: {
           block: {
             type: "integer" as const,
@@ -125,6 +129,11 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
     if (block) request.cacheTTL = 86_400;
 
     await prewarmPriceCache();
+    // Tokens at block N are priced with the CURRENT LAVA price (matches lava-ops
+    // Job 2). Surface the price + timestamp in meta so consumers know the USD
+    // figure is not historical and shouldn't be interpreted as price movement.
+    const priceTimestamp = new Date().toISOString();
+    const priceLavaUsd = await fetchLavaUsdPrice();
 
     const { providers: providerMap, specNames } = await fetchProvidersWithSpecs();
     const addresses = Array.from(providerMap.keys());
@@ -136,9 +145,8 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       total_usd: number;
     }> = [];
 
-    // Batch 5 at a time to avoid rate-limiting the chain RPC
-    for (let i = 0; i < addresses.length; i += 5) {
-      const batch = addresses.slice(i, i + 5);
+    for (let i = 0; i < addresses.length; i += RPC_BATCH_SIZE) {
+      const batch = addresses.slice(i, i + RPC_BATCH_SIZE);
       const rewardResults = await Promise.all(
         batch.map((addr) => fetchRewardsBySpec(addr, specNames, block)),
       );
@@ -163,7 +171,12 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
     results.sort((a, b) => b.total_usd - a.total_usd);
 
     return {
-      meta: { block: block ?? null, spec: spec ?? null },
+      meta: {
+        block: block ?? null,
+        spec: spec ?? null,
+        priceLavaUsd,
+        priceTimestamp,
+      },
       data: results,
     };
   });

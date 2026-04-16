@@ -5,6 +5,11 @@ const logger = pino({ name: "rpc" });
 
 const LAVA_REST_URL = process.env.LAVA_REST_URL ?? "https://lava.rest.lava.build";
 
+// Concurrent in-flight RPC calls per batch loop. Operators running dedicated
+// RPC endpoints can raise this (env: RPC_BATCH_SIZE). Public endpoints should
+// keep a conservative value (~5) to avoid rate limiting.
+export const RPC_BATCH_SIZE = Math.max(1, parseInt(process.env.RPC_BATCH_SIZE ?? "25", 10));
+
 // Request coalescing: concurrent fetches for the same path share one in-flight request
 const inflightRpc = new Map<string, Promise<unknown>>();
 
@@ -379,6 +384,7 @@ const COINGECKO_API_URL = process.env.COINGECKO_API_URL ?? "https://api.coingeck
 export async function fetchLavaUsdPrice(): Promise<number> {
   const res = await fetch(
     `${COINGECKO_API_URL}/simple/price?ids=lava-network&vs_currencies=usd`,
+    { signal: AbortSignal.timeout(15_000) },
   );
   if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
   const data = (await res.json()) as { "lava-network"?: { usd?: number } };
@@ -454,6 +460,7 @@ async function fetchOsmosisLavaUlava(): Promise<bigint> {
     });
     const res = await fetch(
       `https://app.osmosis.zone/api/edge-trpc-pools/pools.getPools?input=${encodeURIComponent(input)}`,
+      { signal: AbortSignal.timeout(15_000) },
     );
     if (!res.ok) return 0n;
     const data = (await res.json()) as {
@@ -479,6 +486,7 @@ async function fetchBaseDexUsd(): Promise<number> {
   try {
     const res = await fetch(
       "https://api.geckoterminal.com/api/v2/search/pools?query=lava",
+      { signal: AbortSignal.timeout(15_000) },
     );
     if (!res.ok) return 0;
     const data = (await res.json()) as {
@@ -495,6 +503,7 @@ async function fetchArbitrumDexUsd(): Promise<number> {
   try {
     const res = await fetch("https://interface.gateway.uniswap.org/v1/graphql", {
       method: "POST",
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "Content-Type": "application/json",
         Origin: "https://app.uniswap.org",
@@ -630,6 +639,7 @@ export async function prewarmPriceCache(): Promise<void> {
   try {
     const res = await fetch(
       `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
+      { signal: AbortSignal.timeout(15_000) },
     );
     if (!res.ok) return;
     const data = (await res.json()) as Record<string, { usd?: number }>;
@@ -655,6 +665,7 @@ async function fetchTokenUsdPrice(baseDenom: string): Promise<number> {
   try {
     const res = await fetch(
       `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`,
+      { signal: AbortSignal.timeout(15_000) },
     );
     if (!res.ok) return cached?.price ?? 0;
     const data = (await res.json()) as Record<string, { usd?: number }>;
@@ -1071,8 +1082,8 @@ export async function fetchValidatorsWithRewards(): Promise<{
 
   const enriched: ValidatorWithRewards[] = [];
 
-  for (let i = 0; i < validators.length; i += 3) {
-    const batch = validators.slice(i, i + 3);
+  for (let i = 0; i < validators.length; i += RPC_BATCH_SIZE) {
+    const batch = validators.slice(i, i + RPC_BATCH_SIZE);
     const results = await Promise.all(batch.map(async (v) => {
       const addr = v.operator_address;
       const [dist, outstanding, estimatedTotal, delegations, unbonding] = await Promise.all([
@@ -1246,7 +1257,7 @@ export async function computeAPR(redis?: Redis | null): Promise<{
 
   const providerAddresses = providers.map((p) => p.address);
 
-  // Collect per-entity APRs (batches of 5 to respect RPC rate limits)
+  // Collect per-entity APRs (batched by RPC_BATCH_SIZE)
   const [providerAprs, validatorAprs] = await Promise.all([
     collectEntityAprs("provider", providerAddresses, investedUsd, redis),
     collectEntityAprs("validator", validators, investedUsd, redis),
@@ -1273,8 +1284,8 @@ async function collectEntityAprs(
 ): Promise<number[]> {
   const aprs: number[] = [];
 
-  for (let i = 0; i < addresses.length; i += 5) {
-    const batch = addresses.slice(i, i + 5);
+  for (let i = 0; i < addresses.length; i += RPC_BATCH_SIZE) {
+    const batch = addresses.slice(i, i + RPC_BATCH_SIZE);
     const rewards = await Promise.all(
       batch.map((addr) => fetchEstimatedRewards(type, addr)),
     );
@@ -1366,8 +1377,8 @@ export async function fetchProvidersWithSpecs(): Promise<{
     { moniker: string; identity: string; commission: string; specs: ProviderSpecEntry[] }
   >();
 
-  for (let i = 0; i < allSpecs.length; i += 5) {
-    const batch = allSpecs.slice(i, i + 5);
+  for (let i = 0; i < allSpecs.length; i += RPC_BATCH_SIZE) {
+    const batch = allSpecs.slice(i, i + RPC_BATCH_SIZE);
     const results = await Promise.all(
       batch.map((s) => fetchProvidersForSpec(s.index)
         .then((ps) => ps.map((p) => ({ ...p, specId: s.index, specName: s.name })))
@@ -1428,8 +1439,8 @@ export async function computeAllProvidersApr(
   const addresses = Array.from(providerMap.keys());
   const results: AllProviderAprEntry[] = [];
 
-  for (let i = 0; i < addresses.length; i += 5) {
-    const batch = addresses.slice(i, i + 5);
+  for (let i = 0; i < addresses.length; i += RPC_BATCH_SIZE) {
+    const batch = addresses.slice(i, i + RPC_BATCH_SIZE);
     const [rewardResults, rewardsLastMonthResults, avatarResults] = await Promise.all([
       Promise.all(batch.map((addr) => fetchEstimatedRewards("provider", addr))),
       Promise.all(batch.map((addr) => fetchRewardsBySpec(addr, specNames))),
@@ -1532,10 +1543,10 @@ async function fetchAllProvidersImpl(): Promise<AllProvidersResult> {
     specId: string;
   }
 
-  // Fetch in batches of 5 to avoid rate limiting on public RPC
+  // Fetch in batches of RPC_BATCH_SIZE — raise via env for dedicated RPC endpoints.
   const specProviders: Array<Array<SpecEntry>> = [];
-  for (let i = 0; i < specs.length; i += 5) {
-    const batch = specs.slice(i, i + 5);
+  for (let i = 0; i < specs.length; i += RPC_BATCH_SIZE) {
+    const batch = specs.slice(i, i + RPC_BATCH_SIZE);
     const results = await Promise.all(
       batch.map((s) =>
         fetchProvidersForSpec(s.index)
@@ -1649,6 +1660,7 @@ export async function fetchProviderAvatar(provider: string, identityHint?: strin
     const KEYBASE_API_URL = process.env.KEYBASE_API_URL ?? "https://keybase.io/_/api/1.0";
     const res = await fetch(
       `${KEYBASE_API_URL}/user/lookup.json?key_suffix=${encodeURIComponent(identity)}&fields=pictures`,
+      { signal: AbortSignal.timeout(10_000) },
     );
     if (!res.ok) return null;
     const data = (await res.json()) as {

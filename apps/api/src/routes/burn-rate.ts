@@ -46,6 +46,7 @@ export async function burnRateRoutes(app: FastifyInstance) {
       summary: "Monthly supply snapshots with supply_diff (amount burned per month)",
       querystring: {
         type: "object" as const,
+        additionalProperties: false,
         properties: {
           months: {
             type: "integer" as const,

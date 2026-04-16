@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import {
+  RPC_BATCH_SIZE,
   fetchAllProviders,
   fetchDelegatorRewards,
   prewarmPriceCache,
@@ -23,9 +24,8 @@ export async function providerClaimableRewardsRoutes(app: FastifyInstance) {
     const out: Record<string, { rewards: ClaimableRewardEntry[]; timestamp: string }> = {};
     const ts = new Date().toISOString();
 
-    // Batch 5 at a time to match the rest of the codebase's RPC rate limiting.
-    for (let i = 0; i < providers.length; i += 5) {
-      const batch = providers.slice(i, i + 5);
+    for (let i = 0; i < providers.length; i += RPC_BATCH_SIZE) {
+      const batch = providers.slice(i, i + RPC_BATCH_SIZE);
       const results = await Promise.all(
         batch.map((p) => fetchDelegatorRewards(p.address)),
       );

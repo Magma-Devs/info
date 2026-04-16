@@ -115,6 +115,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
       summary: "Per-provider (or per-provider-per-spec) adjusted reward shares based on relay QoS data",
       querystring: {
         type: "object" as const,
+        additionalProperties: false,
         properties: {
           specs: {
             type: "array" as const,

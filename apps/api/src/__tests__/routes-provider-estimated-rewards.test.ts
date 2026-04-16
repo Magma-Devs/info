@@ -4,10 +4,12 @@ import { paginationPlugin } from "../plugins/pagination.js";
 import { errorHandlerPlugin } from "../plugins/error-handler.js";
 
 vi.mock("../rpc/lava.js", () => ({
+  RPC_BATCH_SIZE: 5,
   prewarmPriceCache: vi.fn(),
   fetchProvidersWithSpecs: vi.fn(),
   fetchRewardsBySpec: vi.fn(),
   fetchBlockAtTimestamp: vi.fn(),
+  fetchLavaUsdPrice: vi.fn(),
 }));
 
 const {
@@ -15,6 +17,7 @@ const {
   fetchProvidersWithSpecs,
   fetchRewardsBySpec,
   fetchBlockAtTimestamp,
+  fetchLavaUsdPrice,
 } = await import("../rpc/lava.js");
 const { providerEstimatedRewardsRoutes } = await import("../routes/provider-estimated-rewards.js");
 
@@ -61,6 +64,7 @@ const MOCK_REWARDS_BETA = [
 beforeEach(() => {
   vi.resetAllMocks();
   (prewarmPriceCache as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+  (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockResolvedValue(0.12);
   (fetchProvidersWithSpecs as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_PROVIDERS_WITH_SPECS);
   (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mockImplementation((addr: string) => {
     if (addr === "lava@1abc") return Promise.resolve(MOCK_REWARDS_ALPHA);
