@@ -4,6 +4,7 @@ import { paginationPlugin } from "../plugins/pagination.js";
 import { errorHandlerPlugin } from "../plugins/error-handler.js";
 
 vi.mock("../rpc/lava.js", () => ({
+  RPC_BATCH_SIZE: 5,
   fetchAllProviders: vi.fn(),
   fetchDelegatorRewards: vi.fn(),
   prewarmPriceCache: vi.fn(),
