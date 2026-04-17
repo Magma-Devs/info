@@ -26,7 +26,7 @@ async function buildApp() {
 // so each group has keys=[provider] with sums pooled over all specs.
 // Alpha is 2x Beta because Alpha serves 2 specs with identical per-spec numbers.
 const MOCK_MV_PROVIDER = {
-  mvRelayDailies: {
+  allMvRelayDailies: {
     groupedAggregates: [
       {
         keys: ["lava@1abc"],
@@ -50,7 +50,7 @@ const MOCK_MV_PROVIDER = {
 
 // groupBy=spec: keys=[chainId, provider]. Per-row sums already.
 const MOCK_MV_SPEC = {
-  mvRelayDailies: {
+  allMvRelayDailies: {
     groupedAggregates: [
       {
         keys: ["ETH1", "lava@1abc"],
@@ -165,7 +165,7 @@ describe("GET /provider-rewards (default groupBy=provider)", () => {
 
   it("returns empty data when no relay data exists", async () => {
     (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
-      mvRelayDailies: { groupedAggregates: [] },
+      allMvRelayDailies: { groupedAggregates: [] },
     });
     const app = await buildApp();
     const res = await app.inject({
@@ -256,7 +256,7 @@ describe("GET /provider-rewards (default groupBy=provider)", () => {
 
   it("returns zero adjusted rewards when qosCu is zero", async () => {
     const zeroQosMv = {
-      mvRelayDailies: {
+      allMvRelayDailies: {
         groupedAggregates: [{
           keys: ["lava@1abc"],
           sum: {

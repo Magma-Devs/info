@@ -24,7 +24,7 @@ beforeEach(() => vi.resetAllMocks());
 describe("GET /index/stats", () => {
   it("returns aggregate stats enriched with latest block height", async () => {
     (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
-      mvRelayDailies: { aggregates: { sum: { cu: "1000", relays: "50" } } },
+      allMvRelayDailies: { aggregates: { sum: { cu: "1000", relays: "50" } } },
     });
     (fetchLatestBlockHeight as ReturnType<typeof vi.fn>).mockResolvedValue({
       height: 12345,
@@ -55,7 +55,7 @@ describe("GET /index/charts", () => {
 
   it("groups daily MV rows by (date, chainId) and computes weighted QoS", async () => {
     (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
-      mvRelayDailies: {
+      allMvRelayDailies: {
         nodes: [
           {
             date: "2025-01-01", chainId: "ETH1", cu: "100", relays: "10",

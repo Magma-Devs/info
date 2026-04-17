@@ -45,7 +45,7 @@ describe("GET /providers", () => {
   it("returns the full list sorted by totalStake desc, enriched with 30d relay data", async () => {
     (fetchAllProviders as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_ALL_PROVIDERS);
     (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
-      mvRelayDailies: { groupedAggregates: [{ keys: ["lava@alpha"], sum: { cu: "500", relays: "100" } }] },
+      allMvRelayDailies: { groupedAggregates: [{ keys: ["lava@alpha"], sum: { cu: "500", relays: "100" } }] },
     });
 
     const app = await buildApp();

@@ -42,7 +42,7 @@ describe("GET /specs", () => {
       .mockResolvedValueOnce([{}, {}, {}]) // ETH1 has 3
       .mockResolvedValueOnce([{}]);        // LAVA has 1
     (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
-      mvRelayDailies: {
+      allMvRelayDailies: {
         groupedAggregates: [
           { keys: ["ETH1"], sum: { cu: "500", relays: "100" } },
         ],

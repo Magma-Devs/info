@@ -17,19 +17,19 @@ export async function indexRoutes(app: FastifyInstance) {
       .slice(0, 10);
 
     type RelayAgg = {
-      mvRelayDailies: {
+      allMvRelayDailies: {
         aggregates: { sum: { cu: string; relays: string } };
       };
     } | null;
 
     const [allTimeData, last30dData, latestBlock, providers] = await Promise.all([
       gqlSafe<RelayAgg>(`{
-        mvRelayDailies {
+        allMvRelayDailies {
           aggregates { sum { cu relays } }
         }
       }`, undefined, null),
       gqlSafe<RelayAgg>(`query($since: Date!) {
-        mvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
+        allMvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
           aggregates { sum { cu relays } }
         }
       }`, { since: thirtyDaysAgo }, null),
@@ -43,10 +43,10 @@ export async function indexRoutes(app: FastifyInstance) {
     );
 
     return {
-      totalCu: allTimeData?.mvRelayDailies.aggregates.sum.cu ?? null,
-      totalRelays: allTimeData?.mvRelayDailies.aggregates.sum.relays ?? null,
-      cu30d: last30dData?.mvRelayDailies.aggregates.sum.cu ?? null,
-      relays30d: last30dData?.mvRelayDailies.aggregates.sum.relays ?? null,
+      totalCu: allTimeData?.allMvRelayDailies.aggregates.sum.cu ?? null,
+      totalRelays: allTimeData?.allMvRelayDailies.aggregates.sum.relays ?? null,
+      cu30d: last30dData?.allMvRelayDailies.aggregates.sum.cu ?? null,
+      relays30d: last30dData?.allMvRelayDailies.aggregates.sum.relays ?? null,
       totalStake: totalStake.toString(),
       activeProviderCount: providers.length,
       latestBlock: latestBlock.height,
@@ -62,11 +62,11 @@ export async function indexRoutes(app: FastifyInstance) {
     config: { cacheTTL: CACHE_TTL.LIST },
   }, async () => {
     const data = await gqlSafe<{
-      mvRelayDailies: {
+      allMvRelayDailies: {
         groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
       };
     } | null>(`{
-      mvRelayDailies {
+      allMvRelayDailies {
         groupedAggregates(groupBy: CHAIN_ID) {
           keys
           sum { cu relays }
@@ -76,7 +76,7 @@ export async function indexRoutes(app: FastifyInstance) {
 
     if (!data) return { data: [] };
 
-    const chains = data.mvRelayDailies.groupedAggregates
+    const chains = data.allMvRelayDailies.groupedAggregates
       .map((g) => ({ specId: g.keys[0], totalCu: g.sum.cu, totalRelays: g.sum.relays }))
       .sort((a, b) => Number(BigInt(b.totalCu) - BigInt(a.totalCu)));
 
@@ -104,14 +104,14 @@ export async function indexRoutes(app: FastifyInstance) {
       : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     const data = await gqlSafe<{
-      mvRelayDailies: {
+      allMvRelayDailies: {
         nodes: Array<{
           date: string; chainId: string; cu: string; relays: string;
           qosSyncW: number | null; qosAvailW: number | null; qosLatencyW: number | null; qosWeight: string;
         }>;
       };
     } | null>(`query($from: Date!, $to: Date!) {
-      mvRelayDailies(
+      allMvRelayDailies(
         filter: {
           date: { greaterThanOrEqualTo: $from, lessThanOrEqualTo: $to }
         }
@@ -128,7 +128,7 @@ export async function indexRoutes(app: FastifyInstance) {
       qosSyncW: number; qosAvailW: number; qosLatW: number; qosWeight: number;
     }>();
 
-    for (const n of data.mvRelayDailies.nodes) {
+    for (const n of data.allMvRelayDailies.nodes) {
       const key = `${n.date}|${n.chainId}`;
       const existing = byDayChain.get(key);
       if (existing) {

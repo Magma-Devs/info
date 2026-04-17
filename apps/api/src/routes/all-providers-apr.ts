@@ -21,14 +21,14 @@ export async function allProvidersAprRoutes(app: FastifyInstance) {
 
     // Fetch 30d relay data from indexer MV
     const relayData = await gqlSafe<{
-      mvRelayDailies: {
+      allMvRelayDailies: {
         groupedAggregates: Array<{
           keys: string[];
           sum: { cu: string; relays: string };
         }>;
       };
     } | null>(`query($since: Date!) {
-      mvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
+      allMvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
         groupedAggregates(groupBy: PROVIDER) {
           keys
           sum { cu relays }
@@ -38,7 +38,7 @@ export async function allProvidersAprRoutes(app: FastifyInstance) {
 
     const relay30d = new Map<string, { cu: string; relays: string }>();
     if (relayData) {
-      for (const agg of relayData.mvRelayDailies.groupedAggregates) {
+      for (const agg of relayData.allMvRelayDailies.groupedAggregates) {
         const provider = agg.keys[0];
         if (provider) relay30d.set(provider, { cu: agg.sum.cu, relays: agg.sum.relays });
       }

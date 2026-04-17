@@ -192,15 +192,15 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     // ── Fetch MV data and provider names in parallel ─────────────
     const [mvData, providerMap] = await Promise.all([
       gqlSafe<{
-        mvRelayDailies: { groupedAggregates: AggregateGroup[] };
+        allMvRelayDailies: { groupedAggregates: AggregateGroup[] };
       }>(`query(${varDefs.join(", ")}) {
-        mvRelayDailies(filter: { ${filter} }) {
+        allMvRelayDailies(filter: { ${filter} }) {
           groupedAggregates(groupBy: ${gqlGroup}) {
             keys
             sum { ${SUM_FIELDS} }
           }
         }
-      }`, vars, { mvRelayDailies: { groupedAggregates: [] } }),
+      }`, vars, { allMvRelayDailies: { groupedAggregates: [] } }),
 
       (async () => {
         if (!specs) return fetchAllProviderMonikers();
@@ -222,7 +222,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
     // (qosSyncW / qosWeight). CU sums stay as Number because CU is not ulava
     // — totals are well within Number.MAX_SAFE_INTEGER and the response must
     // be JSON-serializable floats.
-    const groups = mvData.mvRelayDailies.groupedAggregates;
+    const groups = mvData.allMvRelayDailies.groupedAggregates;
 
     if (groupBy === "spec") {
       // One row per (provider, spec). Keys: [chainId, provider].

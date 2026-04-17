@@ -23,11 +23,11 @@ export async function specRoutes(app: FastifyInstance) {
     const [specs, relayData] = await Promise.all([
       fetchAllSpecs(),
       gqlSafe<{
-        mvRelayDailies: {
+        allMvRelayDailies: {
           groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
         };
       } | null>(`query($since: Date!) {
-        mvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
+        allMvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
           groupedAggregates(groupBy: CHAIN_ID) {
             keys
             sum { cu relays }
@@ -38,7 +38,7 @@ export async function specRoutes(app: FastifyInstance) {
 
     const relayMap = new Map<string, { cu: string; relays: string }>();
     if (relayData) {
-      for (const agg of relayData.mvRelayDailies.groupedAggregates) {
+      for (const agg of relayData.allMvRelayDailies.groupedAggregates) {
         const key = agg.keys[0];
         if (key) relayMap.set(key, { cu: agg.sum.cu, relays: agg.sum.relays });
       }
@@ -122,11 +122,11 @@ export async function specRoutes(app: FastifyInstance) {
     const { specId } = request.params;
 
     const data = await gqlSafe<{
-      mvRelayDailies: {
+      allMvRelayDailies: {
         groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
       };
     } | null>(`query($chainId: String!) {
-      mvRelayDailies(filter: { chainId: { equalTo: $chainId } }) {
+      allMvRelayDailies(filter: { chainId: { equalTo: $chainId } }) {
         groupedAggregates(groupBy: CHAIN_ID) {
           keys
           sum { cu relays }
@@ -137,7 +137,7 @@ export async function specRoutes(app: FastifyInstance) {
     if (!data) return { data: [] };
 
     return {
-      data: data.mvRelayDailies.groupedAggregates.map((g) => ({
+      data: data.allMvRelayDailies.groupedAggregates.map((g) => ({
         chainId: g.keys[0],
         cu: g.sum.cu,
         relays: g.sum.relays,

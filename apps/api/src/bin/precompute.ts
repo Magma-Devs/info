@@ -45,18 +45,18 @@ async function recomputeApr(redis: Redis): Promise<void> {
 async function recomputeAllProvidersApr(redis: Redis): Promise<void> {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const relayData = await gqlSafe<{
-    mvRelayDailies: {
+    allMvRelayDailies: {
       groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
     };
   } | null>(`query($since: Date!) {
-    mvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
+    allMvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
       groupedAggregates(groupBy: PROVIDER) { keys sum { cu relays } }
     }
   }`, { since }, null);
 
   const relay30d = new Map<string, { cu: string; relays: string }>();
   if (relayData) {
-    for (const agg of relayData.mvRelayDailies.groupedAggregates) {
+    for (const agg of relayData.allMvRelayDailies.groupedAggregates) {
       const provider = agg.keys[0];
       if (provider) relay30d.set(provider, { cu: agg.sum.cu, relays: agg.sum.relays });
     }
