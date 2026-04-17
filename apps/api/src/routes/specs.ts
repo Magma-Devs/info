@@ -64,13 +64,37 @@ export async function specRoutes(app: FastifyInstance) {
     return { data: specProviders.sort((a, b) => b.providerCount - a.providerCount) };
   });
 
-  // GET /specs/:specId/stakes — chain RPC + health from Redis
+  // GET /specs/:specId/stakes — chain RPC + health from Redis + 30d relays from indexer
   app.get<{ Params: { specId: string } }>("/:specId/stakes", {
-    schema: { ...specIdSchema, tags: ["Specs"], summary: "Providers staked on this spec with health" },
+    schema: { ...specIdSchema, tags: ["Specs"], summary: "Providers staked on this spec with health and 30d relay totals" },
     config: { cacheTTL: CACHE_TTL.LIST },
   }, async (request) => {
     const { specId } = request.params;
-    const providers = await fetchProvidersForSpec(specId);
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const [providers, relayData] = await Promise.all([
+      fetchProvidersForSpec(specId),
+      gqlSafe<{
+        allMvRelayDailies: {
+          groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
+        };
+      } | null>(`query($chainId: String!, $since: Date!) {
+        allMvRelayDailies(filter: { chainId: { equalTo: $chainId }, date: { greaterThanOrEqualTo: $since } }) {
+          groupedAggregates(groupBy: PROVIDER) {
+            keys
+            sum { cu relays }
+          }
+        }
+      }`, { chainId: specId, since }, null),
+    ]);
+
+    const relayMap = new Map<string, { cu: string; relays: string }>();
+    if (relayData) {
+      for (const agg of relayData.allMvRelayDailies.groupedAggregates) {
+        const provider = agg.keys[0];
+        if (provider) relayMap.set(provider, { cu: agg.sum.cu, relays: agg.sum.relays });
+      }
+    }
 
     let healthMap = new Map<string, unknown>();
     if (app.redis) {
@@ -82,16 +106,21 @@ export async function specRoutes(app: FastifyInstance) {
     }
 
     return {
-      data: providers.map((p) => ({
-        provider: p.address,
-        moniker: p.moniker,
-        identity: p.identity,
-        stake: p.stake?.amount ?? "0",
-        delegation: p.delegate_total?.amount ?? "0",
-        delegateCommission: p.delegate_commission,
-        geolocation: p.geolocation,
-        health: healthMap.get(p.address) ?? null,
-      })),
+      data: providers.map((p) => {
+        const relay = relayMap.get(p.address);
+        return {
+          provider: p.address,
+          moniker: p.moniker,
+          identity: p.identity,
+          stake: p.stake?.amount ?? "0",
+          delegation: p.delegate_total?.amount ?? "0",
+          delegateCommission: p.delegate_commission,
+          geolocation: p.geolocation,
+          cuSum30d: relay?.cu ?? null,
+          relaySum30d: relay?.relays ?? null,
+          health: healthMap.get(p.address) ?? null,
+        };
+      }),
     };
   });
 
