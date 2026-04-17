@@ -37,7 +37,7 @@ pnpm test         # vitest
                                  └──────────────┬────────────────────────┘
                                                 │ GraphQL (PostGraphile)
                                  ┌──────────────▼────────────────────────┐
-                                 │  SubQuery Indexer (:3000)             │
+                                 │  Indexer (:3000)                      │
                                  │  PostgreSQL + PostGraphile            │
                                  │  lava-indexer repo                    │
                                  │                                       │
@@ -301,7 +301,7 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 
 ## Not Covered (external data sources needed)
 
-- **Provider errors** — requires Relays DB (`lava_report_error` table), not in SubQuery indexer
+- **Provider errors** — requires Relays DB (`lava_report_error` table), not in the indexer
 - ~~**Optimizer metrics**~~ — **Implemented.** Reads from `aggregated_consumer_optimizer_metrics` in relays DB via `RELAYS_DB_URL`. TODO: evaluate a different approach for optimizer metrics data ingestion — the current direct DB connection to an external PostgreSQL is a stopgap
 - **Logpush endpoints** (`stats`, `entries`) — separate Cloudflare Logpush service
 - **Full validator list** — `/validators` returns empty `data: []`, only has staking pool info
