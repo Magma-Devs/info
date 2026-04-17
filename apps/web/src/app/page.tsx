@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { SortableTable } from "@/components/data/SortableTable";
 import { type ColumnDef } from "@tanstack/react-table";
 import { formatNumber, formatNumberKMB, formatLava, formatLavaKMB } from "@/lib/format";
-import { ArrowUpNarrowWide, CalendarArrowUp, Landmark, Users, ArrowUpRight } from "lucide-react";
+import { ArrowUpNarrowWide, CalendarArrowUp, Landmark, Users, ArrowUpRight, Activity } from "lucide-react";
 
 interface IndexStats {
   totalCu: string;
@@ -167,7 +167,13 @@ export default function DashboardPage() {
   return (
     <>
       {/* Stat Cards */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-4">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-5">
+        <StatCard
+          label="Total Relays"
+          value={formatNumberKMB(stats?.totalRelays ?? 0)}
+          fullValue={formatNumber(stats?.totalRelays ?? 0)}
+          icon={<Activity className="h-4 w-4 text-muted-foreground" />}
+        />
         <StatCard
           label="Relays (30 days)"
           value={formatNumberKMB(stats?.relays30d ?? 0)}
