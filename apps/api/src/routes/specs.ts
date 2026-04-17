@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { CACHE_TTL } from "../config.js";
+import { weightedQos } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchAllSpecs, fetchProvidersForSpec } from "../rpc/lava.js";
 import { readHealthSummaryForSpec, readHealthByProviderForSpec } from "../services/health-store.js";
@@ -144,34 +145,110 @@ export async function specRoutes(app: FastifyInstance) {
   });
 
   // GET /specs/:specId/charts — indexer GraphQL (materialized view)
+  //   No date params → single alltime summary { chainId, cu, relays }.
+  //   With from/to   → daily time-series for the chain, with weighted QoS.
   app.get<{ Params: { specId: string } }>("/:specId/charts", {
-    schema: { ...specIdSchema, tags: ["Specs"], summary: "Alltime CU/relays for a chain" },
+    schema: {
+      ...specIdSchema,
+      tags: ["Specs"],
+      summary: "Chain relay charts — alltime summary or daily time-series with QoS",
+      querystring: {
+        type: "object" as const,
+        properties: {
+          from: { type: "string" as const, description: "Start date (YYYY-MM-DD). Default: 90 days ago" },
+          to: { type: "string" as const, description: "End date (YYYY-MM-DD). Default: today" },
+        },
+      },
+    },
     config: { cacheTTL: CACHE_TTL.LIST },
   }, async (request) => {
     const { specId } = request.params;
+    const q = request.query as Record<string, string>;
+
+    if (!q.from && !q.to) {
+      const data = await gqlSafe<{
+        allMvRelayDailies: {
+          aggregates: { sum: { cu: string; relays: string } };
+        };
+      } | null>(`query($chainId: String!) {
+        allMvRelayDailies(filter: { chainId: { equalTo: $chainId } }) {
+          aggregates { sum { cu relays } }
+        }
+      }`, { chainId: specId }, null);
+
+      if (!data) return { data: { chainId: specId, cu: null, relays: null } };
+
+      return {
+        data: {
+          chainId: specId,
+          cu: data.allMvRelayDailies.aggregates.sum.cu,
+          relays: data.allMvRelayDailies.aggregates.sum.relays,
+        },
+      };
+    }
+
+    const to = q.to ? q.to : new Date().toISOString().slice(0, 10);
+    const from = q.from
+      ? q.from
+      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     const data = await gqlSafe<{
       allMvRelayDailies: {
-        groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
+        nodes: Array<{
+          date: string; cu: string; relays: string;
+          qosSyncW: number | null; qosAvailW: number | null; qosLatencyW: number | null; qosWeight: string;
+        }>;
       };
-    } | null>(`query($chainId: String!) {
-      allMvRelayDailies(filter: { chainId: { equalTo: $chainId } }) {
-        groupedAggregates(groupBy: CHAIN_ID) {
-          keys
-          sum { cu relays }
+    } | null>(`query($chainId: String!, $from: Date!, $to: Date!) {
+      allMvRelayDailies(
+        filter: {
+          chainId: { equalTo: $chainId }
+          date: { greaterThanOrEqualTo: $from, lessThanOrEqualTo: $to }
         }
+        orderBy: DATE_ASC
+      ) {
+        nodes { date cu relays qosSyncW qosAvailW qosLatencyW qosWeight }
       }
-    }`, { chainId: specId }, null);
+    }`, { chainId: specId, from, to }, null);
 
     if (!data) return { data: [] };
 
-    return {
-      data: data.allMvRelayDailies.groupedAggregates.map((g) => ({
-        chainId: g.keys[0],
-        cu: g.sum.cu,
-        relays: g.sum.relays,
-      })),
-    };
+    // Multiple providers produce one MV row per (date, chain, provider); roll up to per-date.
+    const byDate = new Map<string, {
+      cu: bigint; relays: bigint;
+      qosSyncW: number; qosAvailW: number; qosLatW: number; qosWeight: number;
+    }>();
+
+    for (const n of data.allMvRelayDailies.nodes) {
+      const existing = byDate.get(n.date);
+      if (existing) {
+        existing.cu += BigInt(n.cu);
+        existing.relays += BigInt(n.relays);
+        existing.qosSyncW += n.qosSyncW ?? 0;
+        existing.qosAvailW += n.qosAvailW ?? 0;
+        existing.qosLatW += n.qosLatencyW ?? 0;
+        existing.qosWeight += Number(n.qosWeight);
+      } else {
+        byDate.set(n.date, {
+          cu: BigInt(n.cu),
+          relays: BigInt(n.relays),
+          qosSyncW: n.qosSyncW ?? 0,
+          qosAvailW: n.qosAvailW ?? 0,
+          qosLatW: n.qosLatencyW ?? 0,
+          qosWeight: Number(n.qosWeight),
+        });
+      }
+    }
+
+    const result = Array.from(byDate.entries()).map(([date, v]) => ({
+      date,
+      cu: v.cu.toString(),
+      relays: v.relays.toString(),
+      ...weightedQos(v.qosSyncW, v.qosAvailW, v.qosLatW, v.qosWeight),
+    }));
+
+    result.sort((a, b) => a.date.localeCompare(b.date));
+    return { data: result };
   });
 
 }
