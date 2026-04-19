@@ -55,6 +55,8 @@ interface SpecStake {
   delegation: string;
   geolocation: number;
   delegateCommission?: string;
+  addons?: string;
+  extensions?: string;
   cuSum30d?: string;
   relaySum30d?: string;
   health?: SpecHealth | null;
@@ -205,6 +207,22 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
             {regions.split(", ").map((r) => (
               <span key={r} className={`px-2 py-0.5 rounded-full text-xs font-medium border ${GEO_COLORS[r] ?? DEFAULT_GEO_COLOR}`}>{r}</span>
             ))}
+          </div>
+        );
+      },
+    },
+    {
+      id: "addonsExtensions", header: "Addons/Extensions",
+      enableSorting: false,
+      accessorFn: (r: SpecStake) => `${r.addons || ""} ${r.extensions || ""}`.trim(),
+      cell: ({ row }: { row: { original: SpecStake } }) => {
+        const addons = (row.original.addons || "").split(",").filter(Boolean);
+        const extensions = (row.original.extensions || "").split(",").filter(Boolean);
+        if (addons.length === 0 && extensions.length === 0) return "—";
+        return (
+          <div className="flex flex-wrap gap-1">
+            {addons.map((a) => <span key={`a-${a}`} className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/15 text-purple-400 border border-purple-500/30">{a.trim()}</span>)}
+            {extensions.map((e) => <span key={`e-${e}`} className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-500/15 text-violet-300 border border-violet-500/30">{e.trim()}</span>)}
           </div>
         );
       },

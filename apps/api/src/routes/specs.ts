@@ -117,6 +117,8 @@ export async function specRoutes(app: FastifyInstance) {
           delegation: p.delegate_total?.amount ?? "0",
           delegateCommission: p.delegate_commission,
           geolocation: p.geolocation,
+          addons: p.addons,
+          extensions: p.extensions,
           cuSum30d: relay?.cu ?? null,
           relaySum30d: relay?.relays ?? null,
           health: healthMap.get(p.address) ?? null,
