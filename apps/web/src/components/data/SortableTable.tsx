@@ -58,9 +58,9 @@ export function SortableTable<T>({
 
   return (
     <div>
-      <div className="overflow-x-auto">
+      <div>
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-16 z-10 bg-card">
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id} className="border-b border-border bg-card">
                 {hg.headers.map((header) => {
@@ -68,8 +68,10 @@ export function SortableTable<T>({
                   return (
                     <th
                       key={header.id}
-                      className={`px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground${
+                      className={`px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground bg-card${
                         (header.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
+                      }${
+                        (header.column.columnDef.meta as Record<string, boolean> | undefined)?.mobileOnly ? " md:hidden" : ""
                       }`}
                       onClick={header.column.getToggleSortingHandler()}
                     >
@@ -90,19 +92,24 @@ export function SortableTable<T>({
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => (
+            {table.getRowModel().rows.map((row, rowIdx) => (
               <Fragment key={row.id}>
-                <tr className="border-b border-border/50 hover:bg-muted/30">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className={`px-4 py-3 text-foreground${
-                      (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
-                    }`}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                <tr className="transition-colors md:hover:bg-muted/20 active:bg-muted/30">
+                  {row.getVisibleCells().map((cell) => {
+                    const meta = cell.column.columnDef.meta as Record<string, boolean> | undefined;
+                    return (
+                      <td key={cell.id} className={`px-4 py-3 text-foreground${
+                        rowIdx > 0 ? " border-t border-border/15" : ""
+                      }${meta?.hideOnMobile ? " hidden md:table-cell" : ""}${
+                        meta?.mobileOnly ? " md:hidden" : ""
+                      }`}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    );
+                  })}
                 </tr>
                 {renderSubRow && row.getIsExpanded() && (
-                  <tr key={`${row.id}-sub`} className="bg-muted/20">
+                  <tr key={`${row.id}-sub`} className="bg-muted/15">
                     <td colSpan={row.getVisibleCells().length} className="px-4 py-3">
                       {renderSubRow(row)}
                     </td>
