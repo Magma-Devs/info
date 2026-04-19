@@ -164,6 +164,17 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
     return { cu30d: cu, relays30d: relays };
   }, [tsData, thirtyDaysAgo]);
 
+  // All-time totals from the per-chain summary
+  const { cuAll, relaysAll } = useMemo(() => {
+    if (!rewards?.data) return { cuAll: 0n, relaysAll: 0n };
+    let cu = 0n, relays = 0n;
+    for (const r of rewards.data) {
+      cu += BigInt(r.cu || "0");
+      relays += BigInt(r.relays || "0");
+    }
+    return { cuAll: cu, relaysAll: relays };
+  }, [rewards]);
+
   // All hooks must be before any early return
   const totalStake = useMemo(() => provider?.stakes.reduce((sum, s) => sum + BigInt(s.stake || "0"), 0n) ?? 0n, [provider]);
   const totalDelegation = useMemo(() => provider?.stakes.reduce((sum, s) => sum + BigInt(s.delegation || "0"), 0n) ?? 0n, [provider]);
@@ -199,7 +210,12 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
 
   type Stake = ProviderDetail["stakes"][number];
   const stakeCols: ColumnDef<Stake, unknown>[] = useMemo(() => [
-    { id: "specId", header: "Chain", accessorFn: (r: Stake) => r.specId, cell: ({ row }: { row: { original: Stake } }) => <ChainLink chainId={row.original.specId} showName /> },
+    { id: "specId", header: "Chain", accessorFn: (r: Stake) => r.specId, cell: ({ row }: { row: { original: Stake } }) => (
+      <div className="min-w-0 max-w-full">
+        <div className="md:hidden"><ChainLink chainId={row.original.specId} /></div>
+        <div className="hidden md:block"><ChainLink chainId={row.original.specId} showName /></div>
+      </div>
+    ) },
     { id: "health", header: "Health", accessorFn: (r: Stake) => r.health?.status ?? "unknown", cell: ({ row }: { row: Row<Stake> }) => {
       const h = row.original.health;
       if (!h) {
@@ -217,7 +233,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
           onClick={() => row.toggleExpanded()}
           className="flex items-center gap-1.5 group cursor-pointer"
         >
-          <ChevronRight size={12} className={`text-muted-foreground transition-transform ${row.getIsExpanded() ? "rotate-90" : ""}`} />
+          <ChevronRight size={12} className={`hidden md:inline-block text-muted-foreground transition-transform ${row.getIsExpanded() ? "rotate-90" : ""}`} />
           <span className={`w-2 h-2 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
           <span className={`text-xs font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>
             {isHealthy ? "Healthy" : `${h.unhealthy}/${h.total} Down`}
@@ -248,52 +264,137 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
         </div>
       );
     }},
+    {
+      id: "expand",
+      header: "",
+      enableSorting: false,
+      meta: { mobileOnly: true },
+      cell: ({ row }: { row: Row<Stake> }) => (
+        <button type="button" onClick={() => row.toggleExpanded()} className="p-1 -m-1 text-muted-foreground" aria-label={row.getIsExpanded() ? "Collapse details" : "Expand details"}>
+          <ChevronRight size={16} className={`transition-transform ${row.getIsExpanded() ? "rotate-90" : ""}`} />
+        </button>
+      ),
+    },
   ] as ColumnDef<Stake, unknown>[], []);
 
   const renderStakeSubRow = (row: Row<Stake>) => {
     const h = row.original.health;
-    if (!h?.interfaces?.length) return null;
-    return (
-      <div className="grid grid-cols-[100px_90px_90px_70px_110px_1fr] gap-x-4 gap-y-2 text-xs items-center">
-        <span className="text-muted-foreground font-medium">Interface</span>
-        <span className="text-muted-foreground font-medium">Region</span>
-        <span className="text-muted-foreground font-medium">Status</span>
-        <span className="text-muted-foreground font-medium">Latency</span>
-        <span className="text-muted-foreground font-medium">Block</span>
-        <span className="text-muted-foreground font-medium text-right">Last checked</span>
+    const s = row.original;
+    const addons = (s.addons || "").split(",").filter(Boolean);
+    const extensions = (s.extensions || "").split(",").filter(Boolean);
+    const regions = geoLabel(s.geolocation);
+    const hasInterfaces = !!h?.interfaces?.length;
 
-        {h.interfaces.map((iface, idx) => {
-          const isHealthy = iface.status === "healthy";
-          const ifaceColor = INTERFACE_COLORS[iface.name.toLowerCase()] ?? DEFAULT_IFACE_COLOR;
-          const geoStr = geoLabel(Number(iface.geolocation));
-          const geoColor = GEO_COLORS[geoStr] ?? DEFAULT_GEO_COLOR;
-          const key = `${iface.name}-${iface.geolocation}-${idx}`;
-          return (
-            <React.Fragment key={key}>
-              <span className={`px-2 py-0.5 rounded-full font-medium border text-center ${ifaceColor}`}>
-                {iface.name}
-              </span>
-              <span className={`px-2 py-0.5 rounded-full font-medium border text-center truncate ${geoColor}`} title={geoStr}>
-                {geoStr}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
-                <span className={`font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>
-                  {iface.status}
-                </span>
-              </span>
-              <span className="text-muted-foreground">
-                {isHealthy && iface.latencyMs != null ? `${iface.latencyMs}ms` : "—"}
-              </span>
-              <span className="text-muted-foreground font-mono">
-                {isHealthy && iface.block != null ? iface.block.toLocaleString() : !isHealthy && iface.message ? <span className="text-red-400/70 truncate block max-w-[200px] font-sans" title={iface.message}>{iface.message}</span> : "—"}
-              </span>
-              <span className="text-right">
-                <TimeTooltip datetime={iface.timestamp} />
-              </span>
-            </React.Fragment>
-          );
-        })}
+    return (
+      <div className="space-y-4">
+        {/* Mobile: stats grid — data that's hidden from the table on mobile */}
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs md:hidden">
+          <div>
+            <dt className="text-muted-foreground mb-0.5">Self Stake</dt>
+            <dd className="font-medium"><LavaAmount amount={s.stake} /></dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground mb-0.5">Delegation</dt>
+            <dd className="font-medium"><LavaAmount amount={s.delegation} /></dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground mb-0.5">Commission</dt>
+            <dd className="font-medium">{Number(s.delegateCommission || "0")}%</dd>
+          </div>
+          <div className="col-span-2">
+            <dt className="text-muted-foreground mb-1">Location</dt>
+            <dd>
+              {regions === "—" ? "—" : (
+                <div className="flex flex-wrap gap-1">
+                  {regions.split(", ").map((r) => (
+                    <span key={r} className={`px-2 py-0.5 rounded-full text-xs font-medium border ${GEO_COLORS[r] ?? DEFAULT_GEO_COLOR}`}>{r}</span>
+                  ))}
+                </div>
+              )}
+            </dd>
+          </div>
+          <div className="col-span-2">
+            <dt className="text-muted-foreground mb-1">Addons / Extensions</dt>
+            <dd>
+              {addons.length === 0 && extensions.length === 0 ? "—" : (
+                <div className="flex flex-wrap gap-1">
+                  {addons.map((a) => <span key={`a-${a}`} className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/15 text-purple-400 border border-purple-500/30">{a.trim()}</span>)}
+                  {extensions.map((e) => <span key={`e-${e}`} className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-500/15 text-violet-300 border border-violet-500/30">{e.trim()}</span>)}
+                </div>
+              )}
+            </dd>
+          </div>
+        </dl>
+
+        {/* Health interfaces — both mobile and desktop */}
+        {hasInterfaces && (
+          <>
+            <div className="md:hidden border-t border-border/50 -mx-4 my-2" />
+            {/* Mobile: stacked interface cards */}
+            <div className="md:hidden space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Interfaces</div>
+              {h!.interfaces.map((iface, idx) => {
+                const isHealthy = iface.status === "healthy";
+                const ifaceColor = INTERFACE_COLORS[iface.name.toLowerCase()] ?? DEFAULT_IFACE_COLOR;
+                const geoStr = geoLabel(Number(iface.geolocation));
+                const geoColor = GEO_COLORS[geoStr] ?? DEFAULT_GEO_COLOR;
+                const key = `m-${iface.name}-${iface.geolocation}-${idx}`;
+                return (
+                  <div key={key} className="rounded-lg border border-border/50 p-2.5 text-xs space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded-full font-medium border ${ifaceColor}`}>{iface.name}</span>
+                      <span className={`px-2 py-0.5 rounded-full font-medium border ${geoColor}`}>{geoStr}</span>
+                      <span className="flex items-center gap-1 ml-auto">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
+                        <span className={`font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>{iface.status}</span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>{isHealthy && iface.latencyMs != null ? `${iface.latencyMs}ms` : ""}</span>
+                      <span className="font-mono">{isHealthy && iface.block != null ? iface.block.toLocaleString() : ""}</span>
+                      <TimeTooltip datetime={iface.timestamp} />
+                    </div>
+                    {!isHealthy && iface.message && (
+                      <div className="text-red-400/70 text-[11px] break-words" title={iface.message}>{iface.message}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop: original grid layout */}
+            <div className="hidden md:grid grid-cols-[100px_90px_90px_70px_110px_1fr] gap-x-4 gap-y-2 text-xs items-center">
+              <span className="text-muted-foreground font-medium">Interface</span>
+              <span className="text-muted-foreground font-medium">Region</span>
+              <span className="text-muted-foreground font-medium">Status</span>
+              <span className="text-muted-foreground font-medium">Latency</span>
+              <span className="text-muted-foreground font-medium">Block</span>
+              <span className="text-muted-foreground font-medium text-right">Last checked</span>
+              {h!.interfaces.map((iface, idx) => {
+                const isHealthy = iface.status === "healthy";
+                const ifaceColor = INTERFACE_COLORS[iface.name.toLowerCase()] ?? DEFAULT_IFACE_COLOR;
+                const geoStr = geoLabel(Number(iface.geolocation));
+                const geoColor = GEO_COLORS[geoStr] ?? DEFAULT_GEO_COLOR;
+                const key = `${iface.name}-${iface.geolocation}-${idx}`;
+                return (
+                  <React.Fragment key={key}>
+                    <span className={`px-2 py-0.5 rounded-full font-medium border text-center ${ifaceColor}`}>{iface.name}</span>
+                    <span className={`px-2 py-0.5 rounded-full font-medium border text-center truncate ${geoColor}`} title={geoStr}>{geoStr}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
+                      <span className={`font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>{iface.status}</span>
+                    </span>
+                    <span className="text-muted-foreground">{isHealthy && iface.latencyMs != null ? `${iface.latencyMs}ms` : "—"}</span>
+                    <span className="text-muted-foreground font-mono">
+                      {isHealthy && iface.block != null ? iface.block.toLocaleString() : !isHealthy && iface.message ? <span className="text-red-400/70 truncate block max-w-[200px] font-sans" title={iface.message}>{iface.message}</span> : "—"}
+                    </span>
+                    <span className="text-right"><TimeTooltip datetime={iface.timestamp} /></span>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     );
   };
@@ -452,8 +553,49 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
         </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <StatCard label="Relays (30d)" value={formatNumberKMB(relays30d.toString())} fullValue={relays30d.toLocaleString()} icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />} />
-          <StatCard label="CU (30d)" value={formatNumberKMB(cu30d.toString())} fullValue={cu30d.toLocaleString()} icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />} />
+          {/* Mobile: consolidated Relays (total + 30d) */}
+          <StatCard
+            className="md:hidden"
+            label="Relays"
+            icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
+            value={
+              <div>
+                <div>{formatNumberKMB(relaysAll.toString())}</div>
+                <div className="text-xs text-muted-foreground font-normal mt-1">{formatNumberKMB(relays30d.toString())} in 30d</div>
+              </div>
+            }
+          />
+          {/* Mobile: consolidated CU (total + 30d) */}
+          <StatCard
+            className="md:hidden"
+            label="CU"
+            icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />}
+            value={
+              <div>
+                <div>{formatNumberKMB(cuAll.toString())}</div>
+                <div className="text-xs text-muted-foreground font-normal mt-1">{formatNumberKMB(cu30d.toString())} in 30d</div>
+              </div>
+            }
+          />
+
+          {/* Desktop: split — Total Relays, Total CU, Relays (30d), CU (30d) */}
+          <StatCard
+            className="hidden md:block"
+            label="Total Relays"
+            value={formatNumberKMB(relaysAll.toString())}
+            fullValue={relaysAll.toLocaleString()}
+            icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
+          />
+          <StatCard
+            className="hidden md:block"
+            label="Total CU"
+            value={formatNumberKMB(cuAll.toString())}
+            fullValue={cuAll.toLocaleString()}
+            icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />}
+          />
+          <StatCard className="hidden md:block" label="Relays (30d)" value={formatNumberKMB(relays30d.toString())} fullValue={relays30d.toLocaleString()} icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard className="hidden md:block" label="CU (30d)" value={formatNumberKMB(cu30d.toString())} fullValue={cu30d.toLocaleString()} icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />} />
+
           <StatCard label="Total Stake" value={<LavaAmount amount={(totalStake + totalDelegation).toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
           <StatCard label="Self Stake" value={<LavaAmount amount={totalStake.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
           <StatCard label="Delegation" value={<LavaAmount amount={totalDelegation.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
@@ -491,11 +633,28 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
             </div>
           </div>
 
-          <div className="flex gap-4 flex-wrap">
+          <div className="flex flex-col gap-3 md:flex-row md:gap-4 md:flex-wrap">
             {/* Status */}
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 md:flex-none">
               <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Status</span>
-              <div className="flex gap-1">
+              {/* Mobile: full-width segmented control */}
+              <div className="flex md:hidden gap-1 rounded-md border border-border/60 p-0.5 bg-muted/20">
+                {([
+                  { key: "all" as const, label: "All", dot: null, activeClass: "bg-muted text-foreground" },
+                  { key: "healthy" as const, label: "Healthy", dot: "bg-green-500", activeClass: "bg-green-500/15 text-green-400" },
+                  { key: "unhealthy" as const, label: "Down", dot: "bg-red-500", activeClass: "bg-red-500/15 text-red-400" },
+                ] as const).map((f) => (
+                  <button key={f.key} onClick={() => setStakeFilter(f.key)}
+                    className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 text-sm font-medium rounded transition-colors duration-150 ${
+                      stakeFilter === f.key ? f.activeClass : "text-muted-foreground"
+                    }`}>
+                    {f.dot && <span className={`w-1.5 h-1.5 rounded-full ${f.dot}`} />}
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              {/* Desktop: chip pills */}
+              <div className="hidden md:flex gap-1">
                 {([
                   { key: "all" as const, label: "All", count: geoFiltered.length, dot: null, activeClass: "bg-muted text-foreground border-border" },
                   { key: "healthy" as const, label: "Healthy", count: geoFiltered.filter(s => s.health?.status === "healthy").length, dot: "bg-green-500", activeClass: "bg-green-500/10 text-green-400 border-green-500/30" },
@@ -519,7 +678,20 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
             {availableRegions.length > 0 && (
               <div className="space-y-1.5">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Region</span>
-                <div className="flex gap-1 flex-wrap">
+                {/* Mobile: native select */}
+                <select
+                  value={geoFilter}
+                  onChange={(e) => setGeoFilter(e.target.value)}
+                  className="md:hidden w-full h-11 rounded-md border border-border bg-card px-3 text-sm text-foreground"
+                >
+                  <option value="all">All regions ({healthFiltered.length})</option>
+                  {availableRegions.map((region) => {
+                    const count = healthFiltered.filter(s => geoLabel(s.geolocation).includes(region)).length;
+                    return <option key={region} value={region}>{region} ({count})</option>;
+                  })}
+                </select>
+                {/* Desktop: chip pills */}
+                <div className="hidden md:flex gap-1 flex-wrap">
                   <button onClick={() => setGeoFilter("all")}
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors duration-150 ${
                       geoFilter === "all"
@@ -548,10 +720,10 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
             )}
 
             {(stakeFilter !== "all" || geoFilter !== "all") && (
-              <div className="flex items-end pb-0.5">
+              <div className="md:flex md:items-end md:pb-0.5">
                 <button
                   onClick={() => { setStakeFilter("all"); setGeoFilter("all"); }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border border-accent/30 text-accent bg-accent/5 hover:bg-accent/15 transition-colors duration-150"
+                  className="w-full md:w-auto inline-flex items-center justify-center gap-1 px-3 py-2 md:py-1 text-sm md:text-xs font-medium rounded-md border border-accent/30 text-accent bg-accent/5 hover:bg-accent/15 transition-colors duration-150"
                 >
                   &times; Reset
                 </button>
