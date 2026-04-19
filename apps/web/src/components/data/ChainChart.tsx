@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -82,6 +82,15 @@ export function ChainChart({
   rangeDays,
   onRangeChange,
 }: ChainChartProps) {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   const chartData = useMemo(() => {
     if (!data?.length) return [];
     return data
@@ -153,7 +162,9 @@ export function ChainChart({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={chartData}
-                margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
+                margin={isMobile
+                  ? { top: 12, right: 4, bottom: 8, left: 0 }
+                  : { top: 20, right: 20, bottom: 20, left: 20 }}
               >
                 <defs>
                   <linearGradient id="chainFillRelays" x1="0" y1="0" x2="0" y2="1">
@@ -196,6 +207,7 @@ export function ChainChart({
                 <YAxis
                   yAxisId="right"
                   orientation="right"
+                  hide={isMobile}
                   tick={{ fill: "#888", fontSize: 12 }}
                   tickFormatter={(v: number) => formatNumberKMB(v)}
                 />
@@ -222,10 +234,10 @@ export function ChainChart({
 
                 <Brush
                   dataKey="date"
-                  height={30}
+                  height={isMobile ? 40 : 30}
                   stroke="rgba(136, 136, 136, 0.3)"
                   fill="#0a0a0a"
-                  travellerWidth={10}
+                  travellerWidth={isMobile ? 20 : 10}
                   tickFormatter={(v: string) =>
                     new Date(v).toLocaleDateString("en-US", {
                       month: "short",
