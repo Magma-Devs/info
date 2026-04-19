@@ -451,7 +451,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <StatCard label="Relays (30d)" value={formatNumberKMB(relays30d.toString())} fullValue={relays30d.toLocaleString()} icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />} />
           <StatCard label="CU (30d)" value={formatNumberKMB(cu30d.toString())} fullValue={cu30d.toLocaleString()} icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />} />
           <StatCard label="Total Stake" value={<LavaAmount amount={(totalStake + totalDelegation).toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
