@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
+import { useMemo } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -10,7 +10,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   Brush,
 } from "recharts";
 import {
@@ -94,27 +93,6 @@ export function ChainChart({
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [data]);
 
-  // Custom legend
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const renderLegend = useCallback((props: any) => {
-    const entries = props?.payload;
-    if (!entries) return null;
-    return (
-      <div className="flex flex-wrap justify-center gap-4 text-sm">
-        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        {entries.map((entry: any, i: number) => (
-          <div key={i} className="flex items-center gap-1.5">
-            <span
-              className="inline-block w-3 h-3 rounded-full"
-              style={{ backgroundColor: entry.color }}
-            />
-            <span>{entry.value}</span>
-          </div>
-        ))}
-      </div>
-    );
-  }, []);
-
   return (
     <Card>
       <CardHeader className="flex flex-col gap-4 pb-4 lg:flex-row lg:items-center lg:justify-between">
@@ -124,7 +102,7 @@ export function ChainChart({
             Daily relay and compute unit volume
           </CardDescription>
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 w-full md:w-auto">
           {[
             { label: "30d", days: 30 },
             { label: "90d", days: 90 },
@@ -134,7 +112,7 @@ export function ChainChart({
             <button
               key={r.label}
               onClick={() => onRangeChange(r.days)}
-              className={`px-2 py-1 text-xs rounded ${
+              className={`flex-1 md:flex-none px-3 py-2 md:py-1 text-sm md:text-xs rounded transition-colors ${
                 rangeDays === r.days
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:bg-muted border border-border"
@@ -160,6 +138,17 @@ export function ChainChart({
             </span>
           </div>
         ) : (
+          <>
+            <div className="flex flex-wrap justify-center gap-4 text-sm mb-3">
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: "#ac4c39" }} />
+                <span>Relays</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: "#81b29a" }} />
+                <span>CU</span>
+              </div>
+            </div>
           <div className="h-[350px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
@@ -212,7 +201,6 @@ export function ChainChart({
                 />
 
                 <Tooltip content={<ChartTooltip />} />
-                <Legend content={renderLegend} />
 
                 <Area
                   yAxisId="left"
@@ -258,6 +246,7 @@ export function ChainChart({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
+          </>
         )}
       </CardContent>
     </Card>
