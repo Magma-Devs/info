@@ -170,25 +170,62 @@ export default function DashboardPage() {
   return (
     <>
       {/* Stat Cards */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-5">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-6">
+        {/* Mobile: consolidated Relays (total + 30d) */}
         <StatCard
+          className="md:hidden"
+          label="Relays"
+          icon={<Activity className="h-4 w-4 text-muted-foreground" />}
+          value={
+            <div>
+              <div>{formatNumberKMB(stats?.totalRelays ?? 0)}</div>
+              <div className="text-xs text-muted-foreground font-normal mt-1">{formatNumberKMB(stats?.relays30d ?? 0)} in 30d</div>
+            </div>
+          }
+        />
+        {/* Mobile: consolidated CU (total + 30d) */}
+        <StatCard
+          className="md:hidden"
+          label="CU"
+          icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
+          value={
+            <div>
+              <div>{formatNumberKMB(stats?.totalCu ?? 0)}</div>
+              <div className="text-xs text-muted-foreground font-normal mt-1">{formatNumberKMB(stats?.cu30d ?? 0)} in 30d</div>
+            </div>
+          }
+        />
+
+        {/* Desktop: split totals + 30d */}
+        <StatCard
+          className="hidden md:block"
           label="Total Relays"
           value={formatNumberKMB(stats?.totalRelays ?? 0)}
           fullValue={formatNumber(stats?.totalRelays ?? 0)}
           icon={<Activity className="h-4 w-4 text-muted-foreground" />}
         />
         <StatCard
+          className="hidden md:block"
+          label="Total CU"
+          value={formatNumberKMB(stats?.totalCu ?? 0)}
+          fullValue={formatNumber(stats?.totalCu ?? 0)}
+          icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
+        />
+        <StatCard
+          className="hidden md:block"
           label="Relays (30 days)"
           value={formatNumberKMB(stats?.relays30d ?? 0)}
           fullValue={formatNumber(stats?.relays30d ?? 0)}
           icon={<CalendarArrowUp className="h-4 w-4 text-muted-foreground" />}
         />
         <StatCard
+          className="hidden md:block"
           label="CU (30 days)"
           value={formatNumberKMB(stats?.cu30d ?? 0)}
           fullValue={formatNumber(stats?.cu30d ?? 0)}
           icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
         />
+
         <StatCard
           label="Total Stake"
           value={`${formatLavaKMB(stats?.totalStake ?? "0")} LAVA`}
