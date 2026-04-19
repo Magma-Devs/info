@@ -18,7 +18,7 @@ export function LastUpdateBadge() {
 
   return (
     <span
-      className="text-xs text-muted-foreground border border-border rounded px-2 py-1 whitespace-nowrap"
+      className="hidden md:inline-block text-xs text-muted-foreground border border-border rounded px-2 py-1 whitespace-nowrap"
       title={`Block ${block} — ${new Date(data.components.latestBlockTime).toLocaleString()}`}
     >
       #{block} · {time}

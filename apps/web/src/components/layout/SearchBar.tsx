@@ -359,9 +359,10 @@ function MobileSearch() {
     <div className="md:hidden">
       <button
         onClick={() => setOpen(true)}
-        className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+        className="p-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+        aria-label="Search"
       >
-        <Search size={18} />
+        <Search size={22} />
       </button>
 
       {open && (
