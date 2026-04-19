@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   useReactTable,
   getCoreRowModel,
@@ -15,6 +16,7 @@ import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
+import { formatNumberKMB } from "@/lib/format";
 
 function toBigInt(v: string | null | undefined): bigint {
   try { return BigInt(v ?? "0"); } catch { return 0n; }
@@ -61,13 +63,36 @@ const columns: ColumnDef<ProviderListItem, unknown>[] = [
   },
 ];
 
+function ProviderAvatarImg({ address, moniker, identity }: { address: string; moniker?: string; identity?: string }) {
+  const avatarUrl = identity ? `/providers/${address}/avatar?identity=${identity}` : null;
+  const { data: avatarResp } = useApi<{ url: string | null }>(avatarUrl);
+  if (avatarResp?.url) {
+    return <img src={avatarResp.url} alt="" className="w-9 h-9 rounded-full shrink-0" loading="lazy" />;
+  }
+  return (
+    <span className="w-9 h-9 rounded-full shrink-0 bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground">
+      {(moniker || address).charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
 function ProvidersContent() {
-  const { data: resp, isLoading } = useApi<{ data: ProviderListItem[] }>("/providers");
+  const { data: resp, isLoading } = useApi<{ data: ProviderListItem[] }>("/providers?limit=10000");
   const providers = useMemo(() => resp?.data ?? [], [resp]);
 
   const [sorting, setSorting] = useState<SortingState>([
     { id: "totalStake", desc: true },
   ]);
+
+  // Mobile: pre-sorted by total stake desc (API already returns it that way)
+  const mobileList = useMemo(
+    () => [...providers].sort((a, b) => {
+      const av = toBigInt(a.totalStake) + toBigInt(a.totalDelegation);
+      const bv = toBigInt(b.totalStake) + toBigInt(b.totalDelegation);
+      return av > bv ? -1 : av < bv ? 1 : 0;
+    }),
+    [providers],
+  );
 
   const table = useReactTable({
     data: providers,
@@ -83,12 +108,40 @@ function ProvidersContent() {
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-border bg-card shadow">
-        <div className="p-6 border-b border-border">
+        <div className="p-4 md:p-6 border-b border-border">
           <h2 className="text-lg font-semibold">
             Active Providers ({providers.length})
           </h2>
         </div>
-        <div className="p-4">
+
+        {/* Mobile: compact card list */}
+        <ul className="md:hidden divide-y divide-border/60">
+          {mobileList.map((p) => {
+            const total = toBigInt(p.totalStake) + toBigInt(p.totalDelegation);
+            const label = p.moniker || `${p.provider.slice(0, 12)}...`;
+            return (
+              <li key={p.provider}>
+                <Link href={`/provider/${p.provider}`} className="flex items-center gap-3 px-4 py-3 active:bg-muted/60 transition-colors">
+                  <ProviderAvatarImg address={p.provider} moniker={p.moniker} identity={p.identity} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-accent truncate">{label}</div>
+                    {p.moniker && <div className="text-[11px] text-muted-foreground font-mono truncate">{p.provider}</div>}
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      {p.activeServices} services
+                      {p.relaySum30d && ` · ${formatNumberKMB(p.relaySum30d)} relays (30d)`}
+                    </div>
+                  </div>
+                  <div className="text-sm font-medium shrink-0">
+                    <LavaAmount amount={total.toString()} />
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* Desktop: table */}
+        <div className="hidden md:block p-4">
           <div className="rounded-lg border border-border">
             <table className="w-full text-sm table-fixed">
               <thead>

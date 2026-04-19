@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   useReactTable,
   getCoreRowModel,
@@ -14,6 +15,7 @@ import { useApi } from "@/hooks/use-api";
 import { Loading } from "@/components/data/Loading";
 import { ChainLink } from "@/components/data/ChainLink";
 import { formatNumberKMB } from "@/lib/format";
+import { getChainIcon } from "@/lib/chain-icons";
 
 interface Spec { specId: string; name: string; providerCount: number; relays30d: string; cu30d: string; }
 
@@ -55,6 +57,26 @@ const columns: ColumnDef<Spec, unknown>[] = [
   },
 ];
 
+function ChainIconImg({ chainId }: { chainId: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="w-9 h-9 rounded-md shrink-0 bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground">
+        {chainId.charAt(0).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={getChainIcon(chainId)}
+      alt=""
+      className="w-9 h-9 rounded-md shrink-0"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export default function ChainsPage() {
   const { data: specsResp, isLoading, error } = useApi<{ data: Spec[] }>("/specs");
   const specs = useMemo(() => specsResp?.data ?? [], [specsResp]);
@@ -62,6 +84,16 @@ export default function ChainsPage() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "relays30d", desc: true },
   ]);
+
+  // Mobile: pre-sorted by relays (30d) desc
+  const mobileList = useMemo(
+    () => [...specs].sort((a, b) => {
+      const av = toBigInt(a.relays30d);
+      const bv = toBigInt(b.relays30d);
+      return av > bv ? -1 : av < bv ? 1 : 0;
+    }),
+    [specs],
+  );
 
   const table = useReactTable({
     data: specs,
@@ -77,13 +109,41 @@ export default function ChainsPage() {
 
   return (
     <div className="space-y-6">
-<div className="rounded-xl border border-border bg-card shadow">
-        <div className="p-6 border-b border-border">
+      <div className="rounded-xl border border-border bg-card shadow">
+        <div className="p-4 md:p-6 border-b border-border">
           <h2 className="text-lg font-semibold">
             Active Chains ({specs.length})
           </h2>
         </div>
-        <div className="p-4">
+
+        {/* Mobile: compact card list */}
+        <ul className="md:hidden divide-y divide-border/60">
+          {mobileList.map((s) => {
+            const hasFullName = s.name && s.name !== s.specId;
+            return (
+              <li key={s.specId}>
+                <Link href={`/chain/${s.specId}`} className="flex items-center gap-3 px-4 py-3 active:bg-muted/60 transition-colors">
+                  <ChainIconImg chainId={s.specId} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-accent truncate">{hasFullName ? s.name : s.specId}</div>
+                    {hasFullName && <div className="text-[11px] text-muted-foreground truncate">{s.specId}</div>}
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      {s.providerCount} providers
+                      {s.cu30d && ` · ${formatNumberKMB(s.cu30d)} CU (30d)`}
+                    </div>
+                  </div>
+                  <div className="text-sm font-medium shrink-0 text-right">
+                    {formatNumberKMB(s.relays30d)}
+                    <div className="text-[11px] text-muted-foreground font-normal">relays (30d)</div>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* Desktop: table */}
+        <div className="hidden md:block p-4">
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead>
