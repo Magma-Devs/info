@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -11,7 +11,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   Brush,
 } from "recharts";
 import {
@@ -116,6 +115,14 @@ export function IndexChart({
   onRangeChange,
 }: IndexChartProps) {
   const [selectedChain, setSelectedChain] = useState("all");
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   // Sort chains by total relays desc
   const allChains = useMemo(() => {
@@ -191,46 +198,20 @@ export function IndexChart({
     return { key: selectedChain, color: ALL_CHAINS_COLOR, label: selectedChain };
   }, [selectedChain]);
 
-  // Custom legend
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const renderLegend = useCallback((props: any) => {
-    const entries = props?.payload;
-    if (!entries) return null;
-    return (
-      <div className="flex flex-wrap justify-center gap-4 text-sm">
-        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        {entries.map((entry: any, i: number) => {
-          const isQos = entry.dataKey === "qos";
-          return (
-            <div key={i} className="flex items-center gap-1.5">
-              <span
-                className="inline-block w-3 h-3 rounded-full"
-                style={{
-                  backgroundColor: isQos ? "#00ff00" : entry.color,
-                }}
-              />
-              <span>{entry.value}</span>
-            </div>
-          );
-        })}
-      </div>
-    );
-  }, []);
-
   /* ─── Render ─── */
 
   return (
     <Card>
-      <CardHeader className="flex flex-col gap-4 pb-4 lg:flex-row lg:items-center lg:justify-between">
+      <CardHeader className="flex flex-col gap-4 p-4 pb-4 md:p-6 md:pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <CardTitle>QoS Score and Selected Chains</CardTitle>
           <CardDescription>
             Showing QoS score and relay counts for selected chains
           </CardDescription>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-2">
           <ChainSelect chains={allChains} selected={selectedChain} onChange={setSelectedChain} />
-          <div className="flex gap-1">
+          <div className="flex gap-1 w-full md:w-auto">
             {[
               { label: "30d", days: 30 },
               { label: "90d", days: 90 },
@@ -240,7 +221,7 @@ export function IndexChart({
               <button
                 key={r.label}
                 onClick={() => onRangeChange(r.days)}
-                className={`px-2 py-1 text-xs rounded ${
+                className={`flex-1 md:flex-none px-3 py-2 md:py-1 text-sm md:text-xs rounded transition-colors ${
                   rangeDays === r.days
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-muted border border-border"
@@ -252,7 +233,7 @@ export function IndexChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center text-muted-foreground h-[350px]">
             <Loader2 className="h-8 w-8 mb-3 opacity-30 animate-spin" />
@@ -267,11 +248,25 @@ export function IndexChart({
             </span>
           </div>
         ) : (
+          <>
+            {/* Static legend — rendered outside the chart to avoid recharts layout conflicts */}
+            <div className="flex flex-wrap justify-center gap-4 text-sm mb-3">
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: "#00ff00" }} />
+                <span>QoS Score</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: areaConfig.color }} />
+                <span>{areaConfig.label}</span>
+              </div>
+            </div>
           <div className="h-[350px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={chartData}
-                margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
+                margin={isMobile
+                  ? { top: 12, right: 4, bottom: 8, left: 0 }
+                  : { top: 20, right: 20, bottom: 20, left: 20 }}
               >
                 <defs>
                   <linearGradient
@@ -343,11 +338,11 @@ export function IndexChart({
                   yAxisId="right"
                   orientation="right"
                   domain={[0, 1]}
+                  hide={isMobile}
                   tick={{ fill: "#888", fontSize: 12 }}
                 />
 
                 <Tooltip content={<ChartTooltip />} />
-                <Legend content={renderLegend} />
 
                 <Line
                   yAxisId="right"
@@ -370,10 +365,10 @@ export function IndexChart({
 
                 <Brush
                   dataKey="date"
-                  height={30}
+                  height={isMobile ? 40 : 30}
                   stroke="rgba(136, 136, 136, 0.3)"
                   fill="#0a0a0a"
-                  travellerWidth={10}
+                  travellerWidth={isMobile ? 20 : 10}
                   tickFormatter={(v: string) =>
                     new Date(v).toLocaleDateString("en-US", {
                       month: "short",
@@ -394,6 +389,7 @@ export function IndexChart({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
+          </>
         )}
       </CardContent>
     </Card>
