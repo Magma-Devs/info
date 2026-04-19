@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
+import { useChainNames } from "@/hooks/use-chain-names";
+import { getChainIcon } from "@/lib/chain-icons";
 import { Loading } from "@/components/data/Loading";
 import { StatCard } from "@/components/data/StatCard";
 
@@ -125,6 +127,7 @@ export default function DashboardPage() {
 
   const providers = useMemo(() => providersResp?.data?.slice(0, 10) ?? [], [providersResp]);
   const chains = useMemo(() => topChains?.data?.slice(0, 10) ?? [], [topChains]);
+  const { getName } = useChainNames();
 
   const providerCols: ColumnDef<Provider, unknown>[] = useMemo(() => [
     {
@@ -223,7 +226,31 @@ export default function DashboardPage() {
             </Button>
           </CardHeader>
           <CardContent>
-            <SortableTable data={providers} columns={providerCols} defaultSort={[{ id: "totalStake", desc: true }]} />
+            {/* Mobile: compact card list */}
+            <ul className="md:hidden divide-y divide-border/60">
+              {providers.slice(0, 5).map((p) => {
+                const label = p.moniker || `${p.provider.slice(0, 12)}...`;
+                return (
+                  <li key={p.provider}>
+                    <Link href={`/provider/${p.provider}`} className="flex items-center gap-3 py-3 -mx-2 px-2 rounded-lg hover:bg-muted/40 active:bg-muted/60 transition-colors">
+                      <ProviderAvatarImg address={p.provider} moniker={p.moniker} identity={p.identity} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-accent truncate">{label}</div>
+                        {p.moniker && <div className="text-[11px] text-muted-foreground font-mono truncate">{p.provider}</div>}
+                      </div>
+                      <div className="flex flex-col items-end gap-0.5 shrink-0">
+                        <span className="text-sm font-medium"><LavaAmount amount={p.totalStake} /></span>
+                        <span className="text-[11px] text-muted-foreground">{p.activeServices} services</span>
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+            {/* Desktop: sortable table */}
+            <div className="hidden md:block">
+              <SortableTable data={providers} columns={providerCols} defaultSort={[{ id: "totalStake", desc: true }]} />
+            </div>
           </CardContent>
         </Card>
 
@@ -242,10 +269,68 @@ export default function DashboardPage() {
             </Button>
           </CardHeader>
           <CardContent>
-            <SortableTable data={chains} columns={chainCols} defaultSort={[{ id: "totalRelays", desc: true }]} />
+            {/* Mobile: compact card list */}
+            <ul className="md:hidden divide-y divide-border/60">
+              {chains.slice(0, 5).map((c) => {
+                const fullName = getName(c.specId);
+                const hasFullName = fullName && fullName !== c.specId;
+                return (
+                  <li key={c.specId}>
+                    <Link href={`/chain/${c.specId}`} className="flex items-center gap-3 py-3 -mx-2 px-2 rounded-lg hover:bg-muted/40 active:bg-muted/60 transition-colors">
+                      <ChainIconImg chainId={c.specId} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-accent truncate">{hasFullName ? fullName : c.specId}</div>
+                        {hasFullName && <div className="text-[11px] text-muted-foreground truncate">{c.specId}</div>}
+                      </div>
+                      <div className="flex flex-col items-end gap-0.5 shrink-0">
+                        <span className="text-sm font-medium">{formatNumberKMB(c.totalRelays)} relays</span>
+                        <span className="text-[11px] text-muted-foreground">{formatNumberKMB(c.totalCu)} CU</span>
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+            {/* Desktop: sortable table */}
+            <div className="hidden md:block">
+              <SortableTable data={chains} columns={chainCols} defaultSort={[{ id: "totalRelays", desc: true }]} />
+            </div>
           </CardContent>
         </Card>
       </div>
     </>
+  );
+}
+
+function ProviderAvatarImg({ address, moniker, identity }: { address: string; moniker?: string; identity?: string }) {
+  const avatarUrl = identity ? `/providers/${address}/avatar?identity=${identity}` : null;
+  const { data: avatarResp } = useApi<{ url: string | null }>(avatarUrl);
+  if (avatarResp?.url) {
+    return <img src={avatarResp.url} alt="" className="w-8 h-8 rounded-full shrink-0" loading="lazy" />;
+  }
+  return (
+    <span className="w-8 h-8 rounded-full shrink-0 bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground">
+      {(moniker || address).charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+function ChainIconImg({ chainId }: { chainId: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="w-8 h-8 rounded-md shrink-0 bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground">
+        {chainId.charAt(0).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={getChainIcon(chainId)}
+      alt=""
+      className="w-8 h-8 rounded-md shrink-0"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
   );
 }
