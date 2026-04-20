@@ -20,9 +20,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { BarChart3, Loader2 } from "lucide-react";
+import { BarChart3 } from "lucide-react";
 import { formatNumberKMB } from "@/lib/format";
 import { ChainSelect } from "./ChainSelect";
+import { ChartSkeleton } from "./ChartSkeleton";
 
 /* ─── Constants ─── */
 
@@ -235,10 +236,7 @@ export function IndexChart({
       </CardHeader>
       <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center text-muted-foreground h-[350px]">
-            <Loader2 className="h-8 w-8 mb-3 opacity-30 animate-spin" />
-            <span className="text-sm">Loading chart data...</span>
-          </div>
+          <ChartSkeleton />
         ) : chartData.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-muted-foreground h-[350px]">
             <BarChart3 className="h-10 w-10 mb-3 opacity-20" />

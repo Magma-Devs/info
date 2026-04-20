@@ -15,8 +15,9 @@ import {
 } from "recharts";
 import { useApi } from "@/hooks/use-api";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { BarChart3, Loader2, ChevronsUpDown, Search, X, Check } from "lucide-react";
+import { BarChart3, ChevronsUpDown, Search, X, Check } from "lucide-react";
 import { ChainSelect } from "./ChainSelect";
+import { ChartSkeleton } from "./ChartSkeleton";
 
 /* ─── Types ─── */
 
@@ -336,12 +337,7 @@ function ModeInfo({ mode }: { mode: MetricMode }) {
 /* ─── Shared Empty / Loading / Unavailable States ─── */
 
 function ChartLoading() {
-  return (
-    <div className="flex flex-col items-center justify-center text-muted-foreground h-[350px]">
-      <Loader2 className="h-8 w-8 mb-3 opacity-30 animate-spin" />
-      <span className="text-sm">Loading chart data...</span>
-    </div>
-  );
+  return <ChartSkeleton />;
 }
 
 function ChartEmpty() {
@@ -437,7 +433,7 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-col gap-4 pb-4 lg:flex-row lg:items-center lg:justify-between">
+      <CardHeader className="flex flex-col gap-4 p-4 pb-4 md:p-6 md:pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <CardTitle className="flex items-center gap-2">Consumer Optimizer Metrics <ModeInfo mode={mode} /></CardTitle>
           <CardDescription>How consumers perceive this provider</CardDescription>
@@ -456,7 +452,7 @@ export function ProviderOptimizerChart({ providerId }: { providerId: string }) {
           </div>
         )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
         {isUnavailable ? <ChartUnavailable /> : isLoading ? <ChartLoading /> : chartData.length === 0 ? <ChartEmpty /> : (
           <>
             <div className="h-[350px] w-full">
@@ -616,7 +612,7 @@ export function ChainOptimizerChart({ specId, providerInfo }: { specId: string; 
 
   return (
     <Card>
-      <CardHeader className="flex flex-col gap-4 pb-4 lg:flex-row lg:items-center lg:justify-between">
+      <CardHeader className="flex flex-col gap-4 p-4 pb-4 md:p-6 md:pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <CardTitle className="flex items-center gap-2">Consumer Optimizer Metrics <ModeInfo mode={mode} /></CardTitle>
           <CardDescription>Provider performance as seen by consumers</CardDescription>
@@ -637,7 +633,7 @@ export function ChainOptimizerChart({ specId, providerInfo }: { specId: string; 
           </div>
         )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4 pt-0 md:p-6 md:pt-0">
         {isUnavailable ? <ChartUnavailable /> : isLoading ? <ChartLoading /> : chartData.length === 0 ? <ChartEmpty /> : (
           <>
             <div className="h-[350px] w-full">
