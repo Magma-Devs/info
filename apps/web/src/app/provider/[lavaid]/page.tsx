@@ -84,6 +84,26 @@ interface TimeSeriesEntry {
 }
 
 
+function ChainIconImg({ chainId }: { chainId: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span className="w-9 h-9 rounded-md shrink-0 bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground">
+        {chainId.charAt(0).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={getChainIcon(chainId)}
+      alt=""
+      className="w-9 h-9 rounded-md shrink-0"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 /* ─── Mock chart data for dev (toggle via Dev Tools > Mock chart data) ─── */
 function generateProviderMockData(): TimeSeriesEntry[] {
   const chains = ["ETH1", "LAVA", "COSMOSHUB", "NEAR"];
@@ -142,6 +162,15 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
   const [copied, setCopied] = useState(false);
   const [stakeFilter, setStakeFilter] = useState<"healthy" | "unhealthy" | "all">("all");
   const [geoFilter, setGeoFilter] = useState<string>("all");
+  const [expandedMobile, setExpandedMobile] = useState<Set<string>>(new Set());
+  const toggleMobileExpand = (specId: string) => {
+    setExpandedMobile((prev) => {
+      const next = new Set(prev);
+      if (next.has(specId)) next.delete(specId);
+      else next.add(specId);
+      return next;
+    });
+  };
 
   // 30-day CU/relays from the time-series data (default 90d range, filter to last 30d)
   const thirtyDaysAgo = useMemo(() => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), []);
@@ -270,9 +299,8 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
     },
   ] as ColumnDef<Stake, unknown>[], []);
 
-  const renderStakeSubRow = (row: Row<Stake>) => {
-    const h = row.original.health;
-    const s = row.original;
+  const renderStakeDetails = (s: Stake) => {
+    const h = s.health;
     const addons = (s.addons || "").split(",").filter(Boolean);
     const extensions = (s.extensions || "").split(",").filter(Boolean);
     const regions = geoLabel(s.geolocation);
@@ -281,38 +309,38 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
     return (
       <div className="space-y-4">
         {/* Mobile: stats grid — data that's hidden from the table on mobile */}
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs md:hidden">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-5 md:hidden">
           <div>
-            <dt className="text-muted-foreground mb-0.5">Self Stake</dt>
-            <dd className="font-medium"><LavaAmount amount={s.stake} /></dd>
+            <dt className="text-sm uppercase tracking-wider text-muted-foreground mb-1.5">Self Stake</dt>
+            <dd className="text-base font-semibold"><LavaAmount amount={s.stake} /></dd>
           </div>
           <div>
-            <dt className="text-muted-foreground mb-0.5">Delegation</dt>
-            <dd className="font-medium"><LavaAmount amount={s.delegation} /></dd>
+            <dt className="text-sm uppercase tracking-wider text-muted-foreground mb-1.5">Delegation</dt>
+            <dd className="text-base font-semibold"><LavaAmount amount={s.delegation} /></dd>
           </div>
           <div>
-            <dt className="text-muted-foreground mb-0.5">Commission</dt>
-            <dd className="font-medium">{Number(s.delegateCommission || "0")}%</dd>
+            <dt className="text-sm uppercase tracking-wider text-muted-foreground mb-1.5">Commission</dt>
+            <dd className="text-base font-semibold">{Number(s.delegateCommission || "0")}%</dd>
           </div>
           <div className="col-span-2">
-            <dt className="text-muted-foreground mb-1">Location</dt>
+            <dt className="text-sm uppercase tracking-wider text-muted-foreground mb-2">Location</dt>
             <dd>
-              {regions === "—" ? "—" : (
-                <div className="flex flex-wrap gap-1">
+              {regions === "—" ? <span className="text-base text-muted-foreground">—</span> : (
+                <div className="flex flex-wrap gap-2">
                   {regions.split(", ").map((r) => (
-                    <span key={r} className={`px-2 py-0.5 rounded-full text-xs font-medium border ${GEO_COLORS[r] ?? DEFAULT_GEO_COLOR}`}>{r}</span>
+                    <span key={r} className={`px-3 py-1.5 rounded-full text-base font-medium border ${GEO_COLORS[r] ?? DEFAULT_GEO_COLOR}`}>{r}</span>
                   ))}
                 </div>
               )}
             </dd>
           </div>
           <div className="col-span-2">
-            <dt className="text-muted-foreground mb-1">Addons / Extensions</dt>
+            <dt className="text-sm uppercase tracking-wider text-muted-foreground mb-2">Addons / Extensions</dt>
             <dd>
-              {addons.length === 0 && extensions.length === 0 ? "—" : (
-                <div className="flex flex-wrap gap-1">
-                  {addons.map((a) => <span key={`a-${a}`} className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-500/15 text-purple-400 border border-purple-500/30">{a.trim()}</span>)}
-                  {extensions.map((e) => <span key={`e-${e}`} className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-500/15 text-violet-300 border border-violet-500/30">{e.trim()}</span>)}
+              {addons.length === 0 && extensions.length === 0 ? <span className="text-base text-muted-foreground">—</span> : (
+                <div className="flex flex-wrap gap-2">
+                  {addons.map((a) => <span key={`a-${a}`} className="px-3 py-1.5 rounded-full text-base font-medium bg-purple-500/15 text-purple-400 border border-purple-500/30">{a.trim()}</span>)}
+                  {extensions.map((e) => <span key={`e-${e}`} className="px-3 py-1.5 rounded-full text-base font-medium bg-violet-500/15 text-violet-300 border border-violet-500/30">{e.trim()}</span>)}
                 </div>
               )}
             </dd>
@@ -322,10 +350,10 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
         {/* Health interfaces — both mobile and desktop */}
         {hasInterfaces && (
           <>
-            <div className="md:hidden border-t border-border/50 -mx-4 my-2" />
+            <div className="md:hidden border-t border-border/50 -mx-4 my-3" />
             {/* Mobile: stacked interface cards */}
-            <div className="md:hidden space-y-2">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Interfaces</div>
+            <div className="md:hidden space-y-3">
+              <div className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Interfaces</div>
               {h!.interfaces.map((iface, idx) => {
                 const isHealthy = iface.status === "healthy";
                 const ifaceColor = INTERFACE_COLORS[iface.name.toLowerCase()] ?? DEFAULT_IFACE_COLOR;
@@ -333,22 +361,22 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
                 const geoColor = GEO_COLORS[geoStr] ?? DEFAULT_GEO_COLOR;
                 const key = `m-${iface.name}-${iface.geolocation}-${idx}`;
                 return (
-                  <div key={key} className="rounded-lg border border-border/50 p-2.5 text-xs space-y-1">
+                  <div key={key} className="rounded-lg border border-border/50 p-4 text-base space-y-2.5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded-full font-medium border ${ifaceColor}`}>{iface.name}</span>
-                      <span className={`px-2 py-0.5 rounded-full font-medium border ${geoColor}`}>{geoStr}</span>
-                      <span className="flex items-center gap-1 ml-auto">
-                        <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
-                        <span className={`font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>{iface.status}</span>
+                      <span className={`px-3 py-1.5 rounded-full text-base font-medium border ${ifaceColor}`}>{iface.name}</span>
+                      <span className={`px-3 py-1.5 rounded-full text-base font-medium border ${geoColor}`}>{geoStr}</span>
+                      <span className="flex items-center gap-1.5 ml-auto">
+                        <span className={`w-2.5 h-2.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
+                        <span className={`text-base font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>{iface.status}</span>
                       </span>
                     </div>
-                    <div className="flex justify-between text-muted-foreground">
+                    <div className="flex justify-between text-sm text-muted-foreground">
                       <span>{isHealthy && iface.latencyMs != null ? `${iface.latencyMs}ms` : ""}</span>
                       <span className="font-mono">{isHealthy && iface.block != null ? iface.block.toLocaleString() : ""}</span>
                       <TimeTooltip datetime={iface.timestamp} />
                     </div>
                     {!isHealthy && iface.message && (
-                      <div className="text-red-400/70 text-[11px] break-words" title={iface.message}>{iface.message}</div>
+                      <div className="text-red-400/70 text-sm break-words" title={iface.message}>{iface.message}</div>
                     )}
                   </div>
                 );
@@ -738,8 +766,75 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
             )}
           </div>
         </CardHeader>
-        <CardContent>
-          <SortableTable data={filteredStakes} columns={stakeCols} defaultSort={[{ id: "total", desc: true }]} renderSubRow={renderStakeSubRow} loading={providerLoading} />
+        <CardContent className="p-0 md:p-6 md:pt-0">
+          {/* Mobile: card list */}
+          <ul className="md:hidden divide-y divide-border/30">
+            {providerLoading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <li key={`skel-${i}`} className="flex items-center gap-3 px-4 py-4">
+                  <Skeleton className="w-9 h-9 rounded-md" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-20" />
+                  </div>
+                  <Skeleton className="h-4 w-20 shrink-0" />
+                </li>
+              ))
+            ) : filteredStakes.length === 0 ? (
+              <li className="py-12 text-center text-sm text-muted-foreground">No services match the current filters</li>
+            ) : (
+              filteredStakes.map((s) => {
+                const h = s.health;
+                const isHealthy = h?.status === "healthy";
+                const isExpanded = expandedMobile.has(s.specId);
+                const total = BigInt(s.stake || "0") + BigInt(s.delegation || "0");
+                return (
+                  <li key={s.specId}>
+                    <button
+                      type="button"
+                      onClick={() => toggleMobileExpand(s.specId)}
+                      className="w-full flex items-center gap-3 px-4 py-4 text-left active:bg-muted/40 transition-colors"
+                    >
+                      <ChainIconImg chainId={s.specId} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base font-medium truncate">{s.specId}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {h ? (
+                            <>
+                              <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
+                              <span className={`text-xs font-medium ${isHealthy ? "text-green-400" : "text-red-400"}`}>
+                                {isHealthy ? "Healthy" : `${h.unhealthy}/${h.total} Down`}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40" />
+                              <span className="text-xs text-muted-foreground">No data</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end shrink-0">
+                        <span className="text-sm font-medium"><LavaAmount amount={total.toString()} /></span>
+                      </div>
+                      <ChevronRight size={18} className={`text-muted-foreground transition-transform shrink-0 ${isExpanded ? "rotate-90" : ""}`} />
+                    </button>
+                    {isExpanded && (
+                      <div className="bg-muted/15 px-4 py-4">
+                        {renderStakeDetails(s)}
+                      </div>
+                    )}
+                  </li>
+                );
+              })
+            )}
+          </ul>
+          {/* Desktop: sortable table */}
+          <div className="hidden md:block">
+            <SortableTable data={filteredStakes} columns={stakeCols} defaultSort={[{ id: "total", desc: true }]} renderSubRow={(row) => renderStakeDetails(row.original)} loading={providerLoading} />
+          </div>
         </CardContent>
       </Card>
 
