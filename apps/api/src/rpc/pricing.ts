@@ -159,16 +159,26 @@ export async function fetchTokenUsdPriceAt(
 }
 
 /** Build a `baseDenom → price` map at a given date for the denoms we know about.
- *  Callers pass this to reward-processing functions to override the live cache. */
+ *  Callers pass this to reward-processing functions to override the live cache.
+ *
+ *  Fetches are sequential because CoinGecko's free tier enforces ~10-30 req/min;
+ *  parallelizing 22+ denoms would get rate-limited and silently drop to zero,
+ *  which then looks like "use current price" to downstream callers.
+ *  Results are cached indefinitely (historical prices don't change), so the
+ *  sequential cost only hits the first request for any (denom, date) pair. */
 export async function buildHistoricalPriceMap(
   date: Date,
   denoms: string[] = Object.keys(DENOM_COINGECKO_ID),
 ): Promise<Record<string, number>> {
-  const entries = await Promise.all(
-    denoms.map(async (d) => [d, await fetchTokenUsdPriceAt(d, date)] as const),
-  );
+  // LAVA carries virtually all reward value — fetch it first so subsequent
+  // fetch failures don't bury the one price we really need.
+  const orderedDenoms = denoms.includes("lava")
+    ? ["lava", ...denoms.filter((d) => d !== "lava")]
+    : denoms;
+
   const out: Record<string, number> = {};
-  for (const [d, p] of entries) {
+  for (const d of orderedDenoms) {
+    const p = await fetchTokenUsdPriceAt(d, date);
     if (p > 0) out[d] = p;
   }
   return out;
