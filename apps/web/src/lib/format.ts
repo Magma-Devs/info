@@ -7,10 +7,11 @@ export function formatNumber(value: number | string | bigint): string {
   return new Intl.NumberFormat("en-US").format(n);
 }
 
-/** Format large numbers with K/M/B suffix */
+/** Format large numbers with K/M/B/T suffix */
 export function formatNumberKMB(value: number | string): string {
   const n = Number(value);
   if (isNaN(n)) return "0";
+  if (n >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
   if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
