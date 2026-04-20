@@ -72,7 +72,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: CACHE_TTL.HISTORICAL },
+    config: { cacheTTL: CACHE_TTL.IMMUTABLE },
   }, async (request) => {
     const q = request.query as { count?: number };
     const count = q.count ?? DEFAULT_MONTHLY_BLOCKS;
@@ -129,8 +129,9 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       spec = q.spec.toUpperCase();
     }
 
-    // Historical blocks are immutable, so cache aggressively.
-    if (block) request.cacheTTL = CACHE_TTL.HISTORICAL;
+    // A historical block's response is fully determined by past chain state
+    // and block-time CoinGecko prices — both immutable. Cache forever.
+    if (block) request.cacheTTL = CACHE_TTL.IMMUTABLE;
 
     await prewarmPriceCache();
 
