@@ -148,12 +148,17 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
     if (block) {
       const blockTimeIso = await fetchBlockTime(block);
       const blockDate = new Date(blockTimeIso);
-      // buildHistoricalPriceMap throws if the REQUIRED LAVA price can't be
-      // fetched after retries. Let it bubble so Fastify returns 503 and the
-      // cache layer (which skips 4xx/5xx) doesn't poison the block-keyed
-      // response with a wrong price for a year.
+      // Only fetch LAVA's historical price. On Lava Network virtually all
+      // reward value is LAVA; other denoms appear rarely (IBC rewards) and
+      // fetching 22 denoms sequentially with retry backoff would blow past
+      // the gateway timeout (~120s) under any CoinGecko throttling.
+      // Non-LAVA denoms (if any) fall back to current prices — negligible
+      // drift vs the cost of extending response latency by tens of minutes.
+      // buildHistoricalPriceMap throws if LAVA can't be fetched after retries;
+      // let it bubble so Fastify returns 503 and the cache layer (skips 4xx/
+      // 5xx) doesn't poison the block-keyed response with a wrong price.
       try {
-        priceOverrides = await buildHistoricalPriceMap(blockDate);
+        priceOverrides = await buildHistoricalPriceMap(blockDate, ["lava"]);
       } catch (err) {
         return sendApiError(
           reply, 503,
