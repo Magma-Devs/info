@@ -13,7 +13,8 @@ import {
   Legend,
   Brush,
 } from "recharts";
-import { BarChart3, Loader2 } from "lucide-react";
+import { BarChart3 } from "lucide-react";
+import { ChartSkeleton } from "./ChartSkeleton";
 
 interface ChartSeries {
   key: string;
@@ -55,12 +56,7 @@ export function Chart({ data, series, xKey, height = 300, isLoading, brushable =
   }, [toggleable]);
 
   if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center text-muted-foreground" style={{ height }}>
-        <Loader2 className="h-8 w-8 mb-3 opacity-30 animate-spin" />
-        <span className="text-sm">Loading chart data...</span>
-      </div>
-    );
+    return <ChartSkeleton height={height} />;
   }
 
   if (data.length === 0) {
