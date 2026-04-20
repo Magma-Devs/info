@@ -1,15 +1,13 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
 import { useChainNames } from "@/hooks/use-chain-names";
 import { getChainIcon } from "@/lib/chain-icons";
-import { Loading } from "@/components/data/Loading";
 import { StatCard } from "@/components/data/StatCard";
-
-const IndexChart = dynamic(() => import("@/components/data/IndexChart").then((m) => m.IndexChart), { ssr: false });
+import { Skeleton } from "@/components/ui/skeleton";
+import { IndexChart } from "@/components/data/IndexChart";
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { ChainLink } from "@/components/data/ChainLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
@@ -94,9 +92,9 @@ function generateMockChartData(): ChartPoint[] {
 }
 
 export default function DashboardPage() {
-  const { data: stats, isLoading } = useApi<IndexStats>("/index/stats");
-  const { data: topChains } = useApi<{ data: TopChain[] }>("/index/top-chains");
-  const { data: providersResp } = useApi<{ data: Provider[] }>("/providers?limit=10");
+  const { data: stats, isLoading: statsLoading } = useApi<IndexStats>("/index/stats");
+  const { data: topChains, isLoading: chainsLoading } = useApi<{ data: TopChain[] }>("/index/top-chains");
+  const { data: providersResp, isLoading: providersLoading } = useApi<{ data: Provider[] }>("/providers?limit=10");
   const [rangeDays, setRangeDays] = useState(90);
   const chartFrom = rangeDays > 0
     ? new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
@@ -165,8 +163,6 @@ export default function DashboardPage() {
     },
   ], []);
 
-  if (isLoading) return <Loading />;
-
   return (
     <>
       {/* Stat Cards */}
@@ -176,6 +172,7 @@ export default function DashboardPage() {
           className="md:hidden"
           label="Relays"
           icon={<Activity className="h-4 w-4 text-muted-foreground" />}
+          loading={statsLoading}
           value={
             <div>
               <div>{formatNumberKMB(stats?.totalRelays ?? 0)}</div>
@@ -188,6 +185,7 @@ export default function DashboardPage() {
           className="md:hidden"
           label="CU"
           icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
+          loading={statsLoading}
           value={
             <div>
               <div>{formatNumberKMB(stats?.totalCu ?? 0)}</div>
@@ -200,6 +198,7 @@ export default function DashboardPage() {
         <StatCard
           className="hidden md:block"
           label="Total Relays"
+          loading={statsLoading}
           value={formatNumberKMB(stats?.totalRelays ?? 0)}
           fullValue={formatNumber(stats?.totalRelays ?? 0)}
           icon={<Activity className="h-4 w-4 text-muted-foreground" />}
@@ -207,6 +206,7 @@ export default function DashboardPage() {
         <StatCard
           className="hidden md:block"
           label="Total CU"
+          loading={statsLoading}
           value={formatNumberKMB(stats?.totalCu ?? 0)}
           fullValue={formatNumber(stats?.totalCu ?? 0)}
           icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
@@ -214,6 +214,7 @@ export default function DashboardPage() {
         <StatCard
           className="hidden md:block"
           label="Relays (30 days)"
+          loading={statsLoading}
           value={formatNumberKMB(stats?.relays30d ?? 0)}
           fullValue={formatNumber(stats?.relays30d ?? 0)}
           icon={<CalendarArrowUp className="h-4 w-4 text-muted-foreground" />}
@@ -221,6 +222,7 @@ export default function DashboardPage() {
         <StatCard
           className="hidden md:block"
           label="CU (30 days)"
+          loading={statsLoading}
           value={formatNumberKMB(stats?.cu30d ?? 0)}
           fullValue={formatNumber(stats?.cu30d ?? 0)}
           icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
@@ -228,12 +230,14 @@ export default function DashboardPage() {
 
         <StatCard
           label="Total Stake"
+          loading={statsLoading}
           value={`${formatLavaKMB(stats?.totalStake ?? "0")} LAVA`}
           fullValue={`${formatLava(stats?.totalStake ?? "0")} LAVA`}
           icon={<Landmark className="h-4 w-4 text-muted-foreground" />}
         />
         <StatCard
           label="Active Providers"
+          loading={statsLoading}
           value={stats?.activeProviderCount ?? 0}
           icon={<Users className="h-4 w-4 text-muted-foreground" />}
         />
@@ -265,7 +269,21 @@ export default function DashboardPage() {
           <CardContent>
             {/* Mobile: compact card list */}
             <ul className="md:hidden divide-y divide-border/60">
-              {providers.slice(0, 5).map((p) => {
+              {providersLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <li key={`skel-p-${i}`} className="flex items-center gap-3 py-3">
+                    <Skeleton className="w-8 h-8 rounded-full" />
+                    <div className="flex-1 space-y-1.5">
+                      <Skeleton className="h-3.5 w-32" />
+                      <Skeleton className="h-3 w-44" />
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <Skeleton className="h-3.5 w-20" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  </li>
+                ))
+              ) : providers.slice(0, 5).map((p) => {
                 const label = p.moniker || `${p.provider.slice(0, 12)}...`;
                 return (
                   <li key={p.provider}>
@@ -286,7 +304,7 @@ export default function DashboardPage() {
             </ul>
             {/* Desktop: sortable table */}
             <div className="hidden md:block">
-              <SortableTable data={providers} columns={providerCols} defaultSort={[{ id: "totalStake", desc: true }]} />
+              <SortableTable data={providers} columns={providerCols} defaultSort={[{ id: "totalStake", desc: true }]} loading={providersLoading} />
             </div>
           </CardContent>
         </Card>
@@ -308,7 +326,21 @@ export default function DashboardPage() {
           <CardContent>
             {/* Mobile: compact card list */}
             <ul className="md:hidden divide-y divide-border/60">
-              {chains.slice(0, 5).map((c) => {
+              {chainsLoading ? (
+                Array.from({ length: 5 }).map((_, i) => (
+                  <li key={`skel-c-${i}`} className="flex items-center gap-3 py-3">
+                    <Skeleton className="w-8 h-8 rounded-md" />
+                    <div className="flex-1 space-y-1.5">
+                      <Skeleton className="h-3.5 w-28" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <Skeleton className="h-3.5 w-20" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  </li>
+                ))
+              ) : chains.slice(0, 5).map((c) => {
                 const fullName = getName(c.specId);
                 const hasFullName = fullName && fullName !== c.specId;
                 return (
@@ -330,7 +362,7 @@ export default function DashboardPage() {
             </ul>
             {/* Desktop: sortable table */}
             <div className="hidden md:block">
-              <SortableTable data={chains} columns={chainCols} defaultSort={[{ id: "totalRelays", desc: true }]} />
+              <SortableTable data={chains} columns={chainCols} defaultSort={[{ id: "totalRelays", desc: true }]} loading={chainsLoading} />
             </div>
           </CardContent>
         </Card>

@@ -1,19 +1,16 @@
 "use client";
 
 import React, { use, useMemo, useState, useEffect } from "react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { type ColumnDef, type Row } from "@tanstack/react-table";
 import { useApi } from "@/hooks/use-api";
-import { Loading } from "@/components/data/Loading";
 import { StatCard } from "@/components/data/StatCard";
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
 import { TimeTooltip } from "@/components/data/TimeTooltip";
 import { SortableTable } from "@/components/data/SortableTable";
-
-const ChainChart = dynamic(() => import("@/components/data/ChainChart").then((m) => m.ChainChart), { ssr: false });
-const ChainOptimizerChart = dynamic(() => import("@/components/data/OptimizerMetricsChart").then((m) => m.ChainOptimizerChart), { ssr: false });
+import { ChainChart } from "@/components/data/ChainChart";
+import { ChainOptimizerChart } from "@/components/data/OptimizerMetricsChart";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { formatNumberKMB, formatLava, formatLavaKMB } from "@/lib/format";
 import { Users, Coins, Box, Activity, BarChart3, ChevronRight } from "lucide-react";
@@ -91,8 +88,8 @@ function generateChainMockData(): TimeSeriesEntry[] {
 
 export default function ChainPage({ params }: { params: Promise<{ specid: string }> }) {
   const { specid } = use(params);
-  const { data: stakesResp, isLoading } = useApi<{ data: SpecStake[] }>(`/specs/${specid}/stakes`);
-  const { data: summaryResp } = useApi<{ data: ChartSummary }>(`/specs/${specid}/charts`);
+  const { data: stakesResp, isLoading: stakesLoading } = useApi<{ data: SpecStake[] }>(`/specs/${specid}/stakes`);
+  const { data: summaryResp, isLoading: summaryLoading } = useApi<{ data: ChartSummary }>(`/specs/${specid}/charts`);
   const [rangeDays, setRangeDays] = useState(90);
   const chartFrom = rangeDays > 0 ? new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : "";
   const { data: tsResp } = useApi<{ data: TimeSeriesEntry[] }>(`/specs/${specid}/charts${chartFrom ? `?from=${chartFrom}` : ""}`);
@@ -381,7 +378,6 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
     );
   };
 
-  if (isLoading) return <Loading />;
   const chainName = getName(specid);
 
   return (
@@ -398,7 +394,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
       </div>
 
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 md:gap-8 xl:grid-cols-6">
-        <StatCard label="Providers" icon={<Users className="h-4 w-4 text-muted-foreground" />} value={
+        <StatCard label="Providers" icon={<Users className="h-4 w-4 text-muted-foreground" />} loading={stakesLoading} value={
           <div>
             <span>{stakes.length}</span>
             {stakes.length > 0 && (
@@ -422,6 +418,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
           className="md:hidden"
           label="Relays"
           icon={<Activity className="h-4 w-4 text-muted-foreground" />}
+          loading={summaryLoading || stakesLoading}
           value={
             <div>
               <div>{summaryResp?.data?.relays != null ? formatNumberKMB(summaryResp.data.relays) : "—"}</div>
@@ -434,6 +431,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
           className="md:hidden"
           label="CU"
           icon={<Box className="h-4 w-4 text-muted-foreground" />}
+          loading={summaryLoading || stakesLoading}
           value={
             <div>
               <div>{summaryResp?.data?.cu != null ? formatNumberKMB(summaryResp.data.cu) : "—"}</div>
@@ -446,6 +444,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
         <StatCard
           className="hidden md:block"
           label="Total Relays"
+          loading={summaryLoading}
           value={summaryResp?.data?.relays != null ? formatNumberKMB(summaryResp.data.relays) : "—"}
           fullValue={summaryResp?.data?.relays != null ? Number(summaryResp.data.relays).toLocaleString() : undefined}
           icon={<Activity className="h-4 w-4 text-muted-foreground" />}
@@ -453,15 +452,17 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
         <StatCard
           className="hidden md:block"
           label="Total CU"
+          loading={summaryLoading}
           value={summaryResp?.data?.cu != null ? formatNumberKMB(summaryResp.data.cu) : "—"}
           fullValue={summaryResp?.data?.cu != null ? Number(summaryResp.data.cu).toLocaleString() : undefined}
           icon={<Box className="h-4 w-4 text-muted-foreground" />}
         />
-        <StatCard className="hidden md:block" label="Relays (30d)" value={formatNumberKMB(relays30d)} icon={<Activity className="h-4 w-4 text-muted-foreground" />} />
-        <StatCard className="hidden md:block" label="CU (30d)" value={formatNumberKMB(cu30d)} icon={<Box className="h-4 w-4 text-muted-foreground" />} />
+        <StatCard className="hidden md:block" label="Relays (30d)" loading={stakesLoading} value={formatNumberKMB(relays30d)} icon={<Activity className="h-4 w-4 text-muted-foreground" />} />
+        <StatCard className="hidden md:block" label="CU (30d)" loading={stakesLoading} value={formatNumberKMB(cu30d)} icon={<Box className="h-4 w-4 text-muted-foreground" />} />
 
         <StatCard
           label="Total Stake"
+          loading={stakesLoading}
           value={`${formatLavaKMB(totalStake.toString())} LAVA`}
           fullValue={`${formatLava(totalStake.toString())} LAVA`}
           icon={<Coins className="h-4 w-4 text-muted-foreground" />}
@@ -594,7 +595,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
           </div>
         </CardHeader>
         <CardContent>
-          <SortableTable data={filteredStakes} columns={stakeCols} defaultSort={[{ id: "total", desc: true }]} renderSubRow={renderSubRow} />
+          <SortableTable data={filteredStakes} columns={stakeCols} defaultSort={[{ id: "total", desc: true }]} renderSubRow={renderSubRow} loading={stakesLoading} />
         </CardContent>
       </Card>
     </>

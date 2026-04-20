@@ -13,7 +13,7 @@ import {
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import type { ProviderListItem } from "@info/shared/types";
 import { useApi } from "@/hooks/use-api";
-import { Loading } from "@/components/data/Loading";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
 import { formatNumberKMB } from "@/lib/format";
@@ -103,20 +103,30 @@ function ProvidersContent() {
     getSortedRowModel: getSortedRowModel(),
   });
 
-  if (isLoading) return <Loading />;
-
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-border bg-card shadow">
         <div className="p-4 md:p-6 border-b border-border">
           <h2 className="text-lg font-semibold">
-            Active Providers ({providers.length})
+            Active Providers {isLoading ? "" : `(${providers.length})`}
           </h2>
         </div>
 
         {/* Mobile: compact card list */}
         <ul className="md:hidden divide-y divide-border/60">
-          {mobileList.map((p) => {
+          {isLoading
+            ? Array.from({ length: 8 }).map((_, i) => (
+                <li key={`skel-${i}`} className="flex items-center gap-3 px-4 py-3">
+                  <Skeleton className="w-9 h-9 rounded-full" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-32" />
+                    <Skeleton className="h-3 w-44" />
+                    <Skeleton className="h-3 w-28" />
+                  </div>
+                  <Skeleton className="h-3.5 w-20 shrink-0" />
+                </li>
+              ))
+            : mobileList.map((p) => {
             const total = toBigInt(p.totalStake) + toBigInt(p.totalDelegation);
             const label = p.moniker || `${p.provider.slice(0, 12)}...`;
             return (
@@ -175,17 +185,29 @@ function ProvidersContent() {
                 ))}
               </thead>
               <tbody>
-                {table.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className={`px-4 py-3 text-foreground${
-                        (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
-                      }`}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
+                {isLoading
+                  ? Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={`skel-${i}`} className="border-b border-border/50">
+                        {columns.map((col, j) => (
+                          <td key={j} className={`px-4 py-3${
+                            (col.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
+                          }`}>
+                            <Skeleton className="h-4 w-full max-w-[160px]" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  : table.getRowModel().rows.map((row) => (
+                      <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
+                        {row.getVisibleCells().map((cell) => (
+                          <td key={cell.id} className={`px-4 py-3 text-foreground${
+                            (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
+                          }`}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        ))}
+                      </tr>
                     ))}
-                  </tr>
-                ))}
               </tbody>
             </table>
           </div>
@@ -197,7 +219,7 @@ function ProvidersContent() {
 
 export default function ProvidersPage() {
   return (
-    <Suspense fallback={<Loading />}>
+    <Suspense fallback={null}>
       <ProvidersContent />
     </Suspense>
   );

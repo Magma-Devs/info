@@ -12,7 +12,7 @@ import {
 } from "@tanstack/react-table";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { useApi } from "@/hooks/use-api";
-import { Loading } from "@/components/data/Loading";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ChainLink } from "@/components/data/ChainLink";
 import { formatNumberKMB } from "@/lib/format";
 import { getChainIcon } from "@/lib/chain-icons";
@@ -104,7 +104,6 @@ export default function ChainsPage() {
     getSortedRowModel: getSortedRowModel(),
   });
 
-  if (isLoading) return <Loading />;
   if (error) return <div className="py-12 text-center text-destructive">Failed to load chains data.</div>;
 
   return (
@@ -112,13 +111,28 @@ export default function ChainsPage() {
       <div className="rounded-xl border border-border bg-card shadow">
         <div className="p-4 md:p-6 border-b border-border">
           <h2 className="text-lg font-semibold">
-            Active Chains ({specs.length})
+            Active Chains {isLoading ? "" : `(${specs.length})`}
           </h2>
         </div>
 
         {/* Mobile: compact card list */}
         <ul className="md:hidden divide-y divide-border/60">
-          {mobileList.map((s) => {
+          {isLoading
+            ? Array.from({ length: 8 }).map((_, i) => (
+                <li key={`skel-${i}`} className="flex items-center gap-3 px-4 py-3">
+                  <Skeleton className="w-9 h-9 rounded-md" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-32" />
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-3 w-28" />
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <Skeleton className="h-3.5 w-16" />
+                    <Skeleton className="h-3 w-20" />
+                  </div>
+                </li>
+              ))
+            : mobileList.map((s) => {
             const hasFullName = s.name && s.name !== s.specId;
             return (
               <li key={s.specId}>
@@ -176,17 +190,29 @@ export default function ChainsPage() {
                 ))}
               </thead>
               <tbody>
-                {table.getRowModel().rows.map((row) => (
-                  <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className={`px-4 py-3 text-foreground${
-                        (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
-                      }`}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
+                {isLoading
+                  ? Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={`skel-${i}`} className="border-b border-border/50">
+                        {columns.map((col, j) => (
+                          <td key={j} className={`px-4 py-3${
+                            (col.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
+                          }`}>
+                            <Skeleton className="h-4 w-full max-w-[140px]" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  : table.getRowModel().rows.map((row) => (
+                      <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
+                        {row.getVisibleCells().map((cell) => (
+                          <td key={cell.id} className={`px-4 py-3 text-foreground${
+                            (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
+                          }`}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        ))}
+                      </tr>
                     ))}
-                  </tr>
-                ))}
               </tbody>
             </table>
           </div>
