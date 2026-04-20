@@ -1,24 +1,22 @@
 "use client";
 
 import React, { use, useState, useMemo, useEffect } from "react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
-import { Loading } from "@/components/data/Loading";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/data/StatCard";
 import { ChainLink } from "@/components/data/ChainLink";
 import { getChainIcon } from "@/lib/chain-icons";
 import { ProviderLink } from "@/components/data/ProviderLink";
 import { LavaAmount } from "@/components/data/LavaAmount";
 import { TimeTooltip } from "@/components/data/TimeTooltip";
-
-const ProviderChart = dynamic(() => import("@/components/data/ProviderChart").then((m) => m.ProviderChart), { ssr: false });
-const ProviderOptimizerChart = dynamic(() => import("@/components/data/OptimizerMetricsChart").then((m) => m.ProviderOptimizerChart), { ssr: false });
+import { ProviderChart } from "@/components/data/ProviderChart";
+import { ProviderOptimizerChart } from "@/components/data/OptimizerMetricsChart";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { SortableTable } from "@/components/data/SortableTable";
 import { type ColumnDef, type Row } from "@tanstack/react-table";
 import { formatNumber, formatNumberKMB, formatLava } from "@/lib/format";
-import { Coins, MonitorCog, ArrowUpNarrowWide, Award, BarChart3, Percent, Copy, ExternalLink, ChevronRight } from "lucide-react";
+import { Coins, MonitorCog, ArrowUpNarrowWide, BarChart3, Percent, Copy, ExternalLink, ChevronRight } from "lucide-react";
 import {
   ResponsiveContainer,
   PieChart,
@@ -86,10 +84,6 @@ interface TimeSeriesEntry {
 }
 
 
-interface DelegatorReward {
-  denom: string; amount: string;
-}
-
 /* ─── Mock chart data for dev (toggle via Dev Tools > Mock chart data) ─── */
 function generateProviderMockData(): TimeSeriesEntry[] {
   const chains = ["ETH1", "LAVA", "COSMOSHUB", "NEAR"];
@@ -118,12 +112,11 @@ function generateProviderMockData(): TimeSeriesEntry[] {
 
 export default function ProviderPage({ params }: { params: Promise<{ lavaid: string }> }) {
   const { lavaid } = use(params);
-  const { data: provider, isLoading } = useApi<ProviderDetail>(`/providers/${lavaid}`);
-  const { data: rewards } = useApi<{ data: ChartEntry[] }>(`/providers/${lavaid}/charts`);
+  const { data: provider, isLoading: providerLoading } = useApi<ProviderDetail>(`/providers/${lavaid}`);
+  const { data: rewards, isLoading: rewardsLoading } = useApi<{ data: ChartEntry[] }>(`/providers/${lavaid}/charts`);
   const [rangeDays, setRangeDays] = useState(90);
   const chartFrom = rangeDays > 0 ? new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : "";
   const { data: tsData } = useApi<{ data: TimeSeriesEntry[] }>(`/providers/${lavaid}/charts${chartFrom ? `?from=${chartFrom}` : ""}`);
-const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/providers/${lavaid}/delegator-rewards`);
   const avatarIdentity = provider?.identity;
   const { data: avatarResp } = useApi<{ url: string | null }>(
     avatarIdentity ? `/providers/${lavaid}/avatar?identity=${avatarIdentity}` : `/providers/${lavaid}/avatar`
@@ -429,9 +422,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
   const healthyCnt = useMemo(() => provider?.stakes.filter(s => s.health?.status === "healthy").length ?? 0, [provider]);
   const unhealthyCnt = useMemo(() => provider?.stakes.filter(s => s.health?.status === "unhealthy").length ?? 0, [provider]);
 
-  if (isLoading) return <Loading />;
-
-  if (!provider) {
+  if (!provider && !providerLoading) {
     return (
       <>
         <Link href="/providers"
@@ -443,8 +434,6 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
       </>
     );
   }
-
-  const claimableRewards = delegatorRewards?.data?.find((r) => r.denom === "ulava");
 
   return (
     <>
@@ -458,13 +447,15 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
             <img src={avatarResp.url} alt="" className="w-10 h-10 rounded-full shrink-0" />
           )}
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold leading-tight truncate">{provider.moniker || "Unknown Provider"}</h1>
+            <h1 className="text-2xl font-bold leading-tight truncate">
+              {provider ? (provider.moniker || "Unknown Provider") : <Skeleton className="h-7 w-48 inline-block" />}
+            </h1>
             <div className="flex items-center gap-2 mt-0.5">
-              <p className="text-sm text-muted-foreground font-mono truncate">{provider.provider}</p>
+              <p className="text-sm text-muted-foreground font-mono truncate">{provider?.provider ?? lavaid}</p>
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard.writeText(provider.provider);
+                  navigator.clipboard.writeText(provider?.provider ?? lavaid);
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1500);
                 }}
@@ -474,7 +465,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
                 {copied ? <span className="text-xs text-green-500">Copied!</span> : <Copy className="h-3.5 w-3.5" />}
               </button>
               <a
-                href={`https://lava.explorers.guru/account/${provider.provider}`}
+                href={`https://lava.explorers.guru/account/${provider?.provider ?? lavaid}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
@@ -494,7 +485,24 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
             <CardTitle className="text-sm">Relays per Spec</CardTitle>
           </CardHeader>
           <CardContent className="pb-2">
-            {pieData.length > 0 ? (
+            {rewardsLoading ? (
+              <>
+                <div className="flex items-center justify-center h-[250px]">
+                  <div className="relative">
+                    <Skeleton className="h-[180px] w-[180px] rounded-full" />
+                    <div className="absolute inset-0 m-auto h-[80px] w-[80px] rounded-full bg-card" />
+                  </div>
+                </div>
+                <div className="flex flex-wrap justify-center gap-x-3 gap-y-1.5 px-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <Skeleton className="w-2.5 h-2.5 rounded-sm" />
+                      <Skeleton className="h-3 w-12" />
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : pieData.length > 0 ? (
               <>
                 <ResponsiveContainer width="100%" height={250}>
                   <PieChart>
@@ -558,6 +566,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
             className="md:hidden"
             label="Relays"
             icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
+            loading={rewardsLoading}
             value={
               <div>
                 <div>{formatNumberKMB(relaysAll.toString())}</div>
@@ -570,6 +579,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
             className="md:hidden"
             label="CU"
             icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />}
+            loading={rewardsLoading}
             value={
               <div>
                 <div>{formatNumberKMB(cuAll.toString())}</div>
@@ -582,6 +592,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
           <StatCard
             className="hidden md:block"
             label="Total Relays"
+            loading={rewardsLoading}
             value={formatNumberKMB(relaysAll.toString())}
             fullValue={relaysAll.toLocaleString()}
             icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />}
@@ -589,22 +600,18 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
           <StatCard
             className="hidden md:block"
             label="Total CU"
+            loading={rewardsLoading}
             value={formatNumberKMB(cuAll.toString())}
             fullValue={cuAll.toLocaleString()}
             icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />}
           />
-          <StatCard className="hidden md:block" label="Relays (30d)" value={formatNumberKMB(relays30d.toString())} fullValue={relays30d.toLocaleString()} icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />} />
-          <StatCard className="hidden md:block" label="CU (30d)" value={formatNumberKMB(cu30d.toString())} fullValue={cu30d.toLocaleString()} icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard className="hidden md:block" label="Relays (30d)" loading={rewardsLoading} value={formatNumberKMB(relays30d.toString())} fullValue={relays30d.toLocaleString()} icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard className="hidden md:block" label="CU (30d)" loading={rewardsLoading} value={formatNumberKMB(cu30d.toString())} fullValue={cu30d.toLocaleString()} icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />} />
 
-          <StatCard label="Total Stake" value={<LavaAmount amount={(totalStake + totalDelegation).toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
-          <StatCard label="Self Stake" value={<LavaAmount amount={totalStake.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
-          <StatCard label="Delegation" value={<LavaAmount amount={totalDelegation.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
-          {commissionDisplay && (
-            <StatCard label="Commission" value={commissionDisplay} icon={<Percent className="h-4 w-4 text-muted-foreground" />} />
-          )}
-          {claimableRewards && (
-            <StatCard label="Claimable Rewards" value={<LavaAmount amount={claimableRewards.amount} />} icon={<Award className="h-4 w-4 text-muted-foreground" />} />
-          )}
+          <StatCard label="Total Stake" loading={providerLoading} value={<LavaAmount amount={(totalStake + totalDelegation).toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard label="Self Stake" loading={providerLoading} value={<LavaAmount amount={totalStake.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard label="Delegation" loading={providerLoading} value={<LavaAmount amount={totalDelegation.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard label="Commission" loading={providerLoading} value={commissionDisplay ?? "—"} icon={<Percent className="h-4 w-4 text-muted-foreground" />} />
         </div>
       </div>
 
@@ -732,7 +739,7 @@ const { data: delegatorRewards } = useApi<{ data: DelegatorReward[] }>(`/provide
           </div>
         </CardHeader>
         <CardContent>
-          <SortableTable data={filteredStakes} columns={stakeCols} defaultSort={[{ id: "total", desc: true }]} renderSubRow={renderStakeSubRow} />
+          <SortableTable data={filteredStakes} columns={stakeCols} defaultSort={[{ id: "total", desc: true }]} renderSubRow={renderStakeSubRow} loading={providerLoading} />
         </CardContent>
       </Card>
 
