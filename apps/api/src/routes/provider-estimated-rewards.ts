@@ -3,12 +3,15 @@ import { CACHE_TTL } from "../config.js";
 import {
   RPC_BATCH_SIZE,
   buildHistoricalPriceMap,
+  extractBaseDenoms,
   fetchBlockAtTimestamp,
   fetchBlockTime,
   fetchLavaUsdPrice,
   fetchProvidersWithSpecs,
-  fetchRewardsBySpec,
+  fetchRawProviderRewards,
   prewarmPriceCache,
+  processRawProviderRewards,
+  type EstimatedRewardsResponse,
   type RewardsBySpecEntry,
 } from "../rpc/lava.js";
 import { sendApiError } from "../plugins/error-handler.js";
@@ -135,32 +138,13 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
 
     await prewarmPriceCache();
 
-    // When querying a historical block:
-    //   • Build a block-time price map so USD values match the snapshot the
-    //     block would have produced (not today's LAVA price).
-    //   • Snapshot the provider set AT the block, not the current chain state,
-    //     so providers who've since deregistered still appear.
-    // Without a block, default to live prices + current provider set.
+    // Compute block metadata upfront (needed for both path branches) and
+    // snapshot the provider set AT the block (when set) so providers who have
+    // since unstaked / deregistered still appear in historical responses.
     let priceTimestamp: string;
-    let priceLavaUsd: number;
-    let priceOverrides: Record<string, number> | undefined;
-
-    if (block) {
-      const blockTimeIso = await fetchBlockTime(block);
-      const blockDate = new Date(blockTimeIso);
-      // buildHistoricalPriceMap throws if the REQUIRED LAVA price can't be
-      // fetched after retries. Let it bubble so Fastify returns 503 and the
-      // cache layer (which skips 4xx/5xx) doesn't poison the block-keyed
-      // response with a wrong price for a year.
-      try {
-        priceOverrides = await buildHistoricalPriceMap(blockDate);
-      } catch (err) {
-        return sendApiError(
-          reply, 503,
-          `historical LAVA price unavailable for block ${block} (${blockTimeIso}); please retry: ${(err as Error).message}`,
-        );
-      }
-      priceLavaUsd = priceOverrides.lava!;
+    let priceLavaUsd: number | undefined;
+    const blockTimeIso = block ? await fetchBlockTime(block) : null;
+    if (blockTimeIso) {
       priceTimestamp = blockTimeIso;
     } else {
       priceTimestamp = new Date().toISOString();
@@ -170,6 +154,49 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
     const { providers: providerMap, specNames } = await fetchProvidersWithSpecs(block);
     const addresses = Array.from(providerMap.keys());
 
+    // ── Pass 1: fetch raw rewards for every provider ─────────────────────
+    // Keeps the chain response so we can (a) inspect which denoms actually
+    // appear and (b) format the final output with the right prices, without
+    // paying for a second chain-RPC round.
+    const rawByAddr = new Map<string, EstimatedRewardsResponse>();
+    for (let i = 0; i < addresses.length; i += RPC_BATCH_SIZE) {
+      const batch = addresses.slice(i, i + RPC_BATCH_SIZE);
+      const raws = await Promise.all(batch.map((addr) => fetchRawProviderRewards(addr, block)));
+      batch.forEach((addr, j) => rawByAddr.set(addr, raws[j]!));
+    }
+
+    // ── Price overrides ──────────────────────────────────────────────────
+    // For historical blocks, fetch prices ONLY for denoms that appear in the
+    // rewards (typically just LAVA + 0-2 IBC denoms). Fetching all 22 known
+    // denoms sequentially with retry backoff would exceed the gateway timeout
+    // under any CoinGecko throttling.
+    let priceOverrides: Record<string, number> | undefined;
+    if (block && blockTimeIso) {
+      const relevantDenoms = await extractBaseDenoms([...rawByAddr.values()]);
+      if (relevantDenoms.size === 0) {
+        // No priceable rewards in this block — nothing to override.
+        priceOverrides = {};
+        priceLavaUsd = 0;
+      } else {
+        try {
+          priceOverrides = await buildHistoricalPriceMap(
+            new Date(blockTimeIso),
+            [...relevantDenoms],
+          );
+        } catch (err) {
+          // LAVA historical price unavailable. Refuse to ship a response —
+          // the cache plugin skips 4xx/5xx so we don't poison the block-keyed
+          // cache with a wrong price for a year.
+          return sendApiError(
+            reply, 503,
+            `historical LAVA price unavailable for block ${block} (${blockTimeIso}); please retry: ${(err as Error).message}`,
+          );
+        }
+        priceLavaUsd = priceOverrides.lava ?? await fetchLavaUsdPrice();
+      }
+    }
+
+    // ── Pass 2: format each provider's raw response with the right prices ─
     const results: Array<{
       provider: string;
       moniker: string;
@@ -177,27 +204,19 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       total_usd: number;
     }> = [];
 
-    for (let i = 0; i < addresses.length; i += RPC_BATCH_SIZE) {
-      const batch = addresses.slice(i, i + RPC_BATCH_SIZE);
-      const rewardResults = await Promise.all(
-        batch.map((addr) => fetchRewardsBySpec(addr, specNames, block, priceOverrides)),
-      );
+    for (const [addr, raw] of rawByAddr) {
+      const provider = providerMap.get(addr)!;
+      let rewards = await processRawProviderRewards(raw, specNames, priceOverrides);
+      if (spec) rewards = rewards.filter((r) => r.spec === spec);
+      if (rewards.length === 0) continue;
 
-      for (let j = 0; j < batch.length; j++) {
-        const addr = batch[j]!;
-        const provider = providerMap.get(addr)!;
-        let rewards = rewardResults[j]!;
-        if (spec) rewards = rewards.filter((r) => r.spec === spec);
-        if (rewards.length === 0) continue;
-
-        const totalUsd = rewards.reduce((sum, r) => sum + r.total_usd, 0);
-        results.push({
-          provider: addr,
-          moniker: provider.moniker || "-",
-          rewards,
-          total_usd: totalUsd,
-        });
-      }
+      const totalUsd = rewards.reduce((sum, r) => sum + r.total_usd, 0);
+      results.push({
+        provider: addr,
+        moniker: provider.moniker || "-",
+        rewards,
+        total_usd: totalUsd,
+      });
     }
 
     results.sort((a, b) => b.total_usd - a.total_usd);
@@ -206,7 +225,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       meta: {
         block: block ?? null,
         spec: spec ?? null,
-        priceLavaUsd,
+        priceLavaUsd: priceLavaUsd ?? 0,
         priceTimestamp,
       },
       data: results,

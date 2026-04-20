@@ -148,16 +148,141 @@ export interface RewardsBySpecEntry {
   sources: RewardsSourceBreakdown[];
 }
 
+/** Fetch the raw estimated_provider_rewards chain response for one provider.
+ *  Returns an empty structure on error so callers can iterate without throwing. */
+export async function fetchRawProviderRewards(
+  address: string,
+  blockHeight?: number,
+): Promise<EstimatedRewardsResponse> {
+  try {
+    return await fetchRest<EstimatedRewardsResponse>(
+      `/lavanet/lava/subscription/estimated_provider_rewards/${address}/`,
+      blockHeight,
+    );
+  } catch {
+    return { info: [], total: [] };
+  }
+}
+
+/** Extract the set of base denoms (post-IBC-resolution) that appear in one or
+ *  more raw estimated_provider_rewards responses. Used by the route to fetch
+ *  historical prices ONLY for denoms that actually appear — fetching all 22
+ *  known denoms would blow past the gateway timeout under CoinGecko throttling. */
+export async function extractBaseDenoms(
+  raws: EstimatedRewardsResponse[],
+): Promise<Set<string>> {
+  const rawDenoms = new Set<string>();
+  for (const raw of raws) {
+    for (const entry of raw.info ?? []) {
+      const amounts = Array.isArray(entry.amount) ? entry.amount : [entry.amount];
+      for (const coin of amounts) {
+        if (!TEST_DENOMS.has(coin.denom)) rawDenoms.add(coin.denom);
+      }
+    }
+  }
+
+  const baseDenoms = new Set<string>();
+  for (const d of rawDenoms) {
+    let effectiveDenom: string | null = d;
+    if (d.startsWith("ibc/")) {
+      effectiveDenom = await fetchDenomTrace(d.slice(4));
+      if (!effectiveDenom) continue;
+    }
+    const baseDenom = DENOM_CONVERSIONS[effectiveDenom]?.baseDenom;
+    if (baseDenom) baseDenoms.add(baseDenom);
+  }
+  return baseDenoms;
+}
+
+/** Convert a raw chain response into the per-spec breakdown. Pulls prices from
+ *  `priceOverrides` (keyed by base denom) when provided, else the live cache. */
+export async function processRawProviderRewards(
+  raw: EstimatedRewardsResponse,
+  specNameMap: Map<string, string>,
+  priceOverrides?: Record<string, number>,
+): Promise<RewardsBySpecEntry[]> {
+  // Each info entry has source like "Boost: ETH1" (prefix:suffix). Extract
+  // spec from the suffix; preserve the raw source string so consumers can
+  // categorize by Boost / Pools / Subscription. Track per-(spec, source)
+  // denom sums plus per-spec totals.
+  interface SourceAcc { source: string; tokens: Map<string, number> }
+  interface SpecAcc { sources: Map<string, SourceAcc>; tokens: Map<string, number> }
+  const bySpec = new Map<string, SpecAcc>();
+
+  for (const entry of raw.info ?? []) {
+    const parts = (entry.source as string).split(": ");
+    const spec = parts.length > 1 ? parts[1] : parts[0];
+    if (!spec) continue;
+
+    const specKey = spec.toLowerCase();
+    let specAcc = bySpec.get(specKey);
+    if (!specAcc) {
+      specAcc = { sources: new Map(), tokens: new Map() };
+      bySpec.set(specKey, specAcc);
+    }
+
+    let sourceAcc = specAcc.sources.get(entry.source);
+    if (!sourceAcc) {
+      sourceAcc = { source: entry.source, tokens: new Map() };
+      specAcc.sources.set(entry.source, sourceAcc);
+    }
+
+    const amounts = Array.isArray(entry.amount) ? entry.amount : [entry.amount];
+    for (const coin of amounts) {
+      if (TEST_DENOMS.has(coin.denom)) continue;
+      const amt = parseFloat(coin.amount) || 0;
+      sourceAcc.tokens.set(coin.denom, (sourceAcc.tokens.get(coin.denom) ?? 0) + amt);
+      specAcc.tokens.set(coin.denom, (specAcc.tokens.get(coin.denom) ?? 0) + amt);
+    }
+  }
+
+  async function denomMapToBreakdown(denomMap: Map<string, number>): Promise<{ tokens: RewardToken[]; total_usd: number }> {
+    const tokens: RewardToken[] = [];
+    let totalUsd = 0;
+    for (const [denom, amount] of denomMap) {
+      const processed = await processRewardTokens(
+        [{ denom, amount: amount.toString() }],
+        priceOverrides,
+      );
+      tokens.push(...processed.tokens);
+      totalUsd += processed.totalUsd;
+    }
+    return { tokens, total_usd: totalUsd };
+  }
+
+  const results: RewardsBySpecEntry[] = [];
+  for (const [specKey, specAcc] of bySpec) {
+    const specBreakdown = await denomMapToBreakdown(specAcc.tokens);
+    const sources: RewardsSourceBreakdown[] = [];
+    for (const [, sourceAcc] of specAcc.sources) {
+      const srcBreakdown = await denomMapToBreakdown(sourceAcc.tokens);
+      sources.push({
+        source: sourceAcc.source,
+        tokens: srcBreakdown.tokens,
+        total_usd: srcBreakdown.total_usd,
+      });
+    }
+
+    results.push({
+      chain: specNameMap.get(specKey.toUpperCase()) ?? specKey.toUpperCase(),
+      spec: specKey.toUpperCase(),
+      tokens: specBreakdown.tokens,
+      total_usd: specBreakdown.total_usd,
+      sources,
+    });
+  }
+
+  return results;
+}
+
 /**
  * Fetch a provider's actual earned rewards (no benchmark amount) and group by spec.
- * Matches jsinfo's rewards_last_month: calls estimated_provider_rewards/{addr}/
- * then splits "Boost: ETH1", "Pools: ETH1", "Subscription: ETH1" into per-spec groups.
+ * Composes fetchRawProviderRewards + processRawProviderRewards for callers that
+ * don't need the raw/extract/process split (e.g. APR's computeAllProvidersApr).
  *
  * Pass blockHeight to query historical chain state (archive node required).
  * Pass priceOverrides (keyed by base denom, e.g. "lava") to price tokens at a
- * specific point in time — typically the block's date for historical queries,
- * so USD figures match jsinfo's block-time snapshot instead of drifting with
- * the current LAVA price.
+ * specific point in time.
  */
 export async function fetchRewardsBySpec(
   address: string,
@@ -165,87 +290,8 @@ export async function fetchRewardsBySpec(
   blockHeight?: number,
   priceOverrides?: Record<string, number>,
 ): Promise<RewardsBySpecEntry[]> {
-  try {
-    const data = await fetchRest<EstimatedRewardsResponse>(
-      `/lavanet/lava/subscription/estimated_provider_rewards/${address}/`,
-      blockHeight,
-    );
-
-    // Each info entry has source like "Boost: ETH1" (prefix:suffix). Extract
-    // spec from the suffix; preserve the raw source string so consumers can
-    // categorize by Boost / Pools / Subscription. Track per-(spec, source)
-    // denom sums plus per-spec totals.
-    interface SourceAcc { source: string; tokens: Map<string, number> }
-    interface SpecAcc { sources: Map<string, SourceAcc>; tokens: Map<string, number> }
-    const bySpec = new Map<string, SpecAcc>();
-
-    for (const entry of data.info ?? []) {
-      const parts = (entry.source as string).split(": ");
-      const spec = parts.length > 1 ? parts[1] : parts[0];
-      if (!spec) continue;
-
-      const specKey = spec.toLowerCase();
-      let specAcc = bySpec.get(specKey);
-      if (!specAcc) {
-        specAcc = { sources: new Map(), tokens: new Map() };
-        bySpec.set(specKey, specAcc);
-      }
-
-      let sourceAcc = specAcc.sources.get(entry.source);
-      if (!sourceAcc) {
-        sourceAcc = { source: entry.source, tokens: new Map() };
-        specAcc.sources.set(entry.source, sourceAcc);
-      }
-
-      const amounts = Array.isArray(entry.amount) ? entry.amount : [entry.amount];
-      for (const coin of amounts) {
-        if (TEST_DENOMS.has(coin.denom)) continue;
-        const amt = parseFloat(coin.amount) || 0;
-        sourceAcc.tokens.set(coin.denom, (sourceAcc.tokens.get(coin.denom) ?? 0) + amt);
-        specAcc.tokens.set(coin.denom, (specAcc.tokens.get(coin.denom) ?? 0) + amt);
-      }
-    }
-
-    async function denomMapToBreakdown(denomMap: Map<string, number>): Promise<{ tokens: RewardToken[]; total_usd: number }> {
-      const tokens: RewardToken[] = [];
-      let totalUsd = 0;
-      for (const [denom, amount] of denomMap) {
-        const processed = await processRewardTokens(
-          [{ denom, amount: amount.toString() }],
-          priceOverrides,
-        );
-        tokens.push(...processed.tokens);
-        totalUsd += processed.totalUsd;
-      }
-      return { tokens, total_usd: totalUsd };
-    }
-
-    const results: RewardsBySpecEntry[] = [];
-    for (const [specKey, specAcc] of bySpec) {
-      const specBreakdown = await denomMapToBreakdown(specAcc.tokens);
-      const sources: RewardsSourceBreakdown[] = [];
-      for (const [, sourceAcc] of specAcc.sources) {
-        const srcBreakdown = await denomMapToBreakdown(sourceAcc.tokens);
-        sources.push({
-          source: sourceAcc.source,
-          tokens: srcBreakdown.tokens,
-          total_usd: srcBreakdown.total_usd,
-        });
-      }
-
-      results.push({
-        chain: specNameMap.get(specKey.toUpperCase()) ?? specKey.toUpperCase(),
-        spec: specKey.toUpperCase(),
-        tokens: specBreakdown.tokens,
-        total_usd: specBreakdown.total_usd,
-        sources,
-      });
-    }
-
-    return results;
-  } catch {
-    return [];
-  }
+  const raw = await fetchRawProviderRewards(address, blockHeight);
+  return processRawProviderRewards(raw, specNameMap, priceOverrides);
 }
 
 export interface ClaimableRewardEntry {
