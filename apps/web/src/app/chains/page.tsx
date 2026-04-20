@@ -146,9 +146,9 @@ export default function ChainsPage() {
                       {s.cu30d && ` · ${formatNumberKMB(s.cu30d)} CU (30d)`}
                     </div>
                   </div>
-                  <div className="text-base font-medium shrink-0 text-right">
-                    {formatNumberKMB(s.relays30d)}
-                    <div className="text-xs text-muted-foreground font-normal">relays (30d)</div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Relays (30d)</div>
+                    <div className="text-base font-semibold mt-0.5">{formatNumberKMB(s.relays30d)}</div>
                   </div>
                 </Link>
               </li>
