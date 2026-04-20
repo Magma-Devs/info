@@ -37,7 +37,14 @@ const MOCK_VALIDATORS = {
         operator_address: "lava@valoper1abc",
       },
       outstanding_rewards: EMPTY_BREAKDOWN,
-      estimated_rewards: EMPTY_BREAKDOWN,
+      estimated_rewards: {
+        tokens: [{ source_denom: "ulava", resolved_amount: "1000000", resolved_denom: "ulava", display_denom: "lava", display_amount: "1", value_usd: "$2" }],
+        total_usd: 2,
+        info: [
+          { source: "iprpc: ETH1", amount: { tokens: [], total_usd: 1 } },
+          { source: "boost: ETH1", amount: { tokens: [], total_usd: 1 } },
+        ],
+      },
       delegations: { delegation_responses: [], pagination: { next_key: null, total: "0" } },
       unbonding_delegations: { unbonding_responses: [], pagination: { next_key: null, total: "0" } },
     },
@@ -73,6 +80,9 @@ describe("GET /validators-and-rewards", () => {
     expect(v.distribution).toBeDefined();
     expect(v.outstanding_rewards).toBeDefined();
     expect(v.estimated_rewards).toBeDefined();
+    expect(v.estimated_rewards.info).toHaveLength(2);
+    expect(v.estimated_rewards.info[0].source).toBe("iprpc: ETH1");
+    expect(v.estimated_rewards.info[0].amount.total_usd).toBe(1);
     expect(v.delegations.delegation_responses).toEqual([]);
     expect(v.unbonding_delegations.unbonding_responses).toEqual([]);
   });
