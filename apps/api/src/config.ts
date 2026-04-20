@@ -98,7 +98,7 @@ export const CACHE_TTL = {
   /** Truly immutable past-block snapshots — response is fully determined by
    *  historical chain state + block-time CoinGecko prices, both of which
    *  never change. Cache for a year so repeated lookups never pay the
-   *  chain-RPC + 22-denom CoinGecko cost twice. */
+   *  chain-RPC + CoinGecko cost twice. */
   IMMUTABLE: 31_536_000,
 } as const;
 

@@ -7,19 +7,19 @@ import { fetchStakingPool } from "./supply.js";
 const logger = pino({ name: "pricing" });
 
 // ── CoinGecko rate-limit-aware fetch ────────────────────────────────────────
-// Free-tier limit is ~10-30 calls/min. On 429, honor the Retry-After header if
-// present, else exponential backoff. Throws after `maxAttempts` so the caller
-// can distinguish "couldn't fetch" from "data says zero" — critical for
-// historical pricing, where a silent fallback to current price would bake a
-// wrong USD number into the 1-year response cache.
+// Free-tier throttles ~10-30 req/min. Honor Retry-After on 429; otherwise use
+// exponential backoff. Throws after maxAttempts so callers can distinguish
+// "couldn't fetch" from "data says zero". Critical for historical pricing:
+// silently falling back to current price would bake wrong USD into the 1-year
+// response cache.
 const COINGECKO_MAX_ATTEMPTS = 5;
 const COINGECKO_MAX_BACKOFF_MS = 60_000;
 
-async function coingeckoFetch(url: string, signal?: AbortSignal): Promise<Response> {
+async function coingeckoFetch(url: string): Promise<Response> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= COINGECKO_MAX_ATTEMPTS; attempt++) {
     try {
-      const res = await fetch(url, { signal: signal ?? AbortSignal.timeout(20_000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
       if (res.status !== 429) return res;
 
       const retryAfter = parseInt(res.headers.get("retry-after") ?? "0", 10);
@@ -167,13 +167,12 @@ function formatDateForCoingecko(date: Date): string {
  *   - CoinGecko returns 200 with no market_data for that date
  *
  *  THROWS on transient failures (rate limit after retries, network error).
- *  That's critical: historical rewards responses get cached for a year, so
- *  silently falling back to "no price" or current price would bake wrong
- *  USD numbers into the cache. Better to 503 the request and retry later.
+ *  Critical: historical responses are cached for a year — silently returning 0
+ *  (then falling back to current price) would bake wrong USD into the cache.
+ *  Better to 503 and let the next caller retry from scratch.
  *
- *  Zeros are cached (negative result caching) because "coin not listed" /
- *  "no data on that date" are permanent facts. Transient errors throw and
- *  are not cached, so the next caller retries from scratch. */
+ *  Zeros are cached (negative-result caching) because "coin not listed" and
+ *  "no data on that date" are permanent. Transient errors don't cache. */
 export async function fetchTokenUsdPriceAt(
   baseDenom: string,
   date: Date,
@@ -193,7 +192,6 @@ export async function fetchTokenUsdPriceAt(
     `${config.external.coingeckoApiUrl}/coins/${id}/history?date=${formatDateForCoingecko(date)}&localization=false`,
   );
   if (res.status === 404) {
-    // Legitimately unknown coin ID — cache the zero indefinitely.
     historicalPriceCache.set(k, 0);
     return 0;
   }
@@ -208,18 +206,22 @@ export async function fetchTokenUsdPriceAt(
   return price;
 }
 
-/** Build a `baseDenom → price` map at a given date for the denoms we know about.
+/** Build a `baseDenom → price` map at a given date.
  *
- *  Sequential because CoinGecko's free tier throttles ~10-30/min; parallelizing
- *  22 denoms triggers 429s that coingeckoFetch spends minutes backing off.
- *  Results cache indefinitely so the sequential cost is paid once per block.
+ *  Pass `denoms` to limit which prices to fetch — the route typically passes
+ *  only the denoms that actually appear in the block's rewards (usually just
+ *  LAVA + 0-2 IBC denoms). Without this, fetching all 22 known denoms
+ *  sequentially with retry backoff would exceed the gateway timeout under any
+ *  CoinGecko throttling.
  *
- *  LAVA is fetched first (virtually all reward value is LAVA). If the LAVA
- *  fetch throws, we let it propagate — the caller needs to know the historical
- *  price is unavailable and return 503 rather than silently shipping a wrong
- *  cached response. Other denoms are best-effort: if a minor denom fails after
- *  retries, we log and continue, and downstream callers will fall back to the
- *  current-price cache for that denom (negligible drift). */
+ *  Sequential (not parallel) because free-tier rate limiting on 22+ concurrent
+ *  calls causes silent drop-to-current-price. Results cache indefinitely so
+ *  the sequential cost is paid once per (denom, date) tuple.
+ *
+ *  LAVA goes first so we get the critical price even if later denoms throttle.
+ *  LAVA failure propagates (caller needs to know). Other denoms best-effort —
+ *  on failure they're logged and skipped, downstream falls back to current
+ *  price for those (negligible drift since rewards are 99%+ LAVA). */
 export async function buildHistoricalPriceMap(
   date: Date,
   denoms: string[] = Object.keys(DENOM_COINGECKO_ID),
@@ -234,7 +236,7 @@ export async function buildHistoricalPriceMap(
       const p = await fetchTokenUsdPriceAt(d, date);
       if (p > 0) out[d] = p;
     } catch (e) {
-      if (d === "lava") throw e; // LAVA is required; bubble up to 503
+      if (d === "lava") throw e; // LAVA is required; bubble to 503
       logger.warn({ denom: d, date: date.toISOString(), err: String(e) },
         "historical price unavailable, continuing without it");
     }
@@ -266,14 +268,23 @@ export async function fetchTokenUsdPrice(baseDenom: string): Promise<number> {
   }
 }
 
+// IBC hash → base denom is immutable once the channel is established. Cache
+// forever so we don't keep hitting chain RPC on every reward-processing pass.
+const ibcTraceCache = new Map<string, string | null>();
+
 /** Resolve an IBC hash to its base denom via chain RPC */
 export async function fetchDenomTrace(ibcHash: string): Promise<string | null> {
+  const cached = ibcTraceCache.get(ibcHash);
+  if (cached !== undefined) return cached;
   try {
     const data = await fetchRest<{
       denom_trace: { base_denom: string };
     }>(`/ibc/apps/transfer/v1/denom_traces/${ibcHash}`);
-    return data.denom_trace?.base_denom ?? null;
+    const resolved = data.denom_trace?.base_denom ?? null;
+    ibcTraceCache.set(ibcHash, resolved);
+    return resolved;
   } catch {
+    // Don't cache transient failures — next caller retries.
     return null;
   }
 }

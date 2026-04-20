@@ -29,9 +29,14 @@ export {
   type RewardToken,
   type ProcessedRewards,
   type RewardsBySpecEntry,
+  type RewardsSourceBreakdown,
   type ClaimableRewardEntry,
   type TokenBreakdown,
+  type EstimatedRewardsResponse,
   fetchRewardsBySpec,
+  fetchRawProviderRewards,
+  extractBaseDenoms,
+  processRawProviderRewards,
   processClaimableRewards,
 } from "./rewards.js";
 export {

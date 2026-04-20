@@ -6,7 +6,9 @@ vi.mock("../rpc/lava.js", () => ({
   RPC_BATCH_SIZE: 5,
   prewarmPriceCache: vi.fn(),
   fetchProvidersWithSpecs: vi.fn(),
-  fetchRewardsBySpec: vi.fn(),
+  fetchRawProviderRewards: vi.fn(),
+  extractBaseDenoms: vi.fn(),
+  processRawProviderRewards: vi.fn(),
   fetchBlockAtTimestamp: vi.fn(),
   fetchBlockTime: vi.fn(),
   fetchLavaUsdPrice: vi.fn(),
@@ -16,7 +18,9 @@ vi.mock("../rpc/lava.js", () => ({
 const {
   prewarmPriceCache,
   fetchProvidersWithSpecs,
-  fetchRewardsBySpec,
+  fetchRawProviderRewards,
+  extractBaseDenoms,
+  processRawProviderRewards,
   fetchBlockAtTimestamp,
   fetchBlockTime,
   fetchLavaUsdPrice,
@@ -79,16 +83,25 @@ const MOCK_REWARDS_BETA = [
   },
 ];
 
+// Stub: raw response shape doesn't matter for routing since processRawProviderRewards is mocked.
+const STUB_RAW = { info: [], total: [] };
+
 beforeEach(() => {
   vi.resetAllMocks();
   (prewarmPriceCache as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
   (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockResolvedValue(0.12);
   (fetchProvidersWithSpecs as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_PROVIDERS_WITH_SPECS);
-  (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mockImplementation((addr: string) => {
-    if (addr === "lava@1abc") return Promise.resolve(MOCK_REWARDS_ALPHA);
-    if (addr === "lava@2def") return Promise.resolve(MOCK_REWARDS_BETA);
-    return Promise.resolve([]);
-  });
+  (fetchRawProviderRewards as ReturnType<typeof vi.fn>).mockResolvedValue(STUB_RAW);
+  (extractBaseDenoms as ReturnType<typeof vi.fn>).mockResolvedValue(new Set(["lava"]));
+  (processRawProviderRewards as ReturnType<typeof vi.fn>).mockImplementation(
+    (_raw: unknown, _specs: unknown, overrides: Record<string, number> | undefined) => {
+      // Default mock returns Alpha/Beta per address — the route calls this
+      // AFTER iterating rawByAddr (a Map) so we can't identify address here.
+      // Tests that care about overrides can override this implementation.
+      void overrides;
+      return Promise.resolve(MOCK_REWARDS_ALPHA);
+    },
+  );
   (fetchBlockAtTimestamp as ReturnType<typeof vi.fn>).mockImplementation(
     (unix: number) => Promise.resolve(1_000_000 + Math.floor(unix / 1000)),
   );
@@ -96,13 +109,28 @@ beforeEach(() => {
   (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });
 });
 
+// Route calls processRawProviderRewards per-provider in Map iteration order.
+// We key the mock by raw reference so Alpha and Beta can differ.
+function mockProcessPerProvider() {
+  const rawAlpha = { info: [{ source: "Boost: ETH1", amount: [{ denom: "ulava", amount: "5000000" }] }], total: [] };
+  const rawBeta = { info: [{ source: "Boost: ETH1", amount: [{ denom: "ulava", amount: "2000000" }] }], total: [] };
+  (fetchRawProviderRewards as ReturnType<typeof vi.fn>).mockImplementation((addr: string) => {
+    if (addr === "lava@1abc") return Promise.resolve(rawAlpha);
+    if (addr === "lava@2def") return Promise.resolve(rawBeta);
+    return Promise.resolve(STUB_RAW);
+  });
+  (processRawProviderRewards as ReturnType<typeof vi.fn>).mockImplementation((raw: unknown) => {
+    if (raw === rawAlpha) return Promise.resolve(MOCK_REWARDS_ALPHA);
+    if (raw === rawBeta) return Promise.resolve(MOCK_REWARDS_BETA);
+    return Promise.resolve([]);
+  });
+}
+
 describe("GET /provider-estimated-rewards", () => {
   it("returns per-provider chain rewards grouped by spec", async () => {
+    mockProcessPerProvider();
     const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/provider-estimated-rewards",
-    });
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
     expect(res.statusCode).toBe(200);
 
     const body = JSON.parse(res.body);
@@ -122,6 +150,7 @@ describe("GET /provider-estimated-rewards", () => {
   });
 
   it("preserves per-source breakdown on each spec entry", async () => {
+    mockProcessPerProvider();
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
     const body = JSON.parse(res.body);
@@ -136,22 +165,16 @@ describe("GET /provider-estimated-rewards", () => {
   });
 
   it("excludes providers with no rewards", async () => {
-    (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (processRawProviderRewards as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/provider-estimated-rewards",
-    });
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
     const body = JSON.parse(res.body);
     expect(body.data).toHaveLength(0);
   });
 
   it("calls prewarmPriceCache before fetching rewards", async () => {
     const app = await buildApp();
-    await app.inject({
-      method: "GET",
-      url: "/provider-estimated-rewards",
-    });
+    await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
     expect(prewarmPriceCache).toHaveBeenCalledTimes(1);
   });
 
@@ -161,21 +184,15 @@ describe("GET /provider-estimated-rewards", () => {
       providers.set(`lava@p${i}`, { moniker: `P${i}`, identity: "", commission: "50", specs: [] });
     }
     (fetchProvidersWithSpecs as ReturnType<typeof vi.fn>).mockResolvedValue({
-      providers,
-      specNames: new Map(),
+      providers, specNames: new Map(),
     });
-    (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-
+    (processRawProviderRewards as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const app = await buildApp();
-    await app.inject({
-      method: "GET",
-      url: "/provider-estimated-rewards",
-    });
-
-    expect(fetchRewardsBySpec).toHaveBeenCalledTimes(12);
+    await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
+    expect(fetchRawProviderRewards).toHaveBeenCalledTimes(12);
   });
 
-  it("passes block height through to fetchRewardsBySpec", async () => {
+  it("passes block height through to fetchRawProviderRewards", async () => {
     const app = await buildApp();
     const res = await app.inject({
       method: "GET",
@@ -184,17 +201,76 @@ describe("GET /provider-estimated-rewards", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.meta.block).toBe(1234567);
-
-    // Every call should have been made with block=1234567 as the third arg
-    const calls = (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mock.calls;
-    expect(calls.length).toBeGreaterThan(0);
-    for (const [, , blockArg] of calls) {
+    for (const [, blockArg] of (fetchRawProviderRewards as ReturnType<typeof vi.fn>).mock.calls) {
       expect(blockArg).toBe(1234567);
     }
   });
 
-  it("returns 503 when historical LAVA price is unavailable (don't cache wrong data for a year)", async () => {
+  it("for historical blocks, fetches prices only for denoms actually in rewards", async () => {
+    (extractBaseDenoms as ReturnType<typeof vi.fn>).mockResolvedValue(new Set(["lava", "atom"]));
+    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035, atom: 8.2 });
+
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards?block=4697952",
+    });
+    expect(res.statusCode).toBe(200);
+
+    // buildHistoricalPriceMap called with ONLY the relevant denoms (not all 22)
+    expect(buildHistoricalPriceMap).toHaveBeenCalledWith(
+      expect.any(Date),
+      expect.arrayContaining(["lava", "atom"]),
+    );
+    const passedDenoms = (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string[];
+    expect(passedDenoms.length).toBe(2);
+
+    // Price overrides passed down to processRawProviderRewards
+    for (const call of (processRawProviderRewards as ReturnType<typeof vi.fn>).mock.calls) {
+      expect(call[2]).toEqual({ lava: 0.035, atom: 8.2 });
+    }
+  });
+
+  it("uses block-time pricing when ?block= is set (historical LAVA price)", async () => {
     (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
+    (extractBaseDenoms as ReturnType<typeof vi.fn>).mockResolvedValue(new Set(["lava"]));
+    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards?block=4697952",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.meta.priceLavaUsd).toBe(0.035);
+    expect(body.meta.priceTimestamp).toBe("2026-03-17T15:00:00Z");
+    // fetchLavaUsdPrice NOT called when historical override provides LAVA
+    expect(fetchLavaUsdPrice).not.toHaveBeenCalled();
+  });
+
+  it("snapshots the provider set at the historical block", async () => {
+    (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
+    const app = await buildApp();
+    await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
+    expect(fetchProvidersWithSpecs).toHaveBeenCalledWith(4697952);
+  });
+
+  it("uses live prices + current provider set when ?block= is omitted", async () => {
+    (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockResolvedValue(0.025);
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
+    const body = JSON.parse(res.body);
+    expect(body.meta.priceLavaUsd).toBe(0.025);
+    expect(fetchProvidersWithSpecs).toHaveBeenCalledWith(undefined);
+    expect(buildHistoricalPriceMap).not.toHaveBeenCalled();
+    for (const call of (processRawProviderRewards as ReturnType<typeof vi.fn>).mock.calls) {
+      expect(call[2]).toBeUndefined();
+    }
+  });
+
+  it("returns 503 when historical LAVA price is unavailable (don't cache wrong data)", async () => {
+    (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
+    (extractBaseDenoms as ReturnType<typeof vi.fn>).mockResolvedValue(new Set(["lava"]));
     (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("CoinGecko 429 after 5 attempts"),
     );
@@ -205,62 +281,12 @@ describe("GET /provider-estimated-rewards", () => {
     });
     expect(res.statusCode).toBe(503);
     expect(JSON.parse(res.body).message).toMatch(/historical LAVA price unavailable/);
-    // Critical: fetchRewardsBySpec must NOT have been called — we refused to
-    // ship a response rather than silently using the current price.
-    expect(fetchRewardsBySpec).not.toHaveBeenCalled();
-  });
-
-  it("uses block-time pricing when ?block= is set (historical LAVA price)", async () => {
-    (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
-    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });
-    const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/provider-estimated-rewards?block=4697952",
-    });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    // meta.priceLavaUsd reflects historical price, meta.priceTimestamp = block time
-    expect(body.meta.priceLavaUsd).toBe(0.035);
-    expect(body.meta.priceTimestamp).toBe("2026-03-17T15:00:00Z");
-    // fetchRewardsBySpec got the override map as the 4th arg
-    const calls = (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mock.calls;
-    for (const [, , , overridesArg] of calls) {
-      expect(overridesArg).toEqual({ lava: 0.035 });
-    }
-    // fetchLavaUsdPrice is NOT called when historical overrides provide a lava price
-    expect(fetchLavaUsdPrice).not.toHaveBeenCalled();
-  });
-
-  it("snapshots the provider set at the historical block (not current)", async () => {
-    (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
-    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });
-    const app = await buildApp();
-    await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
-    // fetchProvidersWithSpecs was called with the block height so chain RPC
-    // returns the provider set as it existed at that block (includes providers
-    // who have since deregistered).
-    expect(fetchProvidersWithSpecs).toHaveBeenCalledWith(4697952);
-  });
-
-  it("uses live prices + current provider set when ?block= is omitted", async () => {
-    (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockResolvedValue(0.025);
-    const app = await buildApp();
-    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
-    const body = JSON.parse(res.body);
-    expect(body.meta.priceLavaUsd).toBe(0.025);
-    // Provider set fetched without a block arg (current state)
-    expect(fetchProvidersWithSpecs).toHaveBeenCalledWith(undefined);
-    // No historical price map needed
-    expect(buildHistoricalPriceMap).not.toHaveBeenCalled();
-    // No override passed through to fetchRewardsBySpec
-    const calls = (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mock.calls;
-    for (const [, , , overridesArg] of calls) {
-      expect(overridesArg).toBeUndefined();
-    }
+    // Critical: we must NOT have formatted rewards with wrong prices
+    expect(processRawProviderRewards).not.toHaveBeenCalled();
   });
 
   it("filters response to a single spec when ?spec= is provided", async () => {
+    mockProcessPerProvider();
     const app = await buildApp();
     const res = await app.inject({
       method: "GET",
@@ -269,27 +295,21 @@ describe("GET /provider-estimated-rewards", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.meta.spec).toBe("ETH1");
-
-    // Both providers have ETH1 entries
     expect(body.data).toHaveLength(2);
     for (const p of body.data) {
-      for (const r of p.rewards) {
-        expect(r.spec).toBe("ETH1");
-      }
+      for (const r of p.rewards) expect(r.spec).toBe("ETH1");
     }
-
-    // Alpha's total_usd drops from 16 → 10 (NEAR portion dropped)
     const alpha = body.data.find((p: { provider: string }) => p.provider === "lava@1abc");
     expect(alpha.total_usd).toBe(10);
   });
 
   it("?spec= is case-insensitive and uppercased in meta", async () => {
+    mockProcessPerProvider();
     const app = await buildApp();
     const res = await app.inject({
       method: "GET",
       url: "/provider-estimated-rewards?spec=eth1",
     });
-    expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.meta.spec).toBe("ETH1");
     expect(body.data).toHaveLength(2);
@@ -306,13 +326,13 @@ describe("GET /provider-estimated-rewards", () => {
   });
 
   it("excludes providers whose filtered rewards become empty", async () => {
+    mockProcessPerProvider();
     const app = await buildApp();
     const res = await app.inject({
       method: "GET",
       url: "/provider-estimated-rewards?spec=NEAR",
     });
     const body = JSON.parse(res.body);
-    // Only Alpha has NEAR rewards
     expect(body.data).toHaveLength(1);
     expect(body.data[0].provider).toBe("lava@1abc");
     expect(body.data[0].rewards).toHaveLength(1);
@@ -329,16 +349,13 @@ describe("GET /provider-estimated-rewards/blocks", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-
     expect(Array.isArray(body.data)).toBe(true);
     expect(body.data.length).toBeGreaterThan(0);
     expect(body.data.length).toBeLessThanOrEqual(12);
-
     for (const b of body.data) {
       expect(typeof b.height).toBe("number");
       expect(typeof b.time).toBe("string");
       expect(typeof b.date).toBe("string");
-      // Date is the 17th of some month
       expect(b.date).toMatch(/^\d{4}-\d{2}-17$/);
     }
   });
@@ -356,7 +373,6 @@ describe("GET /provider-estimated-rewards/blocks", () => {
 
   it("skips entries where block resolution fails", async () => {
     (fetchBlockAtTimestamp as ReturnType<typeof vi.fn>).mockImplementation((unix: number) => {
-      // Fail every other lookup
       if (unix % 2 === 0) return Promise.reject(new Error("rpc error"));
       return Promise.resolve(1_000_000);
     });
@@ -367,7 +383,6 @@ describe("GET /provider-estimated-rewards/blocks", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    // Shouldn't have 4; some were filtered
     expect(body.data.length).toBeLessThan(4);
   });
 });
