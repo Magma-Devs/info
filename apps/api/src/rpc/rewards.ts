@@ -149,19 +149,19 @@ export interface RewardsBySpecEntry {
 }
 
 /** Fetch the raw estimated_provider_rewards chain response for one provider.
- *  Returns an empty structure on error so callers can iterate without throwing. */
+ *  Throws on failure (after fetchRest's internal retries are exhausted) so the
+ *  caller can fail loud — historical rewards responses are cached for a year,
+ *  so silently dropping a provider on transient RPC flakes would bake a wrong
+ *  response into the cache. The cache plugin skips 4xx/5xx, so the next caller
+ *  retries from scratch. */
 export async function fetchRawProviderRewards(
   address: string,
   blockHeight?: number,
 ): Promise<EstimatedRewardsResponse> {
-  try {
-    return await fetchRest<EstimatedRewardsResponse>(
-      `/lavanet/lava/subscription/estimated_provider_rewards/${address}/`,
-      blockHeight,
-    );
-  } catch {
-    return { info: [], total: [] };
-  }
+  return await fetchRest<EstimatedRewardsResponse>(
+    `/lavanet/lava/subscription/estimated_provider_rewards/${address}/`,
+    blockHeight,
+  );
 }
 
 /** Extract the set of base denoms (post-IBC-resolution) that appear in one or
@@ -276,13 +276,11 @@ export async function processRawProviderRewards(
 }
 
 /**
- * Fetch a provider's actual earned rewards (no benchmark amount) and group by spec.
- * Composes fetchRawProviderRewards + processRawProviderRewards for callers that
- * don't need the raw/extract/process split (e.g. APR's computeAllProvidersApr).
- *
- * Pass blockHeight to query historical chain state (archive node required).
- * Pass priceOverrides (keyed by base denom, e.g. "lava") to price tokens at a
- * specific point in time.
+ * Best-effort variant for live-dashboard consumers (APR). Catches per-provider
+ * RPC failures and returns [] so one flaky provider doesn't 500 the whole APR
+ * computation. The new historical-rewards route calls fetchRawProviderRewards
+ * directly and lets failures propagate, because incomplete data would be
+ * cached for a year under CACHE_TTL.IMMUTABLE.
  */
 export async function fetchRewardsBySpec(
   address: string,
@@ -290,8 +288,12 @@ export async function fetchRewardsBySpec(
   blockHeight?: number,
   priceOverrides?: Record<string, number>,
 ): Promise<RewardsBySpecEntry[]> {
-  const raw = await fetchRawProviderRewards(address, blockHeight);
-  return processRawProviderRewards(raw, specNameMap, priceOverrides);
+  try {
+    const raw = await fetchRawProviderRewards(address, blockHeight);
+    return await processRawProviderRewards(raw, specNameMap, priceOverrides);
+  } catch {
+    return [];
+  }
 }
 
 export interface ClaimableRewardEntry {
