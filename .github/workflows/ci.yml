@@ -61,6 +61,9 @@ jobs:
           pnpm --filter @info/db typecheck
           pnpm --filter @info/shared typecheck
 
+      - name: Build shared package
+        run: pnpm --filter @info/shared build
+
       - name: Typecheck api
         if: needs.changes.outputs.api == 'true'
         run: pnpm --filter @info/api typecheck
