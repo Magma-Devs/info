@@ -23,8 +23,20 @@ export function LavaAmount({ amount, showDenom = true }: LavaAmountProps) {
   const wrapperRef = useRef<HTMLSpanElement>(null);
   const measureRef = useRef<HTMLSpanElement>(null);
   const [useCompact, setUseCompact] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Always compact on mobile — no measurement needed.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   useLayoutEffect(() => {
+    if (isMobile) return; // Mobile always uses compact, skip measurement.
     const wrapper = wrapperRef.current;
     const measure = measureRef.current;
     if (!wrapper || !measure) return;
@@ -32,10 +44,7 @@ export function LavaAmount({ amount, showDenom = true }: LavaAmountProps) {
     const check = () => {
       const parent = wrapper.parentElement;
       if (!parent) return;
-      // Available width = parent's content box, minus a small buffer so we
-      // switch to compact a few pixels early (avoids border-clip on edge cases).
       const available = parent.clientWidth - 6;
-      // Natural width of the full text (measured from a hidden duplicate).
       const needed = measure.scrollWidth;
       if (available > 0 && needed > 0) setUseCompact(needed > available);
     };
@@ -46,10 +55,11 @@ export function LavaAmount({ amount, showDenom = true }: LavaAmountProps) {
     const ro = new ResizeObserver(check);
     ro.observe(parent);
     return () => ro.disconnect();
-  }, [fullText]);
+  }, [fullText, isMobile]);
 
   // Re-measure on font load (digit widths can shift between fallback and webfont)
   useEffect(() => {
+    if (isMobile) return;
     if (typeof document === "undefined" || !document.fonts) return;
     const handler = () => {
       const wrapper = wrapperRef.current;
@@ -60,7 +70,9 @@ export function LavaAmount({ amount, showDenom = true }: LavaAmountProps) {
       setUseCompact(measure.scrollWidth > parent.clientWidth - 6);
     };
     document.fonts.ready.then(handler);
-  }, []);
+  }, [isMobile]);
+
+  const useCompactFinal = isMobile || useCompact;
 
   return (
     <>
@@ -69,7 +81,7 @@ export function LavaAmount({ amount, showDenom = true }: LavaAmountProps) {
         title={`${formatNumber(raw)} ulava`}
         className="cursor-help"
       >
-        {useCompact ? compactText : fullText}
+        {useCompactFinal ? compactText : fullText}
       </span>
       {/* Off-screen measurement element — has the full text so we can detect overflow without flip-flopping */}
       <span
