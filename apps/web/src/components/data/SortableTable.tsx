@@ -13,6 +13,7 @@ import {
   type Row,
 } from "@tanstack/react-table";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface SortableTableProps<T> {
   data: T[];
@@ -20,6 +21,10 @@ interface SortableTableProps<T> {
   defaultSort?: SortingState;
   pageSize?: number;
   renderSubRow?: (row: Row<T>) => ReactNode;
+  /** When true, render skeleton rows instead of data */
+  loading?: boolean;
+  /** Number of skeleton rows to render when loading (default 5) */
+  loadingRows?: number;
 }
 
 /**
@@ -32,6 +37,8 @@ export function SortableTable<T>({
   defaultSort = [],
   pageSize,
   renderSubRow,
+  loading,
+  loadingRows = 5,
 }: SortableTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>(defaultSort);
 
@@ -48,7 +55,7 @@ export function SortableTable<T>({
       : {}),
   });
 
-  if (data.length === 0) {
+  if (!loading && data.length === 0) {
     return (
       <div className="flex items-center justify-center py-12 text-muted-foreground">
         No data available
@@ -60,7 +67,7 @@ export function SortableTable<T>({
     <div>
       <div>
         <table className="w-full text-sm">
-          <thead className="sticky top-16 z-10 bg-card">
+          <thead>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id} className="border-b border-border bg-card">
                 {hg.headers.map((header) => {
@@ -68,7 +75,7 @@ export function SortableTable<T>({
                   return (
                     <th
                       key={header.id}
-                      className={`px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground bg-card${
+                      className={`px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground${
                         (header.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
                       }${
                         (header.column.columnDef.meta as Record<string, boolean> | undefined)?.mobileOnly ? " md:hidden" : ""
@@ -92,31 +99,48 @@ export function SortableTable<T>({
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row, rowIdx) => (
-              <Fragment key={row.id}>
-                <tr className="transition-colors md:hover:bg-muted/20 active:bg-muted/30">
-                  {row.getVisibleCells().map((cell) => {
-                    const meta = cell.column.columnDef.meta as Record<string, boolean> | undefined;
-                    return (
-                      <td key={cell.id} className={`px-4 py-3 text-foreground${
-                        rowIdx > 0 ? " border-t border-border/15" : ""
-                      }${meta?.hideOnMobile ? " hidden md:table-cell" : ""}${
-                        meta?.mobileOnly ? " md:hidden" : ""
-                      }`}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    );
-                  })}
-                </tr>
-                {renderSubRow && row.getIsExpanded() && (
-                  <tr key={`${row.id}-sub`} className="bg-muted/15">
-                    <td colSpan={row.getVisibleCells().length} className="px-4 py-3">
-                      {renderSubRow(row)}
-                    </td>
+            {loading
+              ? Array.from({ length: loadingRows }).map((_, rowIdx) => (
+                  <tr key={`skeleton-${rowIdx}`}>
+                    {table.getAllColumns().map((col) => {
+                      const meta = col.columnDef.meta as Record<string, boolean> | undefined;
+                      return (
+                        <td key={col.id} className={`px-4 py-3${
+                          rowIdx > 0 ? " border-t border-border/15" : ""
+                        }${meta?.hideOnMobile ? " hidden md:table-cell" : ""}${
+                          meta?.mobileOnly ? " md:hidden" : ""
+                        }`}>
+                          <Skeleton className="h-4 w-full max-w-[140px]" />
+                        </td>
+                      );
+                    })}
                   </tr>
-                )}
-              </Fragment>
-            ))}
+                ))
+              : table.getRowModel().rows.map((row, rowIdx) => (
+                  <Fragment key={row.id}>
+                    <tr className="transition-colors md:hover:bg-muted/20 active:bg-muted/30">
+                      {row.getVisibleCells().map((cell) => {
+                        const meta = cell.column.columnDef.meta as Record<string, boolean> | undefined;
+                        return (
+                          <td key={cell.id} className={`px-4 py-3 text-foreground${
+                            rowIdx > 0 ? " border-t border-border/15" : ""
+                          }${meta?.hideOnMobile ? " hidden md:table-cell" : ""}${
+                            meta?.mobileOnly ? " md:hidden" : ""
+                          }`}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    {renderSubRow && row.getIsExpanded() && (
+                      <tr key={`${row.id}-sub`} className="bg-muted/15">
+                        <td colSpan={row.getVisibleCells().length} className="px-4 py-3">
+                          {renderSubRow(row)}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
           </tbody>
         </table>
       </div>
