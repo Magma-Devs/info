@@ -141,8 +141,9 @@ function ProvidersContent() {
                       {p.relaySum30d && ` · ${formatNumberKMB(p.relaySum30d)} relays (30d)`}
                     </div>
                   </div>
-                  <div className="text-base font-medium shrink-0">
-                    <LavaAmount amount={total.toString()} />
+                  <div className="shrink-0 text-right">
+                    <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Total Stake</div>
+                    <div className="text-base font-semibold mt-0.5"><LavaAmount amount={total.toString()} /></div>
                   </div>
                 </Link>
               </li>
