@@ -160,7 +160,7 @@ export async function providerRewardsRoutes(app: FastifyInstance) {
       new Date().getUTCDate(),
     );
     request.cacheTTL = dateTo.getTime() <= todayUtc - ONE_DAY_MS
-      ? CACHE_TTL.HISTORICAL
+      ? CACHE_TTL.IMMUTABLE
       : CACHE_TTL.LIST;
 
     // ── Resolve specs ─────────────────────────────────────────────

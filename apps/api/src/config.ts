@@ -92,8 +92,14 @@ export const CACHE_TTL = {
   SLOW_MOVING: 7200,
   /** Optimizer metrics — aggregated hourly scores. */
   OPTIMIZER: 21_600,
-  /** Historical/immutable data (past-block snapshots, avatars). */
+  /** Slowly-changing data that's mostly historical but could update
+   *  (e.g. avatars, burn-rate overview that mixes historical+latest). */
   HISTORICAL: 86_400,
+  /** Truly immutable past-block snapshots — response is fully determined by
+   *  historical chain state + block-time CoinGecko prices, both of which
+   *  never change. Cache for a year so repeated lookups never pay the
+   *  chain-RPC + 22-denom CoinGecko cost twice. */
+  IMMUTABLE: 31_536_000,
 } as const;
 
 export default config;

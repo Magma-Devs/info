@@ -72,7 +72,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
         },
       },
     },
-    config: { cacheTTL: CACHE_TTL.HISTORICAL },
+    config: { cacheTTL: CACHE_TTL.IMMUTABLE },
   }, async (request) => {
     const q = request.query as { count?: number };
     const count = q.count ?? DEFAULT_MONTHLY_BLOCKS;
@@ -129,8 +129,9 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       spec = q.spec.toUpperCase();
     }
 
-    // Historical blocks are immutable, so cache aggressively.
-    if (block) request.cacheTTL = CACHE_TTL.HISTORICAL;
+    // A historical block's response is fully determined by past chain state
+    // and block-time CoinGecko prices — both immutable. Cache for a year.
+    if (block) request.cacheTTL = CACHE_TTL.IMMUTABLE;
 
     await prewarmPriceCache();
 
@@ -147,8 +148,19 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
     if (block) {
       const blockTimeIso = await fetchBlockTime(block);
       const blockDate = new Date(blockTimeIso);
-      priceOverrides = await buildHistoricalPriceMap(blockDate);
-      priceLavaUsd = priceOverrides.lava ?? await fetchLavaUsdPrice();
+      // buildHistoricalPriceMap throws if the REQUIRED LAVA price can't be
+      // fetched after retries. Let it bubble so Fastify returns 503 and the
+      // cache layer (which skips 4xx/5xx) doesn't poison the block-keyed
+      // response with a wrong price for a year.
+      try {
+        priceOverrides = await buildHistoricalPriceMap(blockDate);
+      } catch (err) {
+        return sendApiError(
+          reply, 503,
+          `historical LAVA price unavailable for block ${block} (${blockTimeIso}); please retry: ${(err as Error).message}`,
+        );
+      }
+      priceLavaUsd = priceOverrides.lava!;
       priceTimestamp = blockTimeIso;
     } else {
       priceTimestamp = new Date().toISOString();
