@@ -61,7 +61,7 @@ function ChainIconImg({ chainId }: { chainId: string }) {
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <span className="w-9 h-9 rounded-md shrink-0 bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground">
+      <span className="w-11 h-11 rounded-md shrink-0 bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground">
         {chainId.charAt(0).toUpperCase()}
       </span>
     );
@@ -70,7 +70,7 @@ function ChainIconImg({ chainId }: { chainId: string }) {
     <img
       src={getChainIcon(chainId)}
       alt=""
-      className="w-9 h-9 rounded-md shrink-0"
+      className="w-11 h-11 rounded-md shrink-0"
       loading="lazy"
       onError={() => setFailed(true)}
     />
@@ -119,15 +119,15 @@ export default function ChainsPage() {
         <ul className="md:hidden divide-y divide-border/60">
           {isLoading
             ? Array.from({ length: 8 }).map((_, i) => (
-                <li key={`skel-${i}`} className="flex items-center gap-3 px-4 py-3">
-                  <Skeleton className="w-9 h-9 rounded-md" />
-                  <div className="flex-1 space-y-1.5">
+                <li key={`skel-${i}`} className="flex items-center gap-4 px-4 py-5">
+                  <Skeleton className="w-11 h-11 rounded-md" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-5 w-36" />
+                    <Skeleton className="h-3 w-24" />
                     <Skeleton className="h-3.5 w-32" />
-                    <Skeleton className="h-3 w-20" />
-                    <Skeleton className="h-3 w-28" />
                   </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <Skeleton className="h-3.5 w-16" />
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <Skeleton className="h-5 w-20" />
                     <Skeleton className="h-3 w-20" />
                   </div>
                 </li>
@@ -136,19 +136,19 @@ export default function ChainsPage() {
             const hasFullName = s.name && s.name !== s.specId;
             return (
               <li key={s.specId}>
-                <Link href={`/chain/${s.specId}`} className="flex items-center gap-3 px-4 py-3 active:bg-muted/60 transition-colors">
+                <Link href={`/chain/${s.specId}`} className="flex items-center gap-4 px-4 py-5 active:bg-muted/40 transition-colors">
                   <ChainIconImg chainId={s.specId} />
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-accent truncate">{hasFullName ? s.name : s.specId}</div>
-                    {hasFullName && <div className="text-[11px] text-muted-foreground truncate">{s.specId}</div>}
-                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                    <div className="text-lg font-semibold text-accent truncate">{hasFullName ? s.name : s.specId}</div>
+                    {hasFullName && <div className="text-xs text-muted-foreground truncate mt-0.5">{s.specId}</div>}
+                    <div className="text-sm text-muted-foreground mt-1.5">
                       {s.providerCount} providers
                       {s.cu30d && ` · ${formatNumberKMB(s.cu30d)} CU (30d)`}
                     </div>
                   </div>
-                  <div className="text-sm font-medium shrink-0 text-right">
+                  <div className="text-base font-medium shrink-0 text-right">
                     {formatNumberKMB(s.relays30d)}
-                    <div className="text-[11px] text-muted-foreground font-normal">relays (30d)</div>
+                    <div className="text-xs text-muted-foreground font-normal">relays (30d)</div>
                   </div>
                 </Link>
               </li>
@@ -159,7 +159,7 @@ export default function ChainsPage() {
         {/* Desktop: table */}
         <div className="hidden md:block p-4">
           <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
+            <table className="w-full text-base">
               <thead>
                 {table.getHeaderGroups().map((hg) => (
                   <tr key={hg.id} className="border-b border-border bg-card">
@@ -168,7 +168,7 @@ export default function ChainsPage() {
                       return (
                         <th
                           key={header.id}
-                          className={`px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground${
+                          className={`px-4 py-4 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground${
                             (header.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
                           }`}
                           onClick={header.column.getToggleSortingHandler()}
@@ -194,7 +194,7 @@ export default function ChainsPage() {
                   ? Array.from({ length: 8 }).map((_, i) => (
                       <tr key={`skel-${i}`} className="border-b border-border/50">
                         {columns.map((col, j) => (
-                          <td key={j} className={`px-4 py-3${
+                          <td key={j} className={`px-4 py-4${
                             (col.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
                           }`}>
                             <Skeleton className="h-4 w-full max-w-[140px]" />
@@ -205,7 +205,7 @@ export default function ChainsPage() {
                   : table.getRowModel().rows.map((row) => (
                       <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
                         {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id} className={`px-4 py-3 text-foreground${
+                          <td key={cell.id} className={`px-4 py-4 text-foreground${
                             (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
                           }`}>
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}

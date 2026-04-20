@@ -67,10 +67,10 @@ function ProviderAvatarImg({ address, moniker, identity }: { address: string; mo
   const avatarUrl = identity ? `/providers/${address}/avatar?identity=${identity}` : null;
   const { data: avatarResp } = useApi<{ url: string | null }>(avatarUrl);
   if (avatarResp?.url) {
-    return <img src={avatarResp.url} alt="" className="w-9 h-9 rounded-full shrink-0" loading="lazy" />;
+    return <img src={avatarResp.url} alt="" className="w-11 h-11 rounded-full shrink-0" loading="lazy" />;
   }
   return (
-    <span className="w-9 h-9 rounded-full shrink-0 bg-muted flex items-center justify-center text-sm font-medium text-muted-foreground">
+    <span className="w-11 h-11 rounded-full shrink-0 bg-muted flex items-center justify-center text-base font-medium text-muted-foreground">
       {(moniker || address).charAt(0).toUpperCase()}
     </span>
   );
@@ -116,14 +116,14 @@ function ProvidersContent() {
         <ul className="md:hidden divide-y divide-border/60">
           {isLoading
             ? Array.from({ length: 8 }).map((_, i) => (
-                <li key={`skel-${i}`} className="flex items-center gap-3 px-4 py-3">
-                  <Skeleton className="w-9 h-9 rounded-full" />
-                  <div className="flex-1 space-y-1.5">
+                <li key={`skel-${i}`} className="flex items-center gap-4 px-4 py-5">
+                  <Skeleton className="w-11 h-11 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-5 w-36" />
+                    <Skeleton className="h-3 w-48" />
                     <Skeleton className="h-3.5 w-32" />
-                    <Skeleton className="h-3 w-44" />
-                    <Skeleton className="h-3 w-28" />
                   </div>
-                  <Skeleton className="h-3.5 w-20 shrink-0" />
+                  <Skeleton className="h-5 w-24 shrink-0" />
                 </li>
               ))
             : mobileList.map((p) => {
@@ -131,17 +131,17 @@ function ProvidersContent() {
             const label = p.moniker || `${p.provider.slice(0, 12)}...`;
             return (
               <li key={p.provider}>
-                <Link href={`/provider/${p.provider}`} className="flex items-center gap-3 px-4 py-3 active:bg-muted/60 transition-colors">
+                <Link href={`/provider/${p.provider}`} className="flex items-center gap-4 px-4 py-5 active:bg-muted/40 transition-colors">
                   <ProviderAvatarImg address={p.provider} moniker={p.moniker} identity={p.identity} />
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-accent truncate">{label}</div>
-                    {p.moniker && <div className="text-[11px] text-muted-foreground font-mono truncate">{p.provider}</div>}
-                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                    <div className="text-lg font-semibold text-accent truncate">{label}</div>
+                    {p.moniker && <div className="text-xs text-muted-foreground font-mono truncate mt-0.5">{p.provider}</div>}
+                    <div className="text-sm text-muted-foreground mt-1.5">
                       {p.activeServices} services
                       {p.relaySum30d && ` · ${formatNumberKMB(p.relaySum30d)} relays (30d)`}
                     </div>
                   </div>
-                  <div className="text-sm font-medium shrink-0">
+                  <div className="text-base font-medium shrink-0">
                     <LavaAmount amount={total.toString()} />
                   </div>
                 </Link>
@@ -153,7 +153,7 @@ function ProvidersContent() {
         {/* Desktop: table */}
         <div className="hidden md:block p-4">
           <div className="rounded-lg border border-border">
-            <table className="w-full text-sm table-fixed">
+            <table className="w-full text-base table-fixed">
               <thead>
                 {table.getHeaderGroups().map((hg) => (
                   <tr key={hg.id} className="border-b border-border bg-card">
@@ -162,7 +162,7 @@ function ProvidersContent() {
                       return (
                         <th
                           key={header.id}
-                          className={`px-4 py-3 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground${
+                          className={`px-4 py-4 text-left font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground${
                             (header.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
                           }`}
                           style={header.column.columnDef.size ? { width: header.column.columnDef.size } : undefined}
@@ -189,7 +189,7 @@ function ProvidersContent() {
                   ? Array.from({ length: 8 }).map((_, i) => (
                       <tr key={`skel-${i}`} className="border-b border-border/50">
                         {columns.map((col, j) => (
-                          <td key={j} className={`px-4 py-3${
+                          <td key={j} className={`px-4 py-4${
                             (col.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
                           }`}>
                             <Skeleton className="h-4 w-full max-w-[160px]" />
@@ -200,7 +200,7 @@ function ProvidersContent() {
                   : table.getRowModel().rows.map((row) => (
                       <tr key={row.id} className="border-b border-border/50 hover:bg-muted/30">
                         {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id} className={`px-4 py-3 text-foreground${
+                          <td key={cell.id} className={`px-4 py-4 text-foreground${
                             (cell.column.columnDef.meta as Record<string, boolean> | undefined)?.hideOnMobile ? " hidden md:table-cell" : ""
                           }`}>
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
