@@ -362,27 +362,27 @@ function MobileSearch() {
         className="p-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
         aria-label="Search"
       >
-        <Search size={22} />
+        <Search size={26} />
       </button>
 
       {open && (
         <div className="fixed inset-0 z-[60] bg-background flex flex-col">
           {/* Search header */}
-          <div className="flex items-center gap-3 px-4 h-16 border-b border-border shrink-0">
-            <Search size={18} className="text-muted-foreground shrink-0" />
+          <div className="flex items-center gap-3 px-4 h-[72px] border-b border-border shrink-0">
+            <Search size={22} className="text-muted-foreground shrink-0" />
             <input
               ref={inputRef}
               type="text"
               placeholder="Search providers, chains..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="bg-transparent text-base text-foreground outline-none flex-1 placeholder:text-muted-foreground"
+              className="bg-transparent text-lg text-foreground outline-none flex-1 placeholder:text-muted-foreground"
             />
             <button
               onClick={close}
-              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
+              className="p-3 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors shrink-0"
             >
-              <X size={18} />
+              <X size={22} />
             </button>
           </div>
 

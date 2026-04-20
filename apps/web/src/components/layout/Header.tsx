@@ -108,7 +108,7 @@ export function Header() {
 
   return (
     <header
-      className="sticky top-0 z-50 flex h-16 items-center gap-4 border-b border-border px-4 md:px-6 header-fade"
+      className="sticky top-0 z-50 flex h-[72px] md:h-16 items-center gap-3 md:gap-4 border-b border-border px-3 md:px-6 header-fade"
       style={{ backgroundColor: "var(--navbar-background-color)", opacity }}
     >
       <div className="md:hidden">
@@ -119,7 +119,7 @@ export function Header() {
         <img
           src="/lava-logo.svg"
           alt="Lava Logo"
-          className="h-6 w-auto"
+          className="h-7 md:h-6 w-auto"
           style={{ maxWidth: "fit-content", marginBottom: "3px", marginRight: "10px", minWidth: "fit-content" }}
         />
         <span className="sr-only">Lava</span>
