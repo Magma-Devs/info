@@ -119,10 +119,13 @@ export async function fetchProvidersWithSpecs(
 
   for (let i = 0; i < allSpecs.length; i += RPC_BATCH_SIZE) {
     const batch = allSpecs.slice(i, i + RPC_BATCH_SIZE);
+    // No .catch() — fetchRest now retries transient failures (5xx, 429,
+    // network) up to 3 times. If it still throws, we'd rather 500 loudly
+    // than silently drop providers and cache an incomplete response. The
+    // cache plugin skips 4xx/5xx so a failed request never poisons Redis.
     const results = await Promise.all(
       batch.map((s) => fetchProvidersForSpec(s.index, blockHeight)
-        .then((ps) => ps.map((p) => ({ ...p, specId: s.index, specName: s.name })))
-        .catch(() => [] as Array<ProviderForSpec & { specId: string; specName: string }>)),
+        .then((ps) => ps.map((p) => ({ ...p, specId: s.index, specName: s.name })))),
     );
 
     for (const providers of results) {
@@ -222,6 +225,9 @@ async function fetchAllProvidersImpl(): Promise<AllProvidersResult> {
   for (let i = 0; i < specs.length; i += RPC_BATCH_SIZE) {
     const batch = specs.slice(i, i + RPC_BATCH_SIZE);
     const results = await Promise.all(
+      // Same rationale as fetchProvidersWithSpecs: no .catch(). fetchRest
+      // retries transient failures; if it still throws, fail loud rather
+      // than silently drop providers from /providers or /all_providers_apr.
       batch.map((s) =>
         fetchProvidersForSpec(s.index)
           .then((providers) => providers.map((p): SpecEntry => ({
@@ -232,8 +238,7 @@ async function fetchAllProvidersImpl(): Promise<AllProvidersResult> {
             delegate_total: p.delegate_total,
             delegate_commission: p.delegate_commission,
             specId: s.index,
-          })))
-          .catch(() => [] as SpecEntry[]),
+          }))),
       ),
     );
     specProviders.push(...results);
