@@ -125,11 +125,21 @@ export async function fetchEstimatedRewards(
   }
 }
 
+/** Per-source reward breakdown under one spec. Mirrors the chain RPC's raw
+ *  source strings (e.g. "Boost: ETH1", "Pools: ETH1", "Subscription: ETH1") so
+ *  consumers can categorize by source prefix across specs. */
+export interface RewardsSourceBreakdown {
+  source: string;
+  tokens: RewardToken[];
+  total_usd: number;
+}
+
 export interface RewardsBySpecEntry {
   chain: string;
   spec: string;
   tokens: RewardToken[];
   total_usd: number;
+  sources: RewardsSourceBreakdown[];
 }
 
 /**
@@ -152,51 +162,71 @@ export async function fetchRewardsBySpec(
       blockHeight,
     );
 
-    // Group info entries by spec (collapse Boost/Pools/Subscription sources)
-    const bySpec = new Map<string, { tokens: Map<string, { amount: number; denom: string }>; totalUsd: number }>();
+    // Each info entry has source like "Boost: ETH1" (prefix:suffix). Extract
+    // spec from the suffix; preserve the raw source string so consumers can
+    // categorize by Boost / Pools / Subscription. Track per-(spec, source)
+    // denom sums plus per-spec totals.
+    interface SourceAcc { source: string; tokens: Map<string, number> }
+    interface SpecAcc { sources: Map<string, SourceAcc>; tokens: Map<string, number> }
+    const bySpec = new Map<string, SpecAcc>();
 
     for (const entry of data.info ?? []) {
       const parts = (entry.source as string).split(": ");
       const spec = parts.length > 1 ? parts[1] : parts[0];
       if (!spec) continue;
 
-      const key = spec.toLowerCase();
-      const group = bySpec.get(key) ?? { tokens: new Map(), totalUsd: 0 };
+      const specKey = spec.toLowerCase();
+      let specAcc = bySpec.get(specKey);
+      if (!specAcc) {
+        specAcc = { sources: new Map(), tokens: new Map() };
+        bySpec.set(specKey, specAcc);
+      }
+
+      let sourceAcc = specAcc.sources.get(entry.source);
+      if (!sourceAcc) {
+        sourceAcc = { source: entry.source, tokens: new Map() };
+        specAcc.sources.set(entry.source, sourceAcc);
+      }
 
       const amounts = Array.isArray(entry.amount) ? entry.amount : [entry.amount];
       for (const coin of amounts) {
         if (TEST_DENOMS.has(coin.denom)) continue;
-        const existing = group.tokens.get(coin.denom);
         const amt = parseFloat(coin.amount) || 0;
-        if (existing) {
-          existing.amount += amt;
-        } else {
-          group.tokens.set(coin.denom, { amount: amt, denom: coin.denom });
-        }
+        sourceAcc.tokens.set(coin.denom, (sourceAcc.tokens.get(coin.denom) ?? 0) + amt);
+        specAcc.tokens.set(coin.denom, (specAcc.tokens.get(coin.denom) ?? 0) + amt);
       }
-
-      bySpec.set(key, group);
     }
 
-    // Convert to output format with USD values
-    const results: RewardsBySpecEntry[] = [];
-    for (const [specKey, group] of bySpec) {
+    async function denomMapToBreakdown(denomMap: Map<string, number>): Promise<{ tokens: RewardToken[]; total_usd: number }> {
       const tokens: RewardToken[] = [];
-      let specUsd = 0;
-
-      for (const [, coin] of group.tokens) {
-        const processed = await processRewardTokens([
-          { denom: coin.denom, amount: coin.amount.toString() },
-        ]);
+      let totalUsd = 0;
+      for (const [denom, amount] of denomMap) {
+        const processed = await processRewardTokens([{ denom, amount: amount.toString() }]);
         tokens.push(...processed.tokens);
-        specUsd += processed.totalUsd;
+        totalUsd += processed.totalUsd;
+      }
+      return { tokens, total_usd: totalUsd };
+    }
+
+    const results: RewardsBySpecEntry[] = [];
+    for (const [specKey, specAcc] of bySpec) {
+      const specBreakdown = await denomMapToBreakdown(specAcc.tokens);
+      const sources: RewardsSourceBreakdown[] = [];
+      for (const [, sourceAcc] of specAcc.sources) {
+        const srcBreakdown = await denomMapToBreakdown(sourceAcc.tokens);
+        sources.push({
+          source: sourceAcc.source,
+          tokens: srcBreakdown.tokens,
+          total_usd: srcBreakdown.total_usd,
+        });
       }
 
       results.push({
         chain: specNameMap.get(specKey.toUpperCase()) ?? specKey.toUpperCase(),
         spec: specKey.toUpperCase(),
-        tokens,
-        total_usd: specUsd,
+        tokens: specBreakdown.tokens,
+        total_usd: specBreakdown.total_usd,
+        sources,
       });
     }
 

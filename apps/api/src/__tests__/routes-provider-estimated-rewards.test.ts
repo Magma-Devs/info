@@ -35,18 +35,31 @@ const MOCK_PROVIDERS_WITH_SPECS = {
   specNames: new Map([["ETH1", "Ethereum Mainnet"], ["NEAR", "Near"]]),
 };
 
+const TOK = (amount: string, usd: string) => ({
+  source_denom: "ulava", resolved_amount: `${parseFloat(amount) * 1_000_000}`,
+  resolved_denom: "ulava", display_denom: "lava", display_amount: amount, value_usd: usd,
+});
+
 const MOCK_REWARDS_ALPHA = [
   {
     chain: "Ethereum Mainnet",
     spec: "ETH1",
-    tokens: [{ source_denom: "ulava", resolved_amount: "5000000", resolved_denom: "ulava", display_denom: "lava", display_amount: "5", value_usd: "$10" }],
+    tokens: [TOK("5", "$10")],
     total_usd: 10,
+    sources: [
+      { source: "Boost: ETH1", tokens: [TOK("2", "$4")], total_usd: 4 },
+      { source: "Pools: ETH1", tokens: [TOK("1", "$2")], total_usd: 2 },
+      { source: "Subscription: ETH1", tokens: [TOK("2", "$4")], total_usd: 4 },
+    ],
   },
   {
     chain: "Near",
     spec: "NEAR",
-    tokens: [{ source_denom: "ulava", resolved_amount: "3000000", resolved_denom: "ulava", display_denom: "lava", display_amount: "3", value_usd: "$6" }],
+    tokens: [TOK("3", "$6")],
     total_usd: 6,
+    sources: [
+      { source: "Boost: NEAR", tokens: [TOK("3", "$6")], total_usd: 6 },
+    ],
   },
 ];
 
@@ -54,8 +67,11 @@ const MOCK_REWARDS_BETA = [
   {
     chain: "Ethereum Mainnet",
     spec: "ETH1",
-    tokens: [{ source_denom: "ulava", resolved_amount: "2000000", resolved_denom: "ulava", display_denom: "lava", display_amount: "2", value_usd: "$4" }],
+    tokens: [TOK("2", "$4")],
     total_usd: 4,
+    sources: [
+      { source: "Subscription: ETH1", tokens: [TOK("2", "$4")], total_usd: 4 },
+    ],
   },
 ];
 
@@ -97,6 +113,20 @@ describe("GET /provider-estimated-rewards", () => {
     expect(body.data[1].provider).toBe("lava@2def");
     expect(body.data[1].total_usd).toBe(4);
     expect(body.data[1].rewards).toHaveLength(1);
+  });
+
+  it("preserves per-source breakdown on each spec entry", async () => {
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
+    const body = JSON.parse(res.body);
+    const alpha = body.data.find((p: { provider: string }) => p.provider === "lava@1abc");
+    const eth1 = alpha.rewards.find((r: { spec: string }) => r.spec === "ETH1");
+    expect(eth1.sources).toHaveLength(3);
+    const sourceSum = eth1.sources.reduce((s: number, x: { total_usd: number }) => s + x.total_usd, 0);
+    expect(sourceSum).toBe(eth1.total_usd);
+    expect(eth1.sources.map((s: { source: string }) => s.source)).toEqual(
+      expect.arrayContaining(["Boost: ETH1", "Pools: ETH1", "Subscription: ETH1"]),
+    );
   });
 
   it("excludes providers with no rewards", async () => {

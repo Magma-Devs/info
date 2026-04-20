@@ -59,6 +59,14 @@ export interface ValidatorUnbondingResponse {
   entries: ValidatorUnbondingEntry[];
 }
 
+/** Validator estimated rewards with per-source breakdown preserved. The chain
+ *  RPC returns entries like {source: "boost: ETH1", amount: [...]}; preserving
+ *  them lets consumers render the per-source columns that jsinfo's response
+ *  used to expose under `estimated_rewards.info`. */
+export interface EstimatedRewardsWithInfo extends TokenBreakdown {
+  info: Array<{ source: string; amount: TokenBreakdown }>;
+}
+
 export interface ValidatorWithRewards {
   address: string;
   moniker: string;
@@ -68,7 +76,7 @@ export interface ValidatorWithRewards {
   apr?: number | null;
   distribution: ValidatorDistributionRewards;
   outstanding_rewards: TokenBreakdown;
-  estimated_rewards: TokenBreakdown;
+  estimated_rewards: EstimatedRewardsWithInfo;
   delegations: {
     delegation_responses: ValidatorDelegationResponse[];
     pagination: { next_key: string | null; total: string };
@@ -123,13 +131,24 @@ async function fetchValidatorOutstanding(addr: string): Promise<RewardCoin[]> {
   } catch { return []; }
 }
 
-async function fetchValidatorEstimatedTotal(addr: string): Promise<RewardCoin[]> {
+interface ValidatorEstimatedRaw {
+  total: RewardCoin[];
+  info: Array<{ source: string; amount: RewardCoin[] }>;
+}
+
+async function fetchValidatorEstimated(addr: string): Promise<ValidatorEstimatedRaw> {
   try {
     const data = await fetchRest<EstimatedRewardsResponse>(
       `/lavanet/lava/subscription/estimated_validator_rewards/${addr}/`,
     );
-    return data.total ?? [];
-  } catch { return []; }
+    const info = (data.info ?? []).map((e) => ({
+      source: e.source,
+      amount: Array.isArray(e.amount) ? e.amount : [e.amount],
+    }));
+    return { total: data.total ?? [], info };
+  } catch {
+    return { total: [], info: [] };
+  }
 }
 
 async function fetchValidatorDelegationsPage(
@@ -178,19 +197,23 @@ export async function fetchValidatorsWithRewards(): Promise<{
     const batch = validators.slice(i, i + RPC_BATCH_SIZE);
     const results = await Promise.all(batch.map(async (v) => {
       const addr = v.operator_address;
-      const [dist, outstanding, estimatedTotal, delegations, unbonding] = await Promise.all([
+      const [dist, outstanding, estimatedRaw, delegations, unbonding] = await Promise.all([
         fetchValidatorDistribution(addr),
         fetchValidatorOutstanding(addr),
-        fetchValidatorEstimatedTotal(addr),
+        fetchValidatorEstimated(addr),
         fetchValidatorDelegationsPage(addr),
         fetchValidatorUnbondingPage(addr),
       ]);
 
-      const [selfBond, commissionBreakdown, outstandingBreakdown, estimatedBreakdown] = await Promise.all([
+      const [selfBond, commissionBreakdown, outstandingBreakdown, estimatedBreakdown, estimatedInfoBreakdowns] = await Promise.all([
         rewardsToBreakdown(dist?.self_bond_rewards),
         rewardsToBreakdown(dist?.commission),
         rewardsToBreakdown(outstanding),
-        rewardsToBreakdown(estimatedTotal),
+        rewardsToBreakdown(estimatedRaw.total),
+        Promise.all(estimatedRaw.info.map(async (e) => ({
+          source: e.source,
+          amount: await rewardsToBreakdown(e.amount),
+        }))),
       ]);
 
       return {
@@ -205,7 +228,11 @@ export async function fetchValidatorsWithRewards(): Promise<{
           operator_address: dist?.operator_address ?? addr,
         },
         outstanding_rewards: outstandingBreakdown,
-        estimated_rewards: estimatedBreakdown,
+        estimated_rewards: {
+          tokens: estimatedBreakdown.tokens,
+          total_usd: estimatedBreakdown.total_usd,
+          info: estimatedInfoBreakdowns,
+        },
         delegations,
         unbonding_delegations: unbonding,
       } satisfies ValidatorWithRewards;
