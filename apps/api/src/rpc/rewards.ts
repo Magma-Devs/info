@@ -39,9 +39,14 @@ export interface ProcessedRewards {
   tokens: RewardToken[];
 }
 
-/** Convert multi-denom reward array to USD total + per-token breakdown */
+/** Convert multi-denom reward array to USD total + per-token breakdown.
+ *  When `priceOverrides` is passed, its entries (keyed by base denom, e.g.
+ *  "lava") take precedence over the live price cache. Used by historical-
+ *  block rewards queries to price tokens at the block's date rather than
+ *  the current CoinGecko price. */
 async function processRewardTokens(
   rewards: Array<{ denom: string; amount: string }>,
+  priceOverrides?: Record<string, number>,
 ): Promise<ProcessedRewards> {
   const tokens: RewardToken[] = [];
   let totalUsd = 0;
@@ -66,7 +71,8 @@ async function processRewardTokens(
     const baseAmount = parseFloat(displayAmount);
     if (!isFinite(baseAmount) || baseAmount <= 0) continue;
 
-    const price = await fetchTokenUsdPrice(conversion.baseDenom);
+    const price = priceOverrides?.[conversion.baseDenom]
+      ?? await fetchTokenUsdPrice(conversion.baseDenom);
     const usd = price > 0 ? baseAmount * price : 0;
     totalUsd += usd;
 
@@ -148,13 +154,16 @@ export interface RewardsBySpecEntry {
  * then splits "Boost: ETH1", "Pools: ETH1", "Subscription: ETH1" into per-spec groups.
  *
  * Pass blockHeight to query historical chain state (archive node required).
- * Note: USD values still use current CoinGecko prices even for historical blocks —
- * matches the old Job 2 behavior where CoinGecko was called at pipeline-run time.
+ * Pass priceOverrides (keyed by base denom, e.g. "lava") to price tokens at a
+ * specific point in time — typically the block's date for historical queries,
+ * so USD figures match jsinfo's block-time snapshot instead of drifting with
+ * the current LAVA price.
  */
 export async function fetchRewardsBySpec(
   address: string,
   specNameMap: Map<string, string>,
   blockHeight?: number,
+  priceOverrides?: Record<string, number>,
 ): Promise<RewardsBySpecEntry[]> {
   try {
     const data = await fetchRest<EstimatedRewardsResponse>(
@@ -201,7 +210,10 @@ export async function fetchRewardsBySpec(
       const tokens: RewardToken[] = [];
       let totalUsd = 0;
       for (const [denom, amount] of denomMap) {
-        const processed = await processRewardTokens([{ denom, amount: amount.toString() }]);
+        const processed = await processRewardTokens(
+          [{ denom, amount: amount.toString() }],
+          priceOverrides,
+        );
         tokens.push(...processed.tokens);
         totalUsd += processed.totalUsd;
       }

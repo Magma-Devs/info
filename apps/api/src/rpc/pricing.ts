@@ -103,6 +103,77 @@ export async function prewarmPriceCache(): Promise<void> {
   }
 }
 
+// ── Historical pricing (CoinGecko /coins/{id}/history) ──────────────────────
+// Used for rewards snapshots at historical block heights — we want the LAVA
+// price as it was on that date, not the current price. Results are cached by
+// (denom, date) tuple indefinitely since historical prices don't change.
+
+interface HistoricalPriceKey { baseDenom: string; date: string /* YYYY-MM-DD */ }
+const historicalPriceCache = new Map<string, number>();
+const keyStr = (k: HistoricalPriceKey) => `${k.baseDenom}@${k.date}`;
+
+// Format a Date to CoinGecko's expected `DD-MM-YYYY` string.
+function formatDateForCoingecko(date: Date): string {
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const yyyy = date.getUTCFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+}
+
+/** Fetch USD price for a single base denom on a specific date.
+ *  Returns 0 on miss (unknown denom / CoinGecko error / no data for date). */
+export async function fetchTokenUsdPriceAt(
+  baseDenom: string,
+  date: Date,
+): Promise<number> {
+  const isoDate = date.toISOString().slice(0, 10);
+  const k = keyStr({ baseDenom, date: isoDate });
+  const cached = historicalPriceCache.get(k);
+  if (cached !== undefined) return cached;
+
+  const id = DENOM_COINGECKO_ID[baseDenom];
+  if (!id) {
+    historicalPriceCache.set(k, 0);
+    return 0;
+  }
+
+  try {
+    const res = await fetch(
+      `${config.external.coingeckoApiUrl}/coins/${id}/history?date=${formatDateForCoingecko(date)}&localization=false`,
+      { signal: AbortSignal.timeout(15_000) },
+    );
+    if (!res.ok) {
+      historicalPriceCache.set(k, 0);
+      return 0;
+    }
+    const data = (await res.json()) as {
+      market_data?: { current_price?: { usd?: number } };
+    };
+    const price = data.market_data?.current_price?.usd ?? 0;
+    historicalPriceCache.set(k, price);
+    return price;
+  } catch {
+    historicalPriceCache.set(k, 0);
+    return 0;
+  }
+}
+
+/** Build a `baseDenom → price` map at a given date for the denoms we know about.
+ *  Callers pass this to reward-processing functions to override the live cache. */
+export async function buildHistoricalPriceMap(
+  date: Date,
+  denoms: string[] = Object.keys(DENOM_COINGECKO_ID),
+): Promise<Record<string, number>> {
+  const entries = await Promise.all(
+    denoms.map(async (d) => [d, await fetchTokenUsdPriceAt(d, date)] as const),
+  );
+  const out: Record<string, number> = {};
+  for (const [d, p] of entries) {
+    if (p > 0) out[d] = p;
+  }
+  return out;
+}
+
 /** Fetch USD price for a base denom — reads from cache (pre-warmed by prewarmPriceCache) */
 export async function fetchTokenUsdPrice(baseDenom: string): Promise<number> {
   const cached = priceCache.get(baseDenom);
