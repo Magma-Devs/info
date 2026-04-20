@@ -216,7 +216,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
     },
     { id: "total", header: "Total Stake", accessorFn: (r: SpecStake) => Number(toBigInt(r.stake) + toBigInt(r.delegation)), cell: ({ row }: { row: { original: SpecStake } }) => <LavaAmount amount={String(toBigInt(row.original.stake) + toBigInt(row.original.delegation))} /> },
     { id: "stake", header: "Self Stake", meta: { hideOnMobile: true }, accessorFn: (r: SpecStake) => Number(toBigInt(r.stake)), cell: ({ row }: { row: { original: SpecStake } }) => <LavaAmount amount={row.original.stake} /> },
-    { id: "delegation", header: "Delegation", meta: { hideOnMobile: true }, accessorFn: (r: SpecStake) => Number(toBigInt(r.delegation)), cell: ({ row }: { row: { original: SpecStake } }) => <LavaAmount amount={row.original.delegation} /> },
+    { id: "delegation", header: "Delegation Stake", meta: { hideOnMobile: true }, accessorFn: (r: SpecStake) => Number(toBigInt(r.delegation)), cell: ({ row }: { row: { original: SpecStake } }) => <LavaAmount amount={row.original.delegation} /> },
     { id: "commission", header: "Commission", meta: { hideOnMobile: true }, accessorFn: (r: SpecStake) => Number(r.delegateCommission || "0"), cell: ({ row }: { row: { original: SpecStake } }) => `${Number(row.original.delegateCommission || "0")}%` },
     { id: "cuSum30d", header: "CU (30d)", meta: { hideOnMobile: true }, accessorFn: (r: SpecStake) => Number(toBigInt(r.cuSum30d)), cell: ({ row }: { row: { original: SpecStake } }) => row.original.cuSum30d != null ? formatNumberKMB(row.original.cuSum30d) : "—" },
     { id: "relaySum30d", header: "Relays (30d)", meta: { hideOnMobile: true }, accessorFn: (r: SpecStake) => Number(toBigInt(r.relaySum30d)), cell: ({ row }: { row: { original: SpecStake } }) => row.original.relaySum30d != null ? formatNumberKMB(row.original.relaySum30d) : "—" },
@@ -283,7 +283,7 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
             <dd className="text-base font-semibold"><LavaAmount amount={s.stake} /></dd>
           </div>
           <div>
-            <dt className="text-sm uppercase tracking-wider text-muted-foreground mb-1.5">Delegation</dt>
+            <dt className="text-sm uppercase tracking-wider text-muted-foreground mb-1.5">Delegation Stake</dt>
             <dd className="text-base font-semibold"><LavaAmount amount={s.delegation} /></dd>
           </div>
           <div>
@@ -664,7 +664,10 @@ export default function ChainPage({ params }: { params: Promise<{ specid: string
                           )}
                         </div>
                       </div>
-                      <span className="text-sm font-medium shrink-0"><LavaAmount amount={total.toString()} /></span>
+                      <div className="shrink-0 text-right">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Total Stake</div>
+                        <div className="text-sm font-semibold mt-0.5"><LavaAmount amount={total.toString()} /></div>
+                      </div>
                       <ChevronRight size={18} className={`text-muted-foreground transition-transform shrink-0 ${isExpanded ? "rotate-90" : ""}`} />
                     </button>
                     {isExpanded && (

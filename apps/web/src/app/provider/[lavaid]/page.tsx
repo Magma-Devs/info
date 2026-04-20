@@ -3,6 +3,7 @@
 import React, { use, useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useApi } from "@/hooks/use-api";
+import { useChainNames } from "@/hooks/use-chain-names";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatCard } from "@/components/data/StatCard";
 import { ChainLink } from "@/components/data/ChainLink";
@@ -133,6 +134,7 @@ function generateProviderMockData(): TimeSeriesEntry[] {
 export default function ProviderPage({ params }: { params: Promise<{ lavaid: string }> }) {
   const { lavaid } = use(params);
   const { data: provider, isLoading: providerLoading } = useApi<ProviderDetail>(`/providers/${lavaid}`);
+  const { getName } = useChainNames();
   const { data: rewards, isLoading: rewardsLoading } = useApi<{ data: ChartEntry[] }>(`/providers/${lavaid}/charts`);
   const [rangeDays, setRangeDays] = useState(90);
   const chartFrom = rangeDays > 0 ? new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : "";
@@ -268,7 +270,7 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
     }},
     { id: "total", header: "Total Stake", accessorFn: (r: Stake) => Number(BigInt(r.stake || "0") + BigInt(r.delegation || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={String(BigInt(row.original.stake || "0") + BigInt(row.original.delegation || "0"))} /> },
     { id: "stake", header: "Self Stake", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => Number(BigInt(r.stake || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={row.original.stake} /> },
-    { id: "delegation", header: "Delegation", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => Number(BigInt(r.delegation || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={row.original.delegation} /> },
+    { id: "delegation", header: "Delegation Stake", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => Number(BigInt(r.delegation || "0")), cell: ({ row }: { row: { original: Stake } }) => <LavaAmount amount={row.original.delegation} /> },
     { id: "commission", header: "Commission", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => Number(r.delegateCommission || "0"), cell: ({ row }: { row: { original: Stake } }) => `${Number(row.original.delegateCommission || "0")}%` },
     { id: "geolocation", header: "Location", meta: { hideOnMobile: true }, accessorFn: (r: Stake) => r.geolocation ?? 0, cell: ({ row }: { row: { original: Stake } }) => {
       const regions = geoLabel(row.original.geolocation);
@@ -315,7 +317,7 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
             <dd className="text-base font-semibold"><LavaAmount amount={s.stake} /></dd>
           </div>
           <div>
-            <dt className="text-sm uppercase tracking-wider text-muted-foreground mb-1.5">Delegation</dt>
+            <dt className="text-sm uppercase tracking-wider text-muted-foreground mb-1.5">Delegation Stake</dt>
             <dd className="text-base font-semibold"><LavaAmount amount={s.delegation} /></dd>
           </div>
           <div>
@@ -636,9 +638,27 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
           <StatCard className="hidden md:block" label="Relays (30d)" loading={rewardsLoading} value={formatNumberKMB(relays30d.toString())} fullValue={relays30d.toLocaleString()} icon={<ArrowUpNarrowWide className="h-4 w-4 text-muted-foreground" />} />
           <StatCard className="hidden md:block" label="CU (30d)" loading={rewardsLoading} value={formatNumberKMB(cu30d.toString())} fullValue={cu30d.toLocaleString()} icon={<MonitorCog className="h-4 w-4 text-muted-foreground" />} />
 
-          <StatCard label="Total Stake" loading={providerLoading} value={<LavaAmount amount={(totalStake + totalDelegation).toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
-          <StatCard label="Self Stake" loading={providerLoading} value={<LavaAmount amount={totalStake.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
-          <StatCard label="Delegation" loading={providerLoading} value={<LavaAmount amount={totalDelegation.toString()} />} icon={<Coins className="h-4 w-4 text-muted-foreground" />} />
+          <StatCard
+            label="Total Stake"
+            loading={providerLoading}
+            icon={<Coins className="h-4 w-4 text-muted-foreground" />}
+            className="col-span-1 md:col-span-2 xl:col-span-1"
+            value={
+              <div>
+                <div><LavaAmount amount={(totalStake + totalDelegation).toString()} /></div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-3 text-xs font-normal">
+                  <div>
+                    <div className="text-muted-foreground">Self Stake</div>
+                    <div className="text-sm font-medium text-foreground mt-0.5"><LavaAmount amount={totalStake.toString()} /></div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Delegation Stake</div>
+                    <div className="text-sm font-medium text-foreground mt-0.5"><LavaAmount amount={totalDelegation.toString()} /></div>
+                  </div>
+                </div>
+              </div>
+            }
+          />
           <StatCard label="Commission" loading={providerLoading} value={commissionDisplay ?? "—"} icon={<Percent className="h-4 w-4 text-muted-foreground" />} />
         </div>
       </div>
@@ -797,10 +817,17 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
                     >
                       <ChainIconImg chainId={s.specId} />
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-base font-medium truncate">{s.specId}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        {(() => {
+                          const fullName = getName(s.specId);
+                          const hasFullName = fullName && fullName !== s.specId;
+                          return (
+                            <>
+                              <div className="text-base font-medium truncate">{hasFullName ? fullName : s.specId}</div>
+                              {hasFullName && <div className="text-xs text-muted-foreground truncate mt-0.5">{s.specId}</div>}
+                            </>
+                          );
+                        })()}
+                        <div className="flex items-center gap-1.5 mt-1">
                           {h ? (
                             <>
                               <span className={`w-1.5 h-1.5 rounded-full ${isHealthy ? "bg-green-500" : "bg-red-500"}`} />
@@ -816,8 +843,9 @@ export default function ProviderPage({ params }: { params: Promise<{ lavaid: str
                           )}
                         </div>
                       </div>
-                      <div className="flex flex-col items-end shrink-0">
-                        <span className="text-sm font-medium"><LavaAmount amount={total.toString()} /></span>
+                      <div className="shrink-0 text-right">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Total Stake</div>
+                        <div className="text-sm font-semibold mt-0.5"><LavaAmount amount={total.toString()} /></div>
                       </div>
                       <ChevronRight size={18} className={`text-muted-foreground transition-transform shrink-0 ${isExpanded ? "rotate-90" : ""}`} />
                     </button>
