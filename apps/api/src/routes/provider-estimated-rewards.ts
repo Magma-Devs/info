@@ -2,7 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { CACHE_TTL } from "../config.js";
 import {
   RPC_BATCH_SIZE,
+  buildHistoricalPriceMap,
   fetchBlockAtTimestamp,
+  fetchBlockTime,
   fetchLavaUsdPrice,
   fetchProvidersWithSpecs,
   fetchRewardsBySpec,
@@ -131,13 +133,29 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
     if (block) request.cacheTTL = CACHE_TTL.HISTORICAL;
 
     await prewarmPriceCache();
-    // Tokens at block N are priced with the CURRENT LAVA price (matches lava-ops
-    // Job 2). Surface the price + timestamp in meta so consumers know the USD
-    // figure is not historical and shouldn't be interpreted as price movement.
-    const priceTimestamp = new Date().toISOString();
-    const priceLavaUsd = await fetchLavaUsdPrice();
 
-    const { providers: providerMap, specNames } = await fetchProvidersWithSpecs();
+    // When querying a historical block:
+    //   • Build a block-time price map so USD values match the snapshot the
+    //     block would have produced (not today's LAVA price).
+    //   • Snapshot the provider set AT the block, not the current chain state,
+    //     so providers who've since deregistered still appear.
+    // Without a block, default to live prices + current provider set.
+    let priceTimestamp: string;
+    let priceLavaUsd: number;
+    let priceOverrides: Record<string, number> | undefined;
+
+    if (block) {
+      const blockTimeIso = await fetchBlockTime(block);
+      const blockDate = new Date(blockTimeIso);
+      priceOverrides = await buildHistoricalPriceMap(blockDate);
+      priceLavaUsd = priceOverrides.lava ?? await fetchLavaUsdPrice();
+      priceTimestamp = blockTimeIso;
+    } else {
+      priceTimestamp = new Date().toISOString();
+      priceLavaUsd = await fetchLavaUsdPrice();
+    }
+
+    const { providers: providerMap, specNames } = await fetchProvidersWithSpecs(block);
     const addresses = Array.from(providerMap.keys());
 
     const results: Array<{
@@ -150,7 +168,7 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
     for (let i = 0; i < addresses.length; i += RPC_BATCH_SIZE) {
       const batch = addresses.slice(i, i + RPC_BATCH_SIZE);
       const rewardResults = await Promise.all(
-        batch.map((addr) => fetchRewardsBySpec(addr, specNames, block)),
+        batch.map((addr) => fetchRewardsBySpec(addr, specNames, block, priceOverrides)),
       );
 
       for (let j = 0; j < batch.length; j++) {

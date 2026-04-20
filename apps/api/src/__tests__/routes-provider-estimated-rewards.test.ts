@@ -8,7 +8,9 @@ vi.mock("../rpc/lava.js", () => ({
   fetchProvidersWithSpecs: vi.fn(),
   fetchRewardsBySpec: vi.fn(),
   fetchBlockAtTimestamp: vi.fn(),
+  fetchBlockTime: vi.fn(),
   fetchLavaUsdPrice: vi.fn(),
+  buildHistoricalPriceMap: vi.fn(),
 }));
 
 const {
@@ -16,7 +18,9 @@ const {
   fetchProvidersWithSpecs,
   fetchRewardsBySpec,
   fetchBlockAtTimestamp,
+  fetchBlockTime,
   fetchLavaUsdPrice,
+  buildHistoricalPriceMap,
 } = await import("../rpc/lava.js");
 const { providerEstimatedRewardsRoutes } = await import("../routes/provider-estimated-rewards.js");
 
@@ -88,6 +92,8 @@ beforeEach(() => {
   (fetchBlockAtTimestamp as ReturnType<typeof vi.fn>).mockImplementation(
     (unix: number) => Promise.resolve(1_000_000 + Math.floor(unix / 1000)),
   );
+  (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
+  (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });
 });
 
 describe("GET /provider-estimated-rewards", () => {
@@ -184,6 +190,56 @@ describe("GET /provider-estimated-rewards", () => {
     expect(calls.length).toBeGreaterThan(0);
     for (const [, , blockArg] of calls) {
       expect(blockArg).toBe(1234567);
+    }
+  });
+
+  it("uses block-time pricing when ?block= is set (historical LAVA price)", async () => {
+    (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
+    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards?block=4697952",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    // meta.priceLavaUsd reflects historical price, meta.priceTimestamp = block time
+    expect(body.meta.priceLavaUsd).toBe(0.035);
+    expect(body.meta.priceTimestamp).toBe("2026-03-17T15:00:00Z");
+    // fetchRewardsBySpec got the override map as the 4th arg
+    const calls = (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mock.calls;
+    for (const [, , , overridesArg] of calls) {
+      expect(overridesArg).toEqual({ lava: 0.035 });
+    }
+    // fetchLavaUsdPrice is NOT called when historical overrides provide a lava price
+    expect(fetchLavaUsdPrice).not.toHaveBeenCalled();
+  });
+
+  it("snapshots the provider set at the historical block (not current)", async () => {
+    (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
+    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });
+    const app = await buildApp();
+    await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
+    // fetchProvidersWithSpecs was called with the block height so chain RPC
+    // returns the provider set as it existed at that block (includes providers
+    // who have since deregistered).
+    expect(fetchProvidersWithSpecs).toHaveBeenCalledWith(4697952);
+  });
+
+  it("uses live prices + current provider set when ?block= is omitted", async () => {
+    (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockResolvedValue(0.025);
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
+    const body = JSON.parse(res.body);
+    expect(body.meta.priceLavaUsd).toBe(0.025);
+    // Provider set fetched without a block arg (current state)
+    expect(fetchProvidersWithSpecs).toHaveBeenCalledWith(undefined);
+    // No historical price map needed
+    expect(buildHistoricalPriceMap).not.toHaveBeenCalled();
+    // No override passed through to fetchRewardsBySpec
+    const calls = (fetchRewardsBySpec as ReturnType<typeof vi.fn>).mock.calls;
+    for (const [, , , overridesArg] of calls) {
+      expect(overridesArg).toBeUndefined();
     }
   });
 

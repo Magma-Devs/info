@@ -4,7 +4,7 @@
 // New code should import directly from the focused modules.
 
 export { RPC_BATCH_SIZE } from "./rest.js";
-export { fetchBlockAtTimestamp, fetchLatestBlockHeight } from "./block.js";
+export { fetchBlockAtTimestamp, fetchBlockTime, fetchLatestBlockHeight } from "./block.js";
 export { fetchAllSpecs } from "./specs.js";
 export { fetchTotalSupply, fetchCirculatingSupply } from "./supply.js";
 export {
@@ -20,6 +20,8 @@ export {
 } from "./providers.js";
 export {
   fetchLavaUsdPrice,
+  fetchTokenUsdPriceAt,
+  buildHistoricalPriceMap,
   prewarmPriceCache,
   computeTVL,
 } from "./pricing.js";

@@ -23,7 +23,13 @@ export interface ProviderForSpec {
   endpoints: ProviderEndpoint[];
 }
 
-export async function fetchProvidersForSpec(specId: string): Promise<ProviderForSpec[]> {
+/** Fetch all providers staked on a given spec at `blockHeight` (or current if
+ *  omitted). Historical queries require an archive node and are only used by
+ *  the rewards endpoints — everything else should pass undefined. */
+export async function fetchProvidersForSpec(
+  specId: string,
+  blockHeight?: number,
+): Promise<ProviderForSpec[]> {
   const data = await fetchRest<{
     stakeEntry: Array<{
       address: string;
@@ -41,7 +47,7 @@ export async function fetchProvidersForSpec(specId: string): Promise<ProviderFor
         api_interfaces?: string[];
       }>;
     }>;
-  }>(`/lavanet/lava/pairing/providers/${specId}`);
+  }>(`/lavanet/lava/pairing/providers/${specId}`, blockHeight);
 
   return (data.stakeEntry ?? []).map((entry) => {
     const allAddons = new Set<string>();
@@ -93,8 +99,14 @@ export interface ProviderSpecEntry {
   moniker: string;
 }
 
-/** Build per-provider spec data + address list + spec name map from chain RPC */
-export async function fetchProvidersWithSpecs(): Promise<{
+/** Build per-provider spec data + address list + spec name map from chain RPC.
+ *  Pass `blockHeight` to snapshot the provider set at a historical block —
+ *  this is how the rewards endpoints recover providers who were active at
+ *  the block but have since deregistered. Only rewards callers pass this;
+ *  everything else uses the current (default) provider set. */
+export async function fetchProvidersWithSpecs(
+  blockHeight?: number,
+): Promise<{
   providers: Map<string, { moniker: string; identity: string; commission: string; specs: ProviderSpecEntry[] }>;
   specNames: Map<string, string>;
 }> {
@@ -108,7 +120,7 @@ export async function fetchProvidersWithSpecs(): Promise<{
   for (let i = 0; i < allSpecs.length; i += RPC_BATCH_SIZE) {
     const batch = allSpecs.slice(i, i + RPC_BATCH_SIZE);
     const results = await Promise.all(
-      batch.map((s) => fetchProvidersForSpec(s.index)
+      batch.map((s) => fetchProvidersForSpec(s.index, blockHeight)
         .then((ps) => ps.map((p) => ({ ...p, specId: s.index, specName: s.name })))
         .catch(() => [] as Array<ProviderForSpec & { specId: string; specName: string }>)),
     );

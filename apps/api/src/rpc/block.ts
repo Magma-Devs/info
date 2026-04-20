@@ -7,6 +7,20 @@ const LAVA_GENESIS_UNIX = 1_713_350_000; // ~2024-04-17
 const blockAtTsCache = new Map<number, number>();
 const BLOCK_AT_TS_CACHE_MAX = 200;
 
+/** Fetch the timestamp of a given block height (ISO 8601 string).
+ *  Used for historical pricing — lets callers query CoinGecko for LAVA
+ *  price at the block's date instead of using the current price. */
+export async function fetchBlockTime(height: number): Promise<string> {
+  const res = await fetch(`${config.lava.rpcUrl}/block?height=${height}`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`RPC ${res.status}`);
+  const data = (await res.json()) as {
+    result: { block: { header: { time: string } } };
+  };
+  return data.result.block.header.time;
+}
+
 export async function fetchLatestBlockHeight(): Promise<{
   height: number;
   time: string;
