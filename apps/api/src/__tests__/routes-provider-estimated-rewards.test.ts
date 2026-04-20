@@ -193,6 +193,23 @@ describe("GET /provider-estimated-rewards", () => {
     }
   });
 
+  it("returns 503 when historical LAVA price is unavailable (don't cache wrong data for a year)", async () => {
+    (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
+    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("CoinGecko 429 after 5 attempts"),
+    );
+    const app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/provider-estimated-rewards?block=4697952",
+    });
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body).message).toMatch(/historical LAVA price unavailable/);
+    // Critical: fetchRewardsBySpec must NOT have been called — we refused to
+    // ship a response rather than silently using the current price.
+    expect(fetchRewardsBySpec).not.toHaveBeenCalled();
+  });
+
   it("uses block-time pricing when ?block= is set (historical LAVA price)", async () => {
     (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
     (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });

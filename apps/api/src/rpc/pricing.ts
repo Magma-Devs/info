@@ -1,7 +1,47 @@
+import pino from "pino";
 import { ulavaToLavaNumber } from "@info/shared/utils";
 import { config } from "../config.js";
 import { fetchRest } from "./rest.js";
 import { fetchStakingPool } from "./supply.js";
+
+const logger = pino({ name: "pricing" });
+
+// ── CoinGecko rate-limit-aware fetch ────────────────────────────────────────
+// Free-tier limit is ~10-30 calls/min. On 429, honor the Retry-After header if
+// present, else exponential backoff. Throws after `maxAttempts` so the caller
+// can distinguish "couldn't fetch" from "data says zero" — critical for
+// historical pricing, where a silent fallback to current price would bake a
+// wrong USD number into the 1-year response cache.
+const COINGECKO_MAX_ATTEMPTS = 5;
+const COINGECKO_MAX_BACKOFF_MS = 60_000;
+
+async function coingeckoFetch(url: string, signal?: AbortSignal): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= COINGECKO_MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, { signal: signal ?? AbortSignal.timeout(20_000) });
+      if (res.status !== 429) return res;
+
+      const retryAfter = parseInt(res.headers.get("retry-after") ?? "0", 10);
+      const backoffMs = Math.min(
+        COINGECKO_MAX_BACKOFF_MS,
+        retryAfter > 0 ? retryAfter * 1000 : 2 ** attempt * 1000,
+      );
+      if (attempt === COINGECKO_MAX_ATTEMPTS) {
+        throw new Error(`CoinGecko 429 after ${COINGECKO_MAX_ATTEMPTS} attempts: ${url}`);
+      }
+      logger.warn({ url, attempt, backoffMs }, "CoinGecko 429, backing off");
+      await new Promise((r) => setTimeout(r, backoffMs));
+    } catch (e) {
+      lastErr = e;
+      if (attempt === COINGECKO_MAX_ATTEMPTS) throw e;
+      const backoffMs = Math.min(COINGECKO_MAX_BACKOFF_MS, 2 ** attempt * 1000);
+      logger.warn({ url, attempt, err: String(e) }, "CoinGecko fetch error, retrying");
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+  throw lastErr ?? new Error("coingeckoFetch: unreachable");
+}
 
 /** In-memory price cache (5 min TTL) — shared across fetchLavaUsdPrice + fetchTokenUsdPrice + prewarmPriceCache */
 const priceCache = new Map<string, { price: number; ts: number }>();
@@ -17,9 +57,8 @@ export async function fetchLavaUsdPrice(): Promise<number> {
   if (pendingLavaPrice) return pendingLavaPrice;
 
   pendingLavaPrice = (async () => {
-    const res = await fetch(
+    const res = await coingeckoFetch(
       `${config.external.coingeckoApiUrl}/simple/price?ids=lava-network&vs_currencies=usd`,
-      { signal: AbortSignal.timeout(15_000) },
     );
     if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
     const data = (await res.json()) as { "lava-network"?: { usd?: number } };
@@ -121,7 +160,20 @@ function formatDateForCoingecko(date: Date): string {
 }
 
 /** Fetch USD price for a single base denom on a specific date.
- *  Returns 0 on miss (unknown denom / CoinGecko error / no data for date). */
+ *
+ *  Returns 0 ONLY for legitimate "no data" cases:
+ *   - denom isn't in our CoinGecko map
+ *   - CoinGecko returns 404 (coin ID not found)
+ *   - CoinGecko returns 200 with no market_data for that date
+ *
+ *  THROWS on transient failures (rate limit after retries, network error).
+ *  That's critical: historical rewards responses get cached for a year, so
+ *  silently falling back to "no price" or current price would bake wrong
+ *  USD numbers into the cache. Better to 503 the request and retry later.
+ *
+ *  Zeros are cached (negative result caching) because "coin not listed" /
+ *  "no data on that date" are permanent facts. Transient errors throw and
+ *  are not cached, so the next caller retries from scratch. */
 export async function fetchTokenUsdPriceAt(
   baseDenom: string,
   date: Date,
@@ -137,39 +189,55 @@ export async function fetchTokenUsdPriceAt(
     return 0;
   }
 
-  try {
-    const res = await fetch(
-      `${config.external.coingeckoApiUrl}/coins/${id}/history?date=${formatDateForCoingecko(date)}&localization=false`,
-      { signal: AbortSignal.timeout(15_000) },
-    );
-    if (!res.ok) {
-      historicalPriceCache.set(k, 0);
-      return 0;
-    }
-    const data = (await res.json()) as {
-      market_data?: { current_price?: { usd?: number } };
-    };
-    const price = data.market_data?.current_price?.usd ?? 0;
-    historicalPriceCache.set(k, price);
-    return price;
-  } catch {
+  const res = await coingeckoFetch(
+    `${config.external.coingeckoApiUrl}/coins/${id}/history?date=${formatDateForCoingecko(date)}&localization=false`,
+  );
+  if (res.status === 404) {
+    // Legitimately unknown coin ID — cache the zero indefinitely.
     historicalPriceCache.set(k, 0);
     return 0;
   }
+  if (!res.ok) {
+    throw new Error(`CoinGecko ${res.status} for ${baseDenom} @ ${isoDate}`);
+  }
+  const data = (await res.json()) as {
+    market_data?: { current_price?: { usd?: number } };
+  };
+  const price = data.market_data?.current_price?.usd ?? 0;
+  historicalPriceCache.set(k, price);
+  return price;
 }
 
 /** Build a `baseDenom → price` map at a given date for the denoms we know about.
- *  Callers pass this to reward-processing functions to override the live cache. */
+ *
+ *  Sequential because CoinGecko's free tier throttles ~10-30/min; parallelizing
+ *  22 denoms triggers 429s that coingeckoFetch spends minutes backing off.
+ *  Results cache indefinitely so the sequential cost is paid once per block.
+ *
+ *  LAVA is fetched first (virtually all reward value is LAVA). If the LAVA
+ *  fetch throws, we let it propagate — the caller needs to know the historical
+ *  price is unavailable and return 503 rather than silently shipping a wrong
+ *  cached response. Other denoms are best-effort: if a minor denom fails after
+ *  retries, we log and continue, and downstream callers will fall back to the
+ *  current-price cache for that denom (negligible drift). */
 export async function buildHistoricalPriceMap(
   date: Date,
   denoms: string[] = Object.keys(DENOM_COINGECKO_ID),
 ): Promise<Record<string, number>> {
-  const entries = await Promise.all(
-    denoms.map(async (d) => [d, await fetchTokenUsdPriceAt(d, date)] as const),
-  );
+  const orderedDenoms = denoms.includes("lava")
+    ? ["lava", ...denoms.filter((d) => d !== "lava")]
+    : denoms;
+
   const out: Record<string, number> = {};
-  for (const [d, p] of entries) {
-    if (p > 0) out[d] = p;
+  for (const d of orderedDenoms) {
+    try {
+      const p = await fetchTokenUsdPriceAt(d, date);
+      if (p > 0) out[d] = p;
+    } catch (e) {
+      if (d === "lava") throw e; // LAVA is required; bubble up to 503
+      logger.warn({ denom: d, date: date.toISOString(), err: String(e) },
+        "historical price unavailable, continuing without it");
+    }
   }
   return out;
 }
