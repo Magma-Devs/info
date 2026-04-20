@@ -23,7 +23,7 @@ export function Footer() {
       <span className="ml-auto text-sm text-muted-foreground" style={{ marginRight: "30px" }}>
         Made with ❤️ by&nbsp;
         <Link
-          href="https://x.com/magmadevs"
+          href="https://magmadevs.com/"
           className="footer-link"
           target="_blank"
           rel="noopener noreferrer"
