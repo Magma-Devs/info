@@ -5,7 +5,8 @@ import { errorHandlerPlugin } from "../plugins/error-handler.js";
 vi.mock("../rpc/lava.js", () => ({
   RPC_BATCH_SIZE: 5,
   prewarmPriceCache: vi.fn(),
-  fetchProvidersWithSpecs: vi.fn(),
+  fetchAllSpecs: vi.fn(),
+  fetchAllProviderMonikers: vi.fn(),
   fetchRawProviderRewards: vi.fn(),
   extractBaseDenoms: vi.fn(),
   processRawProviderRewards: vi.fn(),
@@ -15,9 +16,14 @@ vi.mock("../rpc/lava.js", () => ({
   buildHistoricalPriceMap: vi.fn(),
 }));
 
+vi.mock("../graphql/client.js", () => ({
+  gqlSafe: vi.fn(),
+}));
+
 const {
   prewarmPriceCache,
-  fetchProvidersWithSpecs,
+  fetchAllSpecs,
+  fetchAllProviderMonikers,
   fetchRawProviderRewards,
   extractBaseDenoms,
   processRawProviderRewards,
@@ -26,6 +32,7 @@ const {
   fetchLavaUsdPrice,
   buildHistoricalPriceMap,
 } = await import("../rpc/lava.js");
+const { gqlSafe } = await import("../graphql/client.js");
 const { providerEstimatedRewardsRoutes } = await import("../routes/provider-estimated-rewards.js");
 
 async function buildApp() {
@@ -35,12 +42,16 @@ async function buildApp() {
   return app;
 }
 
-const MOCK_PROVIDERS_WITH_SPECS = {
-  providers: new Map([
-    ["lava@1abc", { moniker: "AlphaProvider", identity: "", commission: "50", specs: [] }],
-    ["lava@2def", { moniker: "BetaProvider", identity: "", commission: "30", specs: [] }],
-  ]),
-  specNames: new Map([["ETH1", "Ethereum Mainnet"], ["NEAR", "Near"]]),
+const MOCK_SPECS = [
+  { index: "ETH1", name: "Ethereum Mainnet" },
+  { index: "NEAR", name: "Near" },
+];
+const MOCK_MONIKERS = new Map([
+  ["lava@1abc", "AlphaProvider"],
+  ["lava@2def", "BetaProvider"],
+]);
+const MOCK_INDEXER_PROVIDERS = {
+  allProviders: { nodes: [{ addr: "lava@1abc" }, { addr: "lava@2def" }] },
 };
 
 const TOK = (amount: string, usd: string) => ({
@@ -90,7 +101,9 @@ beforeEach(() => {
   vi.resetAllMocks();
   (prewarmPriceCache as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
   (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockResolvedValue(0.12);
-  (fetchProvidersWithSpecs as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_PROVIDERS_WITH_SPECS);
+  (fetchAllSpecs as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_SPECS);
+  (fetchAllProviderMonikers as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MONIKERS);
+  (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_INDEXER_PROVIDERS);
   (fetchRawProviderRewards as ReturnType<typeof vi.fn>).mockResolvedValue(STUB_RAW);
   (extractBaseDenoms as ReturnType<typeof vi.fn>).mockResolvedValue(new Set(["lava"]));
   (processRawProviderRewards as ReturnType<typeof vi.fn>).mockImplementation(
@@ -179,13 +192,9 @@ describe("GET /provider-estimated-rewards", () => {
   });
 
   it("batches provider RPC calls 5 at a time", async () => {
-    const providers = new Map<string, { moniker: string; identity: string; commission: string; specs: never[] }>();
-    for (let i = 0; i < 12; i++) {
-      providers.set(`lava@p${i}`, { moniker: `P${i}`, identity: "", commission: "50", specs: [] });
-    }
-    (fetchProvidersWithSpecs as ReturnType<typeof vi.fn>).mockResolvedValue({
-      providers, specNames: new Map(),
-    });
+    const nodes = Array.from({ length: 12 }, (_, i) => ({ addr: `lava@p${i}` }));
+    (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({ allProviders: { nodes } });
+    (fetchAllProviderMonikers as ReturnType<typeof vi.fn>).mockResolvedValue(new Map());
     (processRawProviderRewards as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     const app = await buildApp();
     await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
@@ -208,7 +217,11 @@ describe("GET /provider-estimated-rewards", () => {
 
   it("for historical blocks, fetches prices only for denoms actually in rewards", async () => {
     (extractBaseDenoms as ReturnType<typeof vi.fn>).mockResolvedValue(new Set(["lava", "atom"]));
-    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035, atom: 8.2 });
+    // LAVA fetch (kicked off in parallel with fan-out) returns lava; the
+    // follow-up non-LAVA fetch resolves the remaining denoms.
+    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ lava: 0.035 })
+      .mockResolvedValueOnce({ atom: 8.2 });
 
     const app = await buildApp();
     const res = await app.inject({
@@ -217,15 +230,15 @@ describe("GET /provider-estimated-rewards", () => {
     });
     expect(res.statusCode).toBe(200);
 
-    // buildHistoricalPriceMap called with ONLY the relevant denoms (not all 22)
-    expect(buildHistoricalPriceMap).toHaveBeenCalledWith(
-      expect.any(Date),
-      expect.arrayContaining(["lava", "atom"]),
-    );
-    const passedDenoms = (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string[];
-    expect(passedDenoms.length).toBe(2);
+    // Two calls total: ['lava'] upfront + any non-LAVA denoms after fan-out.
+    // Never all 22 known denoms (that used to blow the gateway timeout).
+    expect(buildHistoricalPriceMap).toHaveBeenCalledTimes(2);
+    const first = (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string[];
+    expect(first).toEqual(["lava"]);
+    const second = (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mock.calls[1]![1] as string[];
+    expect(second).toEqual(["atom"]);
 
-    // Price overrides passed down to processRawProviderRewards
+    // Merged price overrides passed down to processRawProviderRewards
     for (const call of (processRawProviderRewards as ReturnType<typeof vi.fn>).mock.calls) {
       expect(call[2]).toEqual({ lava: 0.035, atom: 8.2 });
     }
@@ -248,20 +261,28 @@ describe("GET /provider-estimated-rewards", () => {
     expect(fetchLavaUsdPrice).not.toHaveBeenCalled();
   });
 
-  it("snapshots the provider set at the historical block", async () => {
+  it("uses the indexer's all-time provider list (includes unstaked historical providers)", async () => {
+    // Indexer has a provider that isn't currently staked (no moniker). Route
+    // should still query it at the historical block and render it with "-".
+    (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
+      allProviders: { nodes: [{ addr: "lava@1abc" }, { addr: "lava@2def" }, { addr: "lava@3ghost" }] },
+    });
+    mockProcessPerProvider();
     (fetchBlockTime as ReturnType<typeof vi.fn>).mockResolvedValue("2026-03-17T15:00:00Z");
     const app = await buildApp();
-    await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
-    expect(fetchProvidersWithSpecs).toHaveBeenCalledWith(4697952);
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
+    expect(res.statusCode).toBe(200);
+    expect(fetchRawProviderRewards).toHaveBeenCalledTimes(3);
+    const queriedAddrs = (fetchRawProviderRewards as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(queriedAddrs).toEqual(expect.arrayContaining(["lava@1abc", "lava@2def", "lava@3ghost"]));
   });
 
-  it("uses live prices + current provider set when ?block= is omitted", async () => {
+  it("uses live prices when ?block= is omitted", async () => {
     (fetchLavaUsdPrice as ReturnType<typeof vi.fn>).mockResolvedValue(0.025);
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
     const body = JSON.parse(res.body);
     expect(body.meta.priceLavaUsd).toBe(0.025);
-    expect(fetchProvidersWithSpecs).toHaveBeenCalledWith(undefined);
     expect(buildHistoricalPriceMap).not.toHaveBeenCalled();
     for (const call of (processRawProviderRewards as ReturnType<typeof vi.fn>).mock.calls) {
       expect(call[2]).toBeUndefined();
