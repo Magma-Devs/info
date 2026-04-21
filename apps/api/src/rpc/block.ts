@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { fetchRest } from "./rest.js";
 
 // Lava mainnet genesis timestamp (block 1) — used to narrow binary search range.
 const LAVA_GENESIS_UNIX = 1_713_350_000; // ~2024-04-17
@@ -9,16 +10,15 @@ const BLOCK_AT_TS_CACHE_MAX = 200;
 
 /** Fetch the timestamp of a given block height (ISO 8601 string).
  *  Used for historical pricing — lets callers query CoinGecko for LAVA
- *  price at the block's date instead of using the current price. */
+ *  price at the block's date instead of using the current price.
+ *  Routes through fetchRest so retries + the archive header kick in for
+ *  old blocks; otherwise the tendermint-RPC proxy gateway-times-out on
+ *  pruned replicas and leaves callers with a malformed response. */
 export async function fetchBlockTime(height: number): Promise<string> {
-  const res = await fetch(`${config.lava.rpcUrl}/block?height=${height}`, {
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`RPC ${res.status}`);
-  const data = (await res.json()) as {
-    result: { block: { header: { time: string } } };
-  };
-  return data.result.block.header.time;
+  const data = await fetchRest<{ block: { header: { time: string } } }>(
+    `/cosmos/base/tendermint/v1beta1/blocks/${height}`,
+  );
+  return data.block.header.time;
 }
 
 export async function fetchLatestBlockHeight(): Promise<{

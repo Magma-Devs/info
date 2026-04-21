@@ -84,13 +84,20 @@ function shouldRetry(statusOrNull: number | null): boolean {
 /**
  * Lava REST returns a 200 OK with `{success:false, message:"upstream_error: ..."}`
  * for two very different conditions:
- *   1. The replica doesn't have the requested block in archive (pruned). Retry
- *      on a fresh connection — another replica may have it.
- *   2. The chain genuinely has no data for the request (provider not found,
- *      empty rewards collection, etc). Don't retry — return the body so
- *      downstream processors handle it as "no data".
+ *   1. The replica can't serve the request at this block (pruned state,
+ *      version mismatch, generic upstream failure). Retry on a fresh
+ *      connection — another replica may have it.
+ *   2. The chain genuinely has no data for the request (e.g. the provider has
+ *      no accrued rewards left after distribution). Don't retry — return the
+ *      body so downstream processors handle it as "no data".
  *
- * Returns "retry" for archive misses, "passthrough" for legitimate empty
+ * Default is RETRY. Passthrough requires an explicit whitelist match — a
+ * bare `collections: not found` is also what a partially-pruned replica
+ * returns when it can't read state, and treating that as legit-empty caused
+ * providers to silently drop from cached responses (same block, back-to-back
+ * cold fetches produced different provider counts).
+ *
+ * Returns "retry" for replica issues, "passthrough" for known legit-empty
  * answers, or null if the body isn't an error wrapper at all.
  */
 function classifyChainUpstreamError(body: unknown): "retry" | "passthrough" | null {
@@ -102,13 +109,16 @@ function classifyChainUpstreamError(body: unknown): "retry" | "passthrough" | nu
     return null;
   }
   const msg = ((body as { message?: unknown }).message as string | undefined) ?? "";
-  // Archive pruning markers — replica doesn't have this block.
-  if (msg.includes("version does not exist") || msg.includes("version mismatch")) {
-    return "retry";
+  // Explicit legit-empty markers. Only patterns the chain emits when the
+  // request itself has a well-formed "nothing to return" answer qualify as
+  // passthrough — everything else could be a silently-degraded replica and
+  // must retry.
+  //   "cannot get claimable rewards after distribution" → provider has no
+  //      remaining accrued amount at this block (normal state)
+  if (msg.includes("cannot get claimable rewards after distribution")) {
+    return "passthrough";
   }
-  // Anything else is treated as a legitimate "no data" — passthrough so the
-  // caller sees an empty payload rather than a 5xx after wasted retries.
-  return "passthrough";
+  return "retry";
 }
 
 function backoffWithJitter(attempt: number): number {
