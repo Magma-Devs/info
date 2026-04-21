@@ -4,16 +4,18 @@ import {
   RPC_BATCH_SIZE,
   buildHistoricalPriceMap,
   extractBaseDenoms,
+  fetchAllProviderMonikers,
+  fetchAllSpecs,
   fetchBlockAtTimestamp,
   fetchBlockTime,
   fetchLavaUsdPrice,
-  fetchProvidersWithSpecs,
   fetchRawProviderRewards,
   prewarmPriceCache,
   processRawProviderRewards,
   type EstimatedRewardsResponse,
   type RewardsBySpecEntry,
 } from "../rpc/lava.js";
+import { gqlSafe } from "../graphql/client.js";
 import { sendApiError } from "../plugins/error-handler.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -138,9 +140,6 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
 
     await prewarmPriceCache();
 
-    // Compute block metadata upfront (needed for both path branches) and
-    // snapshot the provider set AT the block (when set) so providers who have
-    // since unstaked / deregistered still appear in historical responses.
     let priceTimestamp: string;
     let priceLavaUsd: number | undefined;
     const blockTimeIso = block ? await fetchBlockTime(block) : null;
@@ -151,13 +150,40 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       priceLavaUsd = await fetchLavaUsdPrice();
     }
 
-    const { providers: providerMap, specNames } = await fetchProvidersWithSpecs(block);
-    const addresses = Array.from(providerMap.keys());
+    // ── Resolve addresses ────────────────────────────────────────────────
+    // Source of truth is the indexer's `app.providers` table — every provider
+    // that's ever been paid a relay, which is a superset of anyone who can
+    // have estimated rewards at a historical block. Monikers come from the
+    // current chain stake list (fast, cached); providers who've since unstaked
+    // won't have a moniker and render as "-" in the FE.
+    const [specs, indexerProviders, monikerMap] = await Promise.all([
+      fetchAllSpecs(),
+      gqlSafe<{ allProviders: { nodes: Array<{ addr: string }> } } | null>(
+        `query { allProviders { nodes { addr } } }`,
+        undefined,
+        null,
+      ),
+      fetchAllProviderMonikers(),
+    ]);
+    const specNames = new Map(specs.map((s) => [s.index, s.name]));
+    const providerMap = new Map<string, { moniker: string }>();
+    const addresses: string[] = [];
+    for (const node of indexerProviders?.allProviders.nodes ?? []) {
+      addresses.push(node.addr);
+      providerMap.set(node.addr, { moniker: monikerMap.get(node.addr) ?? "" });
+    }
 
-    // ── Pass 1: fetch raw rewards for every provider ─────────────────────
-    // Keeps the chain response so we can (a) inspect which denoms actually
-    // appear and (b) format the final output with the right prices, without
-    // paying for a second chain-RPC round.
+    // ── LAVA price: kicked off here so it overlaps with the chain fan-out.
+    // ~99% of reward denoms are ulava; non-LAVA denoms that actually appear
+    // are fetched after fan-out inside the rare-path below. On live (non-block)
+    // queries we use the live cache, no override needed.
+    let priceOverrides: Record<string, number> | undefined;
+    const lavaPricePromise: Promise<Record<string, number>> | null =
+      block && blockTimeIso
+        ? buildHistoricalPriceMap(new Date(blockTimeIso), ["lava"])
+        : null;
+
+    // ── Chain fan-out: per-provider estimated_provider_rewards ──────────
     const rawByAddr = new Map<string, EstimatedRewardsResponse>();
     for (let i = 0; i < addresses.length; i += RPC_BATCH_SIZE) {
       const batch = addresses.slice(i, i + RPC_BATCH_SIZE);
@@ -165,38 +191,30 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
       batch.forEach((addr, j) => rawByAddr.set(addr, raws[j]!));
     }
 
-    // ── Price overrides ──────────────────────────────────────────────────
-    // For historical blocks, fetch prices ONLY for denoms that appear in the
-    // rewards (typically just LAVA + 0-2 IBC denoms). Fetching all 22 known
-    // denoms sequentially with retry backoff would exceed the gateway timeout
-    // under any CoinGecko throttling.
-    let priceOverrides: Record<string, number> | undefined;
-    if (block && blockTimeIso) {
-      const relevantDenoms = await extractBaseDenoms([...rawByAddr.values()]);
-      if (relevantDenoms.size === 0) {
-        // No priceable rewards in this block — nothing to override.
-        priceOverrides = {};
-        priceLavaUsd = 0;
-      } else {
-        try {
-          priceOverrides = await buildHistoricalPriceMap(
-            new Date(blockTimeIso),
-            [...relevantDenoms],
-          );
-        } catch (err) {
-          // LAVA historical price unavailable. Refuse to ship a response —
-          // the cache plugin skips 4xx/5xx so we don't poison the block-keyed
-          // cache with a wrong price for a year.
-          return sendApiError(
-            reply, 503,
-            `historical LAVA price unavailable for block ${block} (${blockTimeIso}); please retry: ${(err as Error).message}`,
-          );
-        }
-        priceLavaUsd = priceOverrides.lava ?? await fetchLavaUsdPrice();
+    if (lavaPricePromise) {
+      try {
+        priceOverrides = await lavaPricePromise;
+      } catch (err) {
+        // Cache plugin skips 4xx/5xx — refusing to ship avoids poisoning the
+        // block-keyed cache with a wrong price for a year.
+        return sendApiError(
+          reply, 503,
+          `historical LAVA price unavailable for block ${block} (${blockTimeIso}); please retry: ${(err as Error).message}`,
+        );
       }
+
+      // Rare non-LAVA denoms that actually appeared in this block. IBC
+      // resolution hits chain denom_trace (cached), so this is cheap.
+      const relevantDenoms = await extractBaseDenoms([...rawByAddr.values()]);
+      const missing = [...relevantDenoms].filter((d) => priceOverrides![d] === undefined);
+      if (missing.length > 0) {
+        const extra = await buildHistoricalPriceMap(new Date(blockTimeIso!), missing);
+        priceOverrides = { ...priceOverrides, ...extra };
+      }
+      priceLavaUsd = priceOverrides.lava ?? priceLavaUsd ?? await fetchLavaUsdPrice();
     }
 
-    // ── Pass 2: format each provider's raw response with the right prices ─
+    // ── Format each provider's raw response ─────────────────────────────
     const results: Array<{
       provider: string;
       moniker: string;
