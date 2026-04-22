@@ -58,6 +58,31 @@ interface PricedRewardNode {
   valueUsd: string | null;
 }
 
+// One row from app.denom_prices, joined through the denom FK to surface
+// the display_denom the UI renders. We expose the full priced set for the
+// snapshot date so the dashboard can render a "Token Prices" card strip
+// even for denoms that didn't accrue rewards at this particular block.
+interface DenomPriceNode {
+  priceUsd: string;
+  denomByDenomId: {
+    denom: string;
+    denomMetadatumByDenomId: {
+      baseDenom: string;
+      suppress: boolean;
+    } | null;
+  };
+}
+
+// TokenPrice is the response shape surfaced in meta.tokenPrices. Source
+// denom (e.g. ulava, ibc/...) is kept alongside display denom (lava, axl)
+// so the tooltip can flag IBC-resolved denoms the same way the per-token
+// breakdown does.
+interface TokenPrice {
+  source_denom: string;
+  display_denom: string;
+  price_usd: string;
+}
+
 interface ResultRow {
   provider: string;
   moniker: string;
@@ -187,6 +212,50 @@ async function serveHistorical(
     );
   }
 
+  // Token prices for this snapshot date — fetched as a separate GraphQL
+  // roundtrip because snapshotDate is only known after the snapshot row
+  // lands. PostGraphile can't express "resolve $date from first query in
+  // second filter" in one go. One small follow-up query per cold request
+  // is fine; the page caches the full response.
+  const pricesData = await gqlSafe<{
+    allDenomPrices: { nodes: DenomPriceNode[] };
+  } | null>(
+    `query($date: Date!) {
+      allDenomPrices(filter: { snapshotDate: { equalTo: $date } }) {
+        nodes {
+          priceUsd
+          denomByDenomId {
+            denom
+            denomMetadatumByDenomId { baseDenom suppress }
+          }
+        }
+      }
+    }`,
+    { date: snap.snapshotDate },
+    null,
+  );
+
+  const tokenPrices: TokenPrice[] = (pricesData?.allDenomPrices.nodes ?? [])
+    .filter((n) => n.denomByDenomId?.denomMetadatumByDenomId
+      && !n.denomByDenomId.denomMetadatumByDenomId.suppress)
+    .map((n) => ({
+      source_denom: n.denomByDenomId.denom,
+      display_denom: n.denomByDenomId.denomMetadatumByDenomId!.baseDenom,
+      price_usd: n.priceUsd,
+    }))
+    // LAVA first, USDC second, rest alphabetical — matches the prod layout
+    // the FE card strip was designed around. Keep the sort server-side so
+    // every consumer gets the same order without duplicating the rule.
+    .sort((a, b) => {
+      const aLava = a.display_denom.toLowerCase() === "lava";
+      const bLava = b.display_denom.toLowerCase() === "lava";
+      if (aLava !== bLava) return aLava ? -1 : 1;
+      const aUsdc = a.display_denom.toLowerCase() === "usdc";
+      const bUsdc = b.display_denom.toLowerCase() === "usdc";
+      if (aUsdc !== bUsdc) return aUsdc ? -1 : 1;
+      return a.display_denom.localeCompare(b.display_denom);
+    });
+
   const rows = data?.allPricedRewards.nodes ?? [];
   const specUpper = spec;
 
@@ -313,6 +382,18 @@ async function serveHistorical(
       spec: spec ?? null,
       priceLavaUsd,
       priceTimestamp: snap.blockTime,
+      // Providers that had at least one reward row at this snapshot.
+      // Derived from the snapshot row's provider_count — same number the
+      // snapshotter emits at ingest time. Prod's "Total Providers" counter
+      // (all staked providers, including zero-reward ones) requires a
+      // historical chain query we don't yet pin, so only rewards-bearing
+      // providers are surfaced here.
+      providersWithRewards: snap.providerCount,
+      // Full per-denom price set for the snapshot date. Includes denoms
+      // that no provider accrued rewards in at this block — the FE card
+      // strip renders the chain's full priced-token universe, not just
+      // the ones in the rewards rows.
+      tokenPrices,
     },
     data: results,
   };
