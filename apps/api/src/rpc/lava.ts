@@ -20,8 +20,6 @@ export {
 } from "./providers.js";
 export {
   fetchLavaUsdPrice,
-  fetchTokenUsdPriceAt,
-  buildHistoricalPriceMap,
   prewarmPriceCache,
   computeTVL,
 } from "./pricing.js";
@@ -38,6 +36,7 @@ export {
   extractBaseDenoms,
   processRawProviderRewards,
   processClaimableRewards,
+  formatTokenStr,
 } from "./rewards.js";
 export {
   type ValidatorCommissionRates,
