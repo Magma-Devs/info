@@ -2,16 +2,17 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { CACHE_TTL } from "../config.js";
 import {
   RPC_BATCH_SIZE,
-  buildHistoricalPriceMap,
-  extractBaseDenoms,
   fetchAllProviderMonikers,
   fetchAllSpecs,
   fetchLavaUsdPrice,
   fetchRawProviderRewards,
+  formatTokenStr,
   prewarmPriceCache,
   processRawProviderRewards,
   type EstimatedRewardsResponse,
+  type RewardToken,
   type RewardsBySpecEntry,
+  type RewardsSourceBreakdown,
 } from "../rpc/lava.js";
 import { gqlSafe } from "../graphql/client.js";
 import { sendApiError } from "../plugins/error-handler.js";
@@ -20,9 +21,11 @@ import { sendApiError } from "../plugins/error-handler.js";
 
 const SPEC_ID_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
-// Mirrors the snapshotter's source_kind encoding in the indexer
-// (app.provider_rewards.source_kind).
-const SOURCE_KIND_LABELS = ["Boost", "Pools", "Subscription"] as const;
+// Mirrors the indexer's app.provider_rewards.source_kind encoding. Index 3
+// ("Total") is the roll-up row the snapshotter emits when a chain leaves
+// info[] empty — we relabel it with the same "<Kind>: <spec>" convention so
+// consumers don't have to special-case the roll-up source.
+const SOURCE_KIND_LABELS = ["Boost", "Pools", "Subscription", "Total"] as const;
 
 function validateSpecId(s: string): boolean {
   return s.length > 2 && s.length <= 50 && SPEC_ID_RE.test(s);
@@ -36,12 +39,23 @@ interface SnapshotNode {
   status: string;
 }
 
-interface ProviderRewardNode {
-  providerByProviderId: { addr: string };
-  chainBySpecId: { name: string }; // spec ID (e.g. "ETH1") — display name resolved downstream
+// Row shape from app.priced_rewards (exposed as allPricedRewards). Every
+// NUMERIC/BigInt field arrives as a string to avoid precision loss on the
+// JS Number boundary — we forward them as-is after trimming trailing zeros.
+interface PricedRewardNode {
+  blockHeight: string;
+  snapshotDate: string;
+  blockTime: string;
+  provider: string;
+  spec: string;
   sourceKind: number;
-  denom: string;
-  amount: string;
+  sourceDenom: string;
+  resolvedDenom: string;
+  displayDenom: string;
+  rawAmount: string;
+  displayAmount: string;
+  priceUsd: string | null;
+  valueUsd: string | null;
 }
 
 interface ResultRow {
@@ -129,16 +143,16 @@ export async function providerEstimatedRewardsRoutes(app: FastifyInstance) {
   });
 }
 
-// ── Historical (indexer-backed) ──────────────────────────────────────────────
+// ── Historical (indexer-backed, pure pass-through) ──────────────────────────
 //
-// The indexer snapshotter writes one row per monthly-17th-15:00-UTC block. We
-// query that data directly — no chain fan-out, no per-provider retries, no
-// archive replica tangles. Cold fetch is a single GraphQL round trip.
+// The indexer's app.priced_rewards MV already has IBC-resolved denoms and
+// block-time USD pricing baked in — info just groups the rows into the
+// legacy (provider → spec → source) shape and forwards them. No CoinGecko,
+// no IBC traces, no chain fan-out. Cold fetch is one GraphQL round trip.
 //
-// Any ?block=N we haven't snapshotted returns 404 rather than falling back to
-// the chain; the chain path is slow and unreliable for historical blocks, and
-// the FE is driven by /provider-estimated-rewards/blocks so it only asks for
-// ones we have.
+// Any ?block=N the indexer hasn't snapshotted returns 404 rather than
+// falling back to the chain; the FE is driven by
+// /provider-estimated-rewards/blocks so it only asks for ones we have.
 async function serveHistorical(
   block: number,
   spec: string | undefined,
@@ -146,17 +160,18 @@ async function serveHistorical(
 ): Promise<unknown> {
   const data = await gqlSafe<{
     providerRewardsSnapshotByBlockHeight: SnapshotNode | null;
-    allProviderRewards: { nodes: ProviderRewardNode[] };
+    allPricedRewards: { nodes: PricedRewardNode[] };
   } | null>(
     `query($block: BigInt!) {
       providerRewardsSnapshotByBlockHeight(blockHeight: $block) {
         blockHeight blockTime snapshotDate providerCount status
       }
-      allProviderRewards(filter: { blockHeight: { equalTo: $block } }) {
+      allPricedRewards(filter: { blockHeight: { equalTo: $block } }) {
         nodes {
-          providerByProviderId { addr }
-          chainBySpecId { name }
-          sourceKind denom amount
+          blockHeight snapshotDate blockTime
+          provider spec sourceKind
+          sourceDenom resolvedDenom displayDenom
+          rawAmount displayAmount priceUsd valueUsd
         }
       }
     }`,
@@ -172,66 +187,121 @@ async function serveHistorical(
     );
   }
 
-  await prewarmPriceCache();
+  const rows = data?.allPricedRewards.nodes ?? [];
+  const specUpper = spec;
 
-  // Block-time LAVA price (CoinGecko history). This is the one piece of
-  // per-request external state the route still needs — the snapshotter
-  // stores raw on-chain amounts only, USD conversion is the reader's job.
-  let priceOverrides: Record<string, number>;
-  try {
-    priceOverrides = await buildHistoricalPriceMap(new Date(snap.blockTime), ["lava"]);
-  } catch (err) {
-    return sendApiError(
-      reply, 503,
-      `historical LAVA price unavailable for block ${block} (${snap.blockTime}); please retry: ${(err as Error).message}`,
-    );
+  // Pull the LAVA/USD price from any ulava-resolved row — they all carry the
+  // same price for a given block (the MV joins a single price point). 0 when
+  // the block has no LAVA-denominated rewards priced.
+  const lavaRow = rows.find((r) => r.resolvedDenom === "ulava" && r.priceUsd !== null);
+  const priceLavaUsd = lavaRow?.priceUsd ? Number(lavaRow.priceUsd) : 0;
+
+  // Group by provider → spec → source. Each row is one RewardToken; multiple
+  // rows with the same (provider, spec, source, denom) fold into the same
+  // source bucket. In practice the MV emits one row per tuple, but we
+  // accumulate safely in case that ever changes.
+  const monikerMap = await fetchAllProviderMonikers();
+
+  interface SourceAcc {
+    source: string;
+    tokens: RewardToken[];
+    total_usd: number;
+  }
+  interface SpecAcc {
+    spec: string;
+    tokens: RewardToken[];
+    total_usd: number;
+    sources: Map<string, SourceAcc>;
+  }
+  interface ProviderAcc {
+    provider: string;
+    specs: Map<string, SpecAcc>;
+    total_usd: number;
   }
 
-  // Synthesize the EstimatedRewardsResponse shape processRawProviderRewards
-  // expects from the flat indexer rows — one info entry per (source_kind,
-  // spec, denom). The downstream formatter handles IBC resolution + USD
-  // math identically to the chain path.
-  const rawByAddr = new Map<string, EstimatedRewardsResponse>();
-  for (const row of data?.allProviderRewards.nodes ?? []) {
-    const addr = row.providerByProviderId.addr;
-    let raw = rawByAddr.get(addr);
-    if (!raw) {
-      raw = { info: [], total: [] };
-      rawByAddr.set(addr, raw);
+  const byProvider = new Map<string, ProviderAcc>();
+
+  for (const row of rows) {
+    const specKey = row.spec.toUpperCase();
+    if (specUpper && specKey !== specUpper) continue;
+
+    let provAcc = byProvider.get(row.provider);
+    if (!provAcc) {
+      provAcc = { provider: row.provider, specs: new Map(), total_usd: 0 };
+      byProvider.set(row.provider, provAcc);
     }
-    raw.info.push({
-      source: `${SOURCE_KIND_LABELS[row.sourceKind] ?? "Unknown"}: ${row.chainBySpecId.name}`,
-      amount: [{ denom: row.denom, amount: row.amount }],
-    });
+
+    let specAcc = provAcc.specs.get(specKey);
+    if (!specAcc) {
+      specAcc = { spec: specKey, tokens: [], total_usd: 0, sources: new Map() };
+      provAcc.specs.set(specKey, specAcc);
+    }
+
+    const sourceLabel = `${SOURCE_KIND_LABELS[row.sourceKind] ?? "Unknown"}: ${row.spec}`;
+    let srcAcc = specAcc.sources.get(sourceLabel);
+    if (!srcAcc) {
+      srcAcc = { source: sourceLabel, tokens: [], total_usd: 0 };
+      specAcc.sources.set(sourceLabel, srcAcc);
+    }
+
+    // priceUsd can be null when the MV has no price for that denom at the
+    // block's date. Mirror that in the response: value_usd renders as "$0"
+    // so downstream sums stay numeric.
+    const valueUsdNum = row.valueUsd ? Number(row.valueUsd) : 0;
+    const valueUsdStr = row.priceUsd && Number(row.priceUsd) > 0 && row.valueUsd
+      ? `$${formatTokenStr(row.valueUsd)}`
+      : "$0";
+
+    const token: RewardToken = {
+      source_denom: row.sourceDenom,
+      resolved_amount: formatTokenStr(row.rawAmount),
+      resolved_denom: row.resolvedDenom,
+      display_denom: row.displayDenom,
+      display_amount: formatTokenStr(row.displayAmount),
+      value_usd: valueUsdStr,
+    };
+
+    srcAcc.tokens.push(token);
+    srcAcc.total_usd += valueUsdNum;
+    specAcc.tokens.push(token);
+    specAcc.total_usd += valueUsdNum;
+    provAcc.total_usd += valueUsdNum;
   }
 
-  // Cover the rare non-LAVA denoms that actually appeared. Usually zero
-  // extra CoinGecko calls — monthly snapshots are ulava-only in practice.
-  const relevantDenoms = await extractBaseDenoms([...rawByAddr.values()]);
-  const missing = [...relevantDenoms].filter((d) => priceOverrides[d] === undefined);
-  if (missing.length > 0) {
-    const extra = await buildHistoricalPriceMap(new Date(snap.blockTime), missing);
-    priceOverrides = { ...priceOverrides, ...extra };
+  // Resolve chain display names in one pass. Done after grouping so we only
+  // fetch when there's at least one row to show.
+  let specNames = new Map<string, string>();
+  if (byProvider.size > 0) {
+    const specs = await fetchAllSpecs();
+    specNames = new Map(specs.map((s) => [s.index, s.name]));
   }
-
-  const [specs, monikerMap] = await Promise.all([
-    fetchAllSpecs(),
-    fetchAllProviderMonikers(),
-  ]);
-  const specNames = new Map(specs.map((s) => [s.index, s.name]));
 
   const results: ResultRow[] = [];
-  for (const [addr, raw] of rawByAddr) {
-    let rewards = await processRawProviderRewards(raw, specNames, priceOverrides);
-    if (spec) rewards = rewards.filter((r) => r.spec === spec);
+  for (const provAcc of byProvider.values()) {
+    const rewards: RewardsBySpecEntry[] = [];
+    for (const specAcc of provAcc.specs.values()) {
+      const sources: RewardsSourceBreakdown[] = [];
+      for (const src of specAcc.sources.values()) {
+        sources.push({
+          source: src.source,
+          tokens: src.tokens,
+          total_usd: src.total_usd,
+        });
+      }
+      rewards.push({
+        chain: specNames.get(specAcc.spec) ?? specAcc.spec,
+        spec: specAcc.spec,
+        tokens: specAcc.tokens,
+        total_usd: specAcc.total_usd,
+        sources,
+      });
+    }
     if (rewards.length === 0) continue;
-
-    const totalUsd = rewards.reduce((sum, r) => sum + r.total_usd, 0);
     results.push({
-      provider: addr,
-      moniker: monikerMap.get(addr) || "-",
+      provider: provAcc.provider,
+      moniker: monikerMap.get(provAcc.provider) || "-",
       rewards,
-      total_usd: totalUsd,
+      total_usd: provAcc.total_usd,
     });
   }
 
@@ -241,7 +311,7 @@ async function serveHistorical(
     meta: {
       block,
       spec: spec ?? null,
-      priceLavaUsd: priceOverrides.lava ?? 0,
+      priceLavaUsd,
       priceTimestamp: snap.blockTime,
     },
     data: results,

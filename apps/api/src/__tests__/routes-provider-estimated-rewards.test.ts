@@ -8,10 +8,16 @@ vi.mock("../rpc/lava.js", () => ({
   fetchAllSpecs: vi.fn(),
   fetchAllProviderMonikers: vi.fn(),
   fetchRawProviderRewards: vi.fn(),
-  extractBaseDenoms: vi.fn(),
   processRawProviderRewards: vi.fn(),
   fetchLavaUsdPrice: vi.fn(),
-  buildHistoricalPriceMap: vi.fn(),
+  // Re-exported from rewards.ts, used by the historical pass-through to trim
+  // trailing zeros on the NUMERIC strings coming out of the indexer MV.
+  formatTokenStr: (s: string) => {
+    const [whole = "", frac] = s.split(".");
+    if (!frac) return whole;
+    const trimmed = frac.replace(/0+$/, "");
+    return trimmed ? `${whole}.${trimmed}` : whole;
+  },
 }));
 
 vi.mock("../graphql/client.js", () => ({
@@ -23,10 +29,8 @@ const {
   fetchAllSpecs,
   fetchAllProviderMonikers,
   fetchRawProviderRewards,
-  extractBaseDenoms,
   processRawProviderRewards,
   fetchLavaUsdPrice,
-  buildHistoricalPriceMap,
 } = await import("../rpc/lava.js");
 const { gqlSafe } = await import("../graphql/client.js");
 const { providerEstimatedRewardsRoutes } = await import("../routes/provider-estimated-rewards.js");
@@ -52,6 +56,8 @@ const TOK = (amount: string, usd: string) => ({
   resolved_denom: "ulava", display_denom: "lava", display_amount: amount, value_usd: usd,
 });
 
+// Live-path fixtures — processRawProviderRewards returns these already-shaped
+// per-spec entries for the two mock providers.
 const MOCK_REWARDS_ALPHA = [
   {
     chain: "Ethereum Mainnet",
@@ -101,14 +107,12 @@ beforeEach(() => {
   (fetchAllSpecs as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_SPECS);
   (fetchAllProviderMonikers as ReturnType<typeof vi.fn>).mockResolvedValue(MOCK_MONIKERS);
   (fetchRawProviderRewards as ReturnType<typeof vi.fn>).mockResolvedValue(STUB_RAW);
-  (extractBaseDenoms as ReturnType<typeof vi.fn>).mockResolvedValue(new Set(["lava"]));
   (processRawProviderRewards as ReturnType<typeof vi.fn>).mockImplementation(
     (_raw: unknown, _specs: unknown, overrides: Record<string, number> | undefined) => {
       void overrides;
       return Promise.resolve(MOCK_REWARDS_ALPHA);
     },
   );
-  (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });
   // Default gqlSafe: block selector returns 2 snapshots; unused historical
   // queries return a plausible stub.
   (gqlSafe as ReturnType<typeof vi.fn>).mockImplementation((query: string) => {
@@ -136,12 +140,25 @@ function mockProcessPerProvider() {
   });
 }
 
-// Build a historical gqlSafe response. Hits BOTH the snapshot-by-block and
-// the allProviderRewards queries (the route sends them in a single query
-// with two fields, so both stubs return from the same object).
+// Build a historical gqlSafe response. The single route query fans out two
+// fields (snapshot + allPricedRewards) — both come back from this stub.
+//
+// Row defaults mimic a ulava-only snapshot with block-time USD pricing
+// already baked in by the indexer MV (priceUsd / valueUsd populated).
 function mockHistoricalIndexer(opts: {
   snapshot?: { status?: string; blockTime?: string } | null;
-  rewardRows?: Array<{ addr: string; spec: string; sourceKind: number; denom: string; amount: string }>;
+  rewardRows?: Array<{
+    addr: string;
+    spec: string;
+    sourceKind: number;
+    sourceDenom?: string;
+    resolvedDenom?: string;
+    displayDenom?: string;
+    rawAmount: string;
+    displayAmount: string;
+    priceUsd?: string | null;
+    valueUsd?: string | null;
+  }>;
 }) {
   const snap = opts.snapshot === null
     ? null
@@ -153,17 +170,27 @@ function mockHistoricalIndexer(opts: {
         status: opts.snapshot?.status ?? "ok",
       };
   const nodes = (opts.rewardRows ?? []).map((r) => ({
-    providerByProviderId: { addr: r.addr },
-    chainBySpecId: { name: r.spec },
+    blockHeight: "4697952",
+    snapshotDate: "2026-03-17",
+    blockTime: snap?.blockTime ?? "2026-03-17T15:00:00Z",
+    provider: r.addr,
+    spec: r.spec,
     sourceKind: r.sourceKind,
-    denom: r.denom,
-    amount: r.amount,
+    sourceDenom: r.sourceDenom ?? "ulava",
+    resolvedDenom: r.resolvedDenom ?? "ulava",
+    displayDenom: r.displayDenom ?? "lava",
+    rawAmount: r.rawAmount,
+    displayAmount: r.displayAmount,
+    priceUsd: r.priceUsd === undefined ? "0.035" : r.priceUsd,
+    valueUsd: r.valueUsd === undefined
+      ? (r.priceUsd === null ? null : (parseFloat(r.displayAmount) * 0.035).toString())
+      : r.valueUsd,
   }));
   (gqlSafe as ReturnType<typeof vi.fn>).mockImplementation((query: string) => {
     if (query.includes("providerRewardsSnapshotByBlockHeight")) {
       return Promise.resolve({
         providerRewardsSnapshotByBlockHeight: snap,
-        allProviderRewards: { nodes },
+        allPricedRewards: { nodes },
       });
     }
     if (query.includes("allProviderRewardsSnapshots")) {
@@ -238,7 +265,6 @@ describe("GET /provider-estimated-rewards (latest)", () => {
     const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards" });
     const body = JSON.parse(res.body);
     expect(body.meta.priceLavaUsd).toBe(0.025);
-    expect(buildHistoricalPriceMap).not.toHaveBeenCalled();
     // processRawProviderRewards gets no price override (undefined) in latest mode
     for (const call of (processRawProviderRewards as ReturnType<typeof vi.fn>).mock.calls) {
       expect(call[2]).toBeUndefined();
@@ -273,45 +299,149 @@ describe("GET /provider-estimated-rewards (latest)", () => {
   });
 });
 
-// ── Historical mode (?block=N from indexer) ─────────────────────────────────
+// ── Historical mode (?block=N — pure pass-through from indexer MV) ──────────
 
-describe("GET /provider-estimated-rewards?block= (historical / indexer)", () => {
-  it("reads from the indexer — does NOT fan-out to chain", async () => {
+describe("GET /provider-estimated-rewards?block= (historical / indexer MV)", () => {
+  it("reads from the indexer — does NOT fan-out to chain or call CoinGecko", async () => {
     mockHistoricalIndexer({
       rewardRows: [
-        { addr: "lava@1abc", spec: "ETH1", sourceKind: 0, denom: "ulava", amount: "5000000" },
-        { addr: "lava@2def", spec: "ETH1", sourceKind: 2, denom: "ulava", amount: "2000000" },
+        { addr: "lava@1abc", spec: "ETH1", sourceKind: 0, rawAmount: "5000000", displayAmount: "5" },
+        { addr: "lava@2def", spec: "ETH1", sourceKind: 2, rawAmount: "2000000", displayAmount: "2" },
       ],
     });
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
     expect(res.statusCode).toBe(200);
     expect(fetchRawProviderRewards).not.toHaveBeenCalled();
+    expect(processRawProviderRewards).not.toHaveBeenCalled();
+    expect(fetchLavaUsdPrice).not.toHaveBeenCalled();
+    expect(prewarmPriceCache).not.toHaveBeenCalled();
   });
 
-  it("synthesizes chain-shaped input from indexer rows and groups by provider", async () => {
+  it("groups rows into the legacy provider → spec → source shape", async () => {
     mockHistoricalIndexer({
       rewardRows: [
-        { addr: "lava@1abc", spec: "ETH1", sourceKind: 0, denom: "ulava", amount: "5000000" },
-        { addr: "lava@1abc", spec: "ETH1", sourceKind: 1, denom: "ulava", amount: "3000000" },
-        { addr: "lava@2def", spec: "ETH1", sourceKind: 2, denom: "ulava", amount: "2000000" },
+        { addr: "lava@1abc", spec: "ETH1", sourceKind: 0, rawAmount: "5000000", displayAmount: "5" },
+        { addr: "lava@1abc", spec: "ETH1", sourceKind: 1, rawAmount: "3000000", displayAmount: "3" },
+        { addr: "lava@2def", spec: "ETH1", sourceKind: 2, rawAmount: "2000000", displayAmount: "2" },
       ],
     });
-    // Capture what processRawProviderRewards sees — one call per provider
-    const capturedRaws: Array<{ addr: string; sources: string[] }> = [];
-    (processRawProviderRewards as ReturnType<typeof vi.fn>).mockImplementation((raw: unknown) => {
-      const typedRaw = raw as { info: Array<{ source: string }> };
-      capturedRaws.push({ addr: "", sources: typedRaw.info.map((i) => i.source) });
-      return Promise.resolve(MOCK_REWARDS_ALPHA);
-    });
-
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
     expect(res.statusCode).toBe(200);
-    expect(capturedRaws).toHaveLength(2); // one per provider
-    // Alpha's synthesized raw has two info rows with the expected labels
-    const alpha = capturedRaws.find((c) => c.sources.length === 2);
-    expect(alpha?.sources).toEqual(expect.arrayContaining(["Boost: ETH1", "Pools: ETH1"]));
+    const body = JSON.parse(res.body);
+    expect(body.data).toHaveLength(2);
+
+    const alpha = body.data.find((p: { provider: string }) => p.provider === "lava@1abc");
+    expect(alpha.rewards).toHaveLength(1); // one spec (ETH1)
+    const eth1 = alpha.rewards[0];
+    expect(eth1.spec).toBe("ETH1");
+    expect(eth1.chain).toBe("Ethereum Mainnet");
+    expect(eth1.sources.map((s: { source: string }) => s.source)).toEqual(
+      expect.arrayContaining(["Boost: ETH1", "Pools: ETH1"]),
+    );
+  });
+
+  it("sorts results by total_usd descending", async () => {
+    mockHistoricalIndexer({
+      rewardRows: [
+        // Alpha: $0.035 * (5 + 3) = $0.28
+        { addr: "lava@1abc", spec: "ETH1", sourceKind: 0, rawAmount: "5000000", displayAmount: "5" },
+        { addr: "lava@1abc", spec: "ETH1", sourceKind: 1, rawAmount: "3000000", displayAmount: "3" },
+        // Beta: $0.035 * 2 = $0.07
+        { addr: "lava@2def", spec: "ETH1", sourceKind: 2, rawAmount: "2000000", displayAmount: "2" },
+      ],
+    });
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
+    const body = JSON.parse(res.body);
+    expect(body.data[0].provider).toBe("lava@1abc");
+    expect(body.data[1].provider).toBe("lava@2def");
+    expect(body.data[0].total_usd).toBeGreaterThan(body.data[1].total_usd);
+  });
+
+  it("uses block-time pricing from the MV (meta.priceLavaUsd + priceTimestamp)", async () => {
+    mockHistoricalIndexer({
+      snapshot: { blockTime: "2026-03-17T15:00:00Z" },
+      rewardRows: [
+        {
+          addr: "lava@1abc", spec: "ETH1", sourceKind: 0,
+          rawAmount: "5000000", displayAmount: "5",
+          priceUsd: "0.035", valueUsd: "0.175",
+        },
+      ],
+    });
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.meta.priceLavaUsd).toBe(0.035);
+    expect(body.meta.priceTimestamp).toBe("2026-03-17T15:00:00Z");
+    expect(fetchLavaUsdPrice).not.toHaveBeenCalled();
+  });
+
+  it("renders priced tokens byte-identical to the legacy shape", async () => {
+    mockHistoricalIndexer({
+      rewardRows: [
+        {
+          addr: "lava@1abc", spec: "ETH1", sourceKind: 0,
+          sourceDenom: "ulava", resolvedDenom: "ulava", displayDenom: "lava",
+          rawAmount: "5000000", displayAmount: "5",
+          priceUsd: "0.035", valueUsd: "0.175",
+        },
+      ],
+    });
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
+    const body = JSON.parse(res.body);
+    const token = body.data[0].rewards[0].tokens[0];
+    expect(token).toEqual({
+      source_denom: "ulava",
+      resolved_amount: "5000000",
+      resolved_denom: "ulava",
+      display_denom: "lava",
+      display_amount: "5",
+      value_usd: "$0.175",
+    });
+  });
+
+  it("preserves IBC source_denom + resolved_denom from the MV", async () => {
+    mockHistoricalIndexer({
+      rewardRows: [
+        {
+          addr: "lava@1abc", spec: "ETH1", sourceKind: 0,
+          sourceDenom: "ibc/ABC123", resolvedDenom: "uatom", displayDenom: "atom",
+          rawAmount: "1000000", displayAmount: "1",
+          priceUsd: "8.2", valueUsd: "8.2",
+        },
+      ],
+    });
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
+    const body = JSON.parse(res.body);
+    const token = body.data[0].rewards[0].tokens[0];
+    expect(token.source_denom).toBe("ibc/ABC123");
+    expect(token.resolved_denom).toBe("uatom");
+    expect(token.display_denom).toBe("atom");
+    expect(token.value_usd).toBe("$8.2");
+  });
+
+  it("renders value_usd as \"$0\" when priceUsd is null", async () => {
+    mockHistoricalIndexer({
+      rewardRows: [
+        {
+          addr: "lava@1abc", spec: "ETH1", sourceKind: 0,
+          rawAmount: "5000000", displayAmount: "5",
+          priceUsd: null, valueUsd: null,
+        },
+      ],
+    });
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
+    const body = JSON.parse(res.body);
+    const token = body.data[0].rewards[0].tokens[0];
+    expect(token.value_usd).toBe("$0");
+    expect(body.data[0].rewards[0].total_usd).toBe(0);
   });
 
   it("returns 404 when the indexer has no snapshot for the requested block", async () => {
@@ -332,61 +462,13 @@ describe("GET /provider-estimated-rewards?block= (historical / indexer)", () => 
     expect(res.statusCode).toBe(404);
   });
 
-  it("returns 503 when historical LAVA price is unavailable (don't cache wrong data)", async () => {
+  it("filters by spec in historical mode (client-side filter on row.spec)", async () => {
     mockHistoricalIndexer({
       rewardRows: [
-        { addr: "lava@1abc", spec: "ETH1", sourceKind: 0, denom: "ulava", amount: "5000000" },
+        { addr: "lava@1abc", spec: "ETH1", sourceKind: 0, rawAmount: "5000000", displayAmount: "5" },
+        { addr: "lava@1abc", spec: "NEAR", sourceKind: 0, rawAmount: "3000000", displayAmount: "3" },
       ],
     });
-    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("CoinGecko 429"));
-    const app = await buildApp();
-    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
-    expect(res.statusCode).toBe(503);
-    expect(JSON.parse(res.body).message).toMatch(/historical LAVA price unavailable/);
-    expect(processRawProviderRewards).not.toHaveBeenCalled();
-  });
-
-  it("uses block-time pricing from the snapshot row (not fetchLavaUsdPrice)", async () => {
-    mockHistoricalIndexer({
-      snapshot: { blockTime: "2026-03-17T15:00:00Z" },
-      rewardRows: [{ addr: "lava@1abc", spec: "ETH1", sourceKind: 0, denom: "ulava", amount: "5000000" }],
-    });
-    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mockResolvedValue({ lava: 0.035 });
-    const app = await buildApp();
-    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
-    expect(res.statusCode).toBe(200);
-    const body = JSON.parse(res.body);
-    expect(body.meta.priceLavaUsd).toBe(0.035);
-    expect(body.meta.priceTimestamp).toBe("2026-03-17T15:00:00Z");
-    expect(fetchLavaUsdPrice).not.toHaveBeenCalled();
-    // First (and in this case only) historical-price call is just ['lava']
-    expect((buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toEqual(["lava"]);
-  });
-
-  it("fetches non-LAVA denom prices only when they actually appear in the snapshot", async () => {
-    mockHistoricalIndexer({
-      rewardRows: [
-        { addr: "lava@1abc", spec: "ETH1", sourceKind: 0, denom: "ulava", amount: "5000000" },
-      ],
-    });
-    (extractBaseDenoms as ReturnType<typeof vi.fn>).mockResolvedValue(new Set(["lava", "atom"]));
-    (buildHistoricalPriceMap as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ lava: 0.035 })
-      .mockResolvedValueOnce({ atom: 8.2 });
-
-    const app = await buildApp();
-    const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
-    expect(res.statusCode).toBe(200);
-    expect(buildHistoricalPriceMap).toHaveBeenCalledTimes(2);
-    expect((buildHistoricalPriceMap as ReturnType<typeof vi.fn>).mock.calls[1]![1]).toEqual(["atom"]);
-  });
-
-  it("filters by spec in historical mode", async () => {
-    mockHistoricalIndexer({
-      rewardRows: [{ addr: "lava@1abc", spec: "ETH1", sourceKind: 0, denom: "ulava", amount: "5000000" }],
-    });
-    // Alpha's rewards include both ETH1 and NEAR entries — after filter,
-    // only ETH1 should remain
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952&spec=ETH1" });
     expect(res.statusCode).toBe(200);
@@ -399,7 +481,9 @@ describe("GET /provider-estimated-rewards?block= (historical / indexer)", () => 
 
   it("renders ghost providers (no moniker) as '-'", async () => {
     mockHistoricalIndexer({
-      rewardRows: [{ addr: "lava@3ghost", spec: "ETH1", sourceKind: 0, denom: "ulava", amount: "1000000" }],
+      rewardRows: [
+        { addr: "lava@3ghost", spec: "ETH1", sourceKind: 0, rawAmount: "1000000", displayAmount: "1" },
+      ],
     });
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/provider-estimated-rewards?block=4697952" });
