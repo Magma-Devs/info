@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { CACHE_TTL } from "../config.js";
-import { weightedQos } from "@info/shared/utils";
+import { CACHE_TTL, config } from "../config.js";
+import { weightedQos, getChainIconUrl } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchAllSpecs, fetchProvidersForSpec } from "../rpc/lava.js";
 import { readHealthSummaryForSpec, readHealthByProviderForSpec } from "../services/health-store.js";
@@ -45,6 +45,7 @@ export async function specRoutes(app: FastifyInstance) {
       }
     }
 
+    const iconBase = config.icons.baseUrl;
     const specProviders = await Promise.all(
       specs.map((s) =>
         fetchProvidersForSpec(s.index)
@@ -53,12 +54,20 @@ export async function specRoutes(app: FastifyInstance) {
             return {
               specId: s.index,
               name: s.name,
+              icon: getChainIconUrl(s.index, iconBase),
               providerCount: ps.length,
               relays30d: relay?.relays ?? null,
               cu30d: relay?.cu ?? null,
             };
           })
-          .catch(() => ({ specId: s.index, name: s.name, providerCount: 0, relays30d: null as string | null, cu30d: null as string | null })),
+          .catch(() => ({
+            specId: s.index,
+            name: s.name,
+            icon: getChainIconUrl(s.index, iconBase),
+            providerCount: 0,
+            relays30d: null as string | null,
+            cu30d: null as string | null,
+          })),
       ),
     );
 
