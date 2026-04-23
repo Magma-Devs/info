@@ -53,6 +53,18 @@ export const config = {
     keybaseApiUrl: env("KEYBASE_API_URL") ?? "https://keybase.io/_/api/1.0",
   },
 
+  icons: {
+    /**
+     * Base URL used to build absolute chain-icon URLs in API responses
+     * (/specs, /all_providers_apr, etc.). Icons themselves live under
+     * apps/web/public/chains/ and are served by the info web app, so
+     * this should point at the web app's deployment origin. Defaults to
+     * the canonical public host — override in staging / local via
+     * INFO_ICONS_BASE_URL.
+     */
+    baseUrl: env("INFO_ICONS_BASE_URL") ?? "https://info.lavapro.xyz",
+  },
+
   redis: {
     url: env("REDIS_URL"),
   },

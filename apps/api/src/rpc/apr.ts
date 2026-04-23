@@ -1,4 +1,6 @@
 import type { Redis } from "ioredis";
+import { getChainIconUrl } from "@info/shared";
+import { config } from "../config.js";
 import { RPC_BATCH_SIZE } from "./rest.js";
 import { prewarmPriceCache, fetchTokenUsdPrice } from "./pricing.js";
 import {
@@ -219,8 +221,14 @@ export interface AllProviderAprEntry {
   "30_days_cu_served": string;
   "30_days_relays_served": string;
   rewards_10k_lava_delegation: RewardToken[];
-  rewards_last_month: RewardsBySpecEntry[];
-  specs: ProviderSpecEntry[];
+  /** Each entry carries an `icon` field added here (same absolute URL
+   *  as the matching specs[] entry) so consumers don't have to cross-
+   *  reference by spec. */
+  rewards_last_month: Array<RewardsBySpecEntry & { icon: string }>;
+  /** Each spec entry gets an absolute `icon` URL pointing at the info
+   *  web app's /chains/<slug>.svg. The base host comes from
+   *  config.icons.baseUrl (INFO_ICONS_BASE_URL env). */
+  specs: Array<ProviderSpecEntry & { icon: string }>;
   stake: string;
   stakestatus: string;
   addons: string;
@@ -277,6 +285,7 @@ export async function computeAllProvidersApr(
 
       const relay = relay30d.get(addr);
       const firstSpec = provider.specs[0];
+      const iconBase = config.icons.baseUrl;
 
       results.push({
         address: addr,
@@ -286,8 +295,14 @@ export async function computeAllProvidersApr(
         "30_days_cu_served": relay?.cu ?? "-",
         "30_days_relays_served": relay?.relays ?? "-",
         rewards_10k_lava_delegation: rewards.tokens,
-        rewards_last_month: rewardsLastMonth,
-        specs: provider.specs,
+        rewards_last_month: rewardsLastMonth.map((r) => ({
+          ...r,
+          icon: getChainIconUrl(r.spec, iconBase),
+        })),
+        specs: provider.specs.map((s) => ({
+          ...s,
+          icon: getChainIconUrl(s.spec, iconBase),
+        })),
         stake: firstSpec?.stake ?? "",
         stakestatus: firstSpec ? "Active" : "",
         addons: firstSpec?.addons ?? "",
