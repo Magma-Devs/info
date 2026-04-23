@@ -2,18 +2,37 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import Fastify from "fastify";
 import { errorHandlerPlugin } from "../plugins/error-handler.js";
 
-vi.mock("../rpc/lava.js", () => ({
-  fetchBlockAtTimestamp: vi.fn(),
-  fetchLatestBlockHeight: vi.fn(),
-  fetchTotalSupply: vi.fn(),
+// /burn-rate reads from the indexer (lava-indexer's app.supply_snapshots
+// exposed via PostGraphile as allSupplySnapshots). Mock gqlSafe so tests
+// don't touch a real GraphQL server — the route does nothing else of
+// substance.
+vi.mock("../graphql/client.js", () => ({
+  gqlSafe: vi.fn(),
 }));
 
-const {
-  fetchBlockAtTimestamp,
-  fetchLatestBlockHeight,
-  fetchTotalSupply,
-} = await import("../rpc/lava.js");
+const { gqlSafe } = await import("../graphql/client.js");
 const { burnRateRoutes } = await import("../routes/burn-rate.js");
+
+// Build `count` supply-snapshot nodes in DESC order by date (newest first)
+// with a monotonically-decreasing supply — matches the real chain's burn
+// behaviour (older snapshots have more tokens, supply trends down over
+// time). `baseSupply` is the *newest* row's supply; older rows are
+// `baseSupply + (i * 1_000_000)` so older > newer as on mainnet.
+function makeNodes(count: number, baseSupply = 100_000_000) {
+  const now = Date.UTC(2026, 3, 17, 15, 0, 0); // 2026-04-17 15:00 UTC
+  const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+  return Array.from({ length: count }, (_, i) => {
+    const t = new Date(now - i * MONTH_MS);
+    const date = t.toISOString().slice(0, 10);
+    const time = t.toISOString();
+    return {
+      snapshotDate: date,
+      blockHeight: String(9_000_000 - i * 200_000),
+      blockTime: time,
+      totalSupply: String(baseSupply + i * 1_000_000),
+    };
+  });
+}
 
 async function buildApp() {
   const app = Fastify({ logger: false });
@@ -24,36 +43,24 @@ async function buildApp() {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  // Each call to fetchBlockAtTimestamp returns a deterministic height derived from the timestamp
-  (fetchBlockAtTimestamp as ReturnType<typeof vi.fn>).mockImplementation(
-    (unix: number) => Promise.resolve(1_000_000 + Math.floor(unix / 1000)),
-  );
-  (fetchLatestBlockHeight as ReturnType<typeof vi.fn>).mockResolvedValue({
-    height: 9_999_999,
-    time: "2026-04-16T00:00:00Z",
-  });
-  // Supply DECREASES over time (burning) — each call returns a bigger number
-  // for more recent blocks. We simulate that by basing the mock on blockHeight.
-  (fetchTotalSupply as ReturnType<typeof vi.fn>).mockImplementation((blockHeight?: number) => {
-    // Latest (no block) = 100 LAVA; older blocks have higher supply (before burning)
-    if (blockHeight === undefined) return Promise.resolve(100_000_000n);
-    // Each "older" block (lower height) has supply 1M higher than the next
-    return Promise.resolve(BigInt(100_000_000 + (9_999_999 - blockHeight) * 1_000));
+  // Default mock: 3 nodes. Individual tests override when they need more.
+  (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
+    allSupplySnapshots: { nodes: makeNodes(3) },
   });
 });
 
 describe("GET /burn-rate", () => {
   it("returns monthly supply snapshots with supply_diff", async () => {
     const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/burn-rate?months=3",
-    });
+    const res = await app.inject({ method: "GET", url: "/burn-rate?months=3" });
     expect(res.statusCode).toBe(200);
 
     const body = JSON.parse(res.body);
     expect(body.generated_at).toBeDefined();
-    expect(body.latest.block).toBe(9_999_999);
+
+    // `latest` now reflects the most recent snapshot (nodes[0]), not chain tip —
+    // the indexer doesn't snapshot at tip, only at the monthly-17th anchor.
+    expect(body.latest.block).toBe(9_000_000);
     expect(body.latest.supply).toBe("100000000");
     expect(body.blocks).toHaveLength(3);
 
@@ -61,66 +68,67 @@ describe("GET /burn-rate", () => {
       expect(typeof b.block).toBe("number");
       expect(typeof b.time).toBe("string");
       expect(typeof b.date).toBe("string");
-      expect(b.date).toMatch(/^\d{4}-\d{2}-17$/);
       expect(typeof b.supply).toBe("string");
       expect(typeof b.supply_diff).toBe("string");
     }
   });
 
-  it("computes supply_diff as previous_supply - current_supply", async () => {
+  it("computes supply_diff as older.supply - current.supply (positive = burn)", async () => {
     const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/burn-rate?months=3",
-    });
+    const res = await app.inject({ method: "GET", url: "/burn-rate?months=3" });
     const body = JSON.parse(res.body);
 
-    // blocks[0].supply_diff should be latestSupply - blocks[0].supply.
-    // latestSupply < blocks[0].supply because older blocks have more tokens
-    // (supply decreases over time in this mock), so diff is negative.
-    const diff0 = BigInt(body.blocks[0].supply_diff);
-    const supply0 = BigInt(body.blocks[0].supply);
-    const latestSupply = BigInt(body.latest.supply);
-    expect(diff0).toBe(latestSupply - supply0);
+    // Convention: for row i, supply_diff = nodes[i+1].supply - nodes[i].supply.
+    // Older row has MORE supply (burning reduces supply over time), so the
+    // subtraction is positive on a burning chain. The oldest row has no
+    // older reference → diff = 0. Matches the pre-migration static-JSON
+    // shape and burn-ui's `if (item.diff > 0) totalBurn += item.diff` gate.
+    const blocks = body.blocks;
+    const supply0 = BigInt(blocks[0].supply); // newest
+    const supply1 = BigInt(blocks[1].supply);
+    const supply2 = BigInt(blocks[2].supply); // oldest
 
-    // blocks[1].supply_diff = blocks[0].supply - blocks[1].supply
-    const diff1 = BigInt(body.blocks[1].supply_diff);
-    const supply1 = BigInt(body.blocks[1].supply);
-    expect(diff1).toBe(supply0 - supply1);
+    expect(BigInt(blocks[0].supply_diff)).toBe(supply1 - supply0); // positive
+    expect(BigInt(blocks[1].supply_diff)).toBe(supply2 - supply1); // positive
+    expect(BigInt(blocks[2].supply_diff)).toBe(0n);                // oldest
   });
 
   it("defaults to 12 months when no query param", async () => {
-    const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/burn-rate",
+    (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
+      allSupplySnapshots: { nodes: makeNodes(12) },
     });
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/burn-rate" });
     const body = JSON.parse(res.body);
     expect(body.blocks).toHaveLength(12);
+
+    // The route must pass `first: 12` to the GraphQL query by default, so
+    // the indexer doesn't return more than 12 rows — which would break
+    // callers relying on the documented default.
+    expect(gqlSafe).toHaveBeenCalledWith(
+      expect.stringContaining("allSupplySnapshots"),
+      expect.objectContaining({ first: 12 }),
+      null,
+    );
   });
 
   it("rejects months > 36", async () => {
     const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/burn-rate?months=99",
-    });
+    const res = await app.inject({ method: "GET", url: "/burn-rate?months=99" });
     expect(res.statusCode).toBe(400);
   });
 
-  it("skips snapshots where block resolution fails", async () => {
-    (fetchBlockAtTimestamp as ReturnType<typeof vi.fn>).mockImplementation(
-      (unix: number) => (unix % 2 === 0)
-        ? Promise.reject(new Error("rpc error"))
-        : Promise.resolve(1_500_000),
-    );
-    const app = await buildApp();
-    const res = await app.inject({
-      method: "GET",
-      url: "/burn-rate?months=4",
+  it("handles empty response (no snapshots yet)", async () => {
+    (gqlSafe as ReturnType<typeof vi.fn>).mockResolvedValue({
+      allSupplySnapshots: { nodes: [] },
     });
+    const app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/burn-rate?months=6" });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
-    expect(body.blocks.length).toBeLessThan(4);
+    expect(body.blocks).toEqual([]);
+    // No most-recent row to surface → latest is null. Clients must handle
+    // this (burn-ui already does).
+    expect(body.latest).toBeNull();
   });
 });
