@@ -26,6 +26,7 @@ import { providerEstimatedRewardsRoutes } from "./routes/provider-estimated-rewa
 import { providerClaimableRewardsRoutes } from "./routes/provider-claimable-rewards.js";
 import { validatorsAndRewardsRoutes } from "./routes/validators-and-rewards.js";
 import { burnRateRoutes } from "./routes/burn-rate.js";
+import { chainStakersRoutes } from "./routes/chain-stakers.js";
 
 async function main() {
   const app = Fastify({
@@ -67,6 +68,7 @@ async function main() {
   await app.register(providerClaimableRewardsRoutes);
   await app.register(validatorsAndRewardsRoutes);
   await app.register(burnRateRoutes);
+  await app.register(chainStakersRoutes);
 
   await app.register(healthProbePlugin);
 

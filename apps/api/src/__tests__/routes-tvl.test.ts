@@ -37,3 +37,16 @@ describe("GET /tvl", () => {
     expect(res.statusCode).toBe(500);
   });
 });
+
+describe("TVL alias paths (jsinfo backwards compatibility)", () => {
+  it.each(["/total_value_locked", "/total_locked_value", "/tlv"])(
+    "%s returns the same payload as /tvl",
+    async (path) => {
+      (computeTVL as ReturnType<typeof vi.fn>).mockResolvedValue({ tvl: "42.0000" });
+      const app = await buildApp();
+      const res = await app.inject({ method: "GET", url: path });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toEqual({ tvl: "42.0000" });
+    },
+  );
+});

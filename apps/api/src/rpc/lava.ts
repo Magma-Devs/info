@@ -12,12 +12,18 @@ export {
   type ProviderForSpec,
   type AllProvidersResult,
   type ProviderSpecEntry,
+  type ProviderDelegation,
   fetchProvidersForSpec,
   fetchProvidersWithSpecs,
   fetchAllProviders,
   fetchAllProviderMonikers,
   fetchDelegatorRewards,
+  fetchProviderDelegations,
 } from "./providers.js";
+export {
+  type ChainDelegatorCounts,
+  countUniqueDelegators,
+} from "./chain-wallet.js";
 export {
   fetchLavaUsdPrice,
   prewarmPriceCache,

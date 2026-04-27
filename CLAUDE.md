@@ -187,6 +187,9 @@ packages/
 | `GET /provider-claimable-rewards` | 7200s | Chain RPC + CoinGecko | Per-provider self-delegation claimable rewards via `/lavanet/lava/dualstaking/delegator_rewards/{addr}`, converted to multi-denom USD. Returns `{ providers: { [addr]: { rewards: [{ amount, denom, usdcValue, provider }], timestamp } } }`. Replaces jsinfo's `/lava_mainnet_provider_claimable_rewards` |
 | `GET /validators-and-rewards` | 7200s | Chain RPC + CoinGecko | All bonded validators with distribution rewards, outstanding rewards, estimated rewards, delegations, and unbonding — all converted to USD. 5 RPC calls per validator, batched `RPC_BATCH_SIZE` validators at a time. Returns `{ data: { height, datetime, validators: [...] } }`. Replaces jsinfo's `/lava_mainnet_validators_and_rewards` |
 | `GET /burn-rate?months=` | 86400s | Chain RPC | Monthly total-supply snapshots sampled at the 17th of each past month at 15:00 UTC. `supply_diff` = previous_supply - current_supply (positive = burned, negative = minted). Default 12 months, max 36. Returns `{ generated_at, latest: { block, time, supply }, blocks: [{ block, time, date, supply, supply_diff }] }`. Replaces lava-ops Job 3 |
+| `GET /lava_chain_stakers` | 300s | Chain RPC | Unique delegator counts across all active providers **plus the `empty_provider` bucket** (validator-only delegators). Returns `{ total, monthly }` where `monthly` filters delegations by `timestamp` ≥ now-30d. Restored from jsinfo |
+| `GET /lava_chain_restakers` | 300s | Chain RPC | Same as `/lava_chain_stakers` but **excludes** `empty_provider` — counts only delegators that explicitly picked a provider via Lava CLI. Returns `{ total, monthly }`. Restored from jsinfo |
+| `GET /total_value_locked`, `GET /total_locked_value`, `GET /tlv` | 300s | Chain RPC + CoinGecko | Aliases for `/tvl`, restored from jsinfo for backwards compatibility. Same handler, same payload |
 
 ## Pagination Convention
 
