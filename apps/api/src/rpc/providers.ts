@@ -301,3 +301,26 @@ export async function fetchDelegatorRewards(provider: string): Promise<
     return [];
   }
 }
+
+export interface ProviderDelegation {
+  provider: string;
+  chainID: string;
+  delegator: string;
+  amount: { denom: string; amount: string };
+  /** Unix seconds, returned as a numeric string by the chain. */
+  timestamp: string;
+}
+
+/** Fetch delegators for a single provider via the dualstaking module.
+ *  Pass `"empty_provider"` to retrieve delegators that came in through the
+ *  cosmos validator path without explicitly choosing a provider. */
+export async function fetchProviderDelegations(provider: string): Promise<ProviderDelegation[]> {
+  try {
+    const data = await fetchRest<{ delegations?: ProviderDelegation[] }>(
+      `/lavanet/lava/dualstaking/provider_delegators/${provider}`,
+    );
+    return data.delegations ?? [];
+  } catch {
+    return [];
+  }
+}
