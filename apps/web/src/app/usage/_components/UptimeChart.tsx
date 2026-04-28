@@ -244,7 +244,7 @@ export function UptimeChart({
 
       <ResponsiveContainer width="100%" height={400}>
         <LineChart data={data} margin={{ top: 12, right: 24, left: 8, bottom: 24 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#222" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#333" />
           <XAxis dataKey="date" tick={{ fill: "#888", fontSize: 12 }} tickMargin={8} />
           <YAxis
             domain={[85, 100]}
@@ -252,34 +252,34 @@ export function UptimeChart({
             label={{ value: "Uptime %", angle: -90, position: "insideLeft", fill: "#888" }}
           />
           <Tooltip content={<CustomTooltip />} />
-          <Legend wrapperStyle={{ paddingTop: 24 }} iconType="line" iconSize={14} />
-          {/* Cloud providers — slim background lines */}
-          <Line type="monotone" dataKey="AWS" stroke="#f59e0b" strokeWidth={1} dot={false} strokeOpacity={0.45} activeDot={{ r: 3 }} />
-          <Line type="monotone" dataKey="Google Cloud" stroke="#3b82f6" strokeWidth={1} dot={false} strokeOpacity={0.45} activeDot={{ r: 3 }} />
-          <Line type="monotone" dataKey="Azure" stroke="#8b5cf6" strokeWidth={1} dot={false} strokeOpacity={0.45} activeDot={{ r: 3 }} />
-          <Line type="monotone" dataKey="Cloudflare" stroke="#ef4444" strokeWidth={1} dot={false} strokeOpacity={0.45} activeDot={{ r: 3 }} />
-          <Line type="monotone" dataKey="Vercel" stroke="#06b6d4" strokeWidth={1} dot={false} strokeOpacity={0.45} activeDot={{ r: 3 }} />
-          <Line type="monotone" dataKey="DigitalOcean" stroke="#14b8a6" strokeWidth={1} dot={false} strokeOpacity={0.45} activeDot={{ r: 3 }} />
-          <Line type="monotone" dataKey="Oracle Cloud" stroke="#ea580c" strokeWidth={1} dot={false} strokeOpacity={0.45} activeDot={{ r: 3 }} />
-          {/* Blockchain RPCs — dashed mid-emphasis */}
+          <Legend wrapperStyle={{ paddingTop: 24 }} />
+          {/* Cloud providers — thinner lines */}
+          <Line type="monotone" dataKey="AWS" stroke="#f59e0b" strokeWidth={1.5} dot={{ fill: "#f59e0b", r: 2.5 }} strokeOpacity={0.8} />
+          <Line type="monotone" dataKey="Google Cloud" stroke="#3b82f6" strokeWidth={1.5} dot={{ fill: "#3b82f6", r: 2.5 }} strokeOpacity={0.8} />
+          <Line type="monotone" dataKey="Azure" stroke="#8b5cf6" strokeWidth={1.5} dot={{ fill: "#8b5cf6", r: 2.5 }} strokeOpacity={0.8} />
+          <Line type="monotone" dataKey="Cloudflare" stroke="#ef4444" strokeWidth={1.5} dot={{ fill: "#ef4444", r: 2.5 }} strokeOpacity={0.8} />
+          <Line type="monotone" dataKey="Vercel" stroke="#06b6d4" strokeWidth={1.5} dot={{ fill: "#06b6d4", r: 2.5 }} strokeOpacity={0.8} />
+          <Line type="monotone" dataKey="DigitalOcean" stroke="#14b8a6" strokeWidth={1.5} dot={{ fill: "#14b8a6", r: 2.5 }} strokeOpacity={0.8} />
+          <Line type="monotone" dataKey="Oracle Cloud" stroke="#ea580c" strokeWidth={1.5} dot={{ fill: "#ea580c", r: 2.5 }} strokeOpacity={0.8} />
+          {/* Blockchain RPCs — dashed mid-thickness */}
           <Line
             type="monotone"
             dataKey="Blockchain RPCs"
             stroke="#ec4899"
-            strokeWidth={1.5}
-            dot={false}
-            activeDot={{ r: 4 }}
+            strokeWidth={2}
+            dot={{ fill: "#ec4899", r: 3 }}
+            activeDot={{ r: 5 }}
             strokeDasharray="5 5"
-            strokeOpacity={0.75}
+            strokeOpacity={0.9}
           />
           {/* Lava Network — last so it sits on top, thickest line */}
           <Line
             type="monotone"
             dataKey="Lava Network"
             stroke="#10b981"
-            strokeWidth={2.5}
-            dot={false}
-            activeDot={{ r: 5, strokeWidth: 2, stroke: "#10b981", fill: "#fff" }}
+            strokeWidth={4}
+            dot={{ fill: "#10b981", r: 5, strokeWidth: 2, stroke: "#fff" }}
+            activeDot={{ r: 7, strokeWidth: 2 }}
             strokeOpacity={1}
           />
         </LineChart>
