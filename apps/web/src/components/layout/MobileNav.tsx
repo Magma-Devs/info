@@ -86,7 +86,7 @@ export function MobileNav() {
             </div>
           </div>
 
-          {NAV_ITEMS.map(({ href, label, icon: Icon, external }) => {
+          {NAV_ITEMS.map(({ href, label, icon: Icon, external }, idx) => {
             const active = !external && isActive(href);
             const className = `relative flex items-center gap-4 pl-4 pr-3 py-4 rounded-xl text-lg font-medium transition-colors ${
               active
@@ -94,31 +94,40 @@ export function MobileNav() {
                 : "text-foreground/80 hover:text-foreground active:bg-muted/50"
             }`;
             const iconClass = `h-6 w-6 shrink-0 ${active ? "text-accent" : "text-muted-foreground"}`;
+            // Insert a divider before the first external item so users see a
+            // clear break between in-app routes and outbound links.
+            const showDivider = external && !NAV_ITEMS[idx - 1]?.external;
 
-            if (external) {
-              return (
-                <a
-                  key={href}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={close}
-                  className={className}
-                >
-                  <Icon className={iconClass} />
-                  {label}
-                  <ExternalLink className="h-5 w-5 ml-auto opacity-40" />
-                </a>
-              );
-            }
-
-            return (
+            const item = external ? (
+              <a
+                key={href}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={close}
+                className={className}
+              >
+                <Icon className={iconClass} />
+                {label}
+                <ExternalLink className="h-5 w-5 ml-auto opacity-40" />
+              </a>
+            ) : (
               <Link key={href} href={href} onClick={close} className={className}>
                 {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-r-full bg-accent" />}
                 <Icon className={iconClass} />
                 {label}
               </Link>
             );
+
+            if (showDivider) {
+              return (
+                <div key={`group-${href}`}>
+                  <div className="my-3 h-px bg-border/60" aria-hidden />
+                  {item}
+                </div>
+              );
+            }
+            return item;
           })}
         </nav>
       </div>
