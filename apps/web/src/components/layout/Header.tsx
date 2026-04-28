@@ -135,8 +135,14 @@ export function Header() {
         <Link href="/chains" className={`nav-link ${isActive("/chain") ? "nav-link-selected" : ""}`}>
           Chains
         </Link>
+        <Link href="/usage" className={`nav-link ${isActive("/usage") ? "nav-link-selected" : ""}`}>
+          Usage
+        </Link>
         <a href="https://rewards.lavanet.xyz" className="nav-link" target="_blank" rel="noopener noreferrer">
           Rewards
+        </a>
+        <a href="https://burn.lavanet.xyz" className="nav-link" target="_blank" rel="noopener noreferrer">
+          Burn
         </a>
       </nav>
 
