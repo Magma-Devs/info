@@ -86,6 +86,9 @@ export function MobileNav() {
             </div>
           </div>
 
+          <div className="px-3 pt-3 pb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+            Explorer
+          </div>
           {NAV_ITEMS.map(({ href, label, icon: Icon, external }, idx) => {
             const active = !external && isActive(href);
             const className = `relative flex items-center gap-4 pl-4 pr-3 py-4 rounded-xl text-lg font-medium transition-colors ${
@@ -94,9 +97,9 @@ export function MobileNav() {
                 : "text-foreground/80 hover:text-foreground active:bg-muted/50"
             }`;
             const iconClass = `h-6 w-6 shrink-0 ${active ? "text-accent" : "text-muted-foreground"}`;
-            // Insert a divider before the first external item so users see a
-            // clear break between in-app routes and outbound links.
-            const showDivider = external && !NAV_ITEMS[idx - 1]?.external;
+            // Inject a divider + "External" heading the first time we cross
+            // from in-app routes to outbound links.
+            const isFirstExternal = external && !NAV_ITEMS[idx - 1]?.external;
 
             const item = external ? (
               <a
@@ -119,10 +122,13 @@ export function MobileNav() {
               </Link>
             );
 
-            if (showDivider) {
+            if (isFirstExternal) {
               return (
                 <div key={`group-${href}`}>
-                  <div className="my-3 h-px bg-border/60" aria-hidden />
+                  <div className="my-4 h-px bg-border/60" aria-hidden />
+                  <div className="px-3 pt-1 pb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+                    External
+                  </div>
                   {item}
                 </div>
               );
