@@ -62,7 +62,7 @@ export const config = {
      * the canonical public host — override in staging / local via
      * INFO_ICONS_BASE_URL.
      */
-    baseUrl: env("INFO_ICONS_BASE_URL") ?? "https://info.lavapro.xyz",
+    baseUrl: env("INFO_ICONS_BASE_URL") ?? "https://info.lavanet.xyz",
   },
 
   redis: {

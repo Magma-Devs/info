@@ -81,7 +81,7 @@ export function getChainIconFilename(specId: string): string {
  *   The API uses this so downstream consumers (burn-ui, lava-rewards)
  *   can load icons cross-origin without needing to know the FE host
  *   themselves. The API's default comes from config.icons.baseUrl
- *   (env `INFO_ICONS_BASE_URL`, default `https://info.lavapro.xyz`).
+ *   (env `INFO_ICONS_BASE_URL`, default `https://info.lavanet.xyz`).
  *
  * Trailing slashes on baseUrl are tolerated.
  */
