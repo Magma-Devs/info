@@ -3,17 +3,34 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, Home, Server, Link2, Gift, ExternalLink } from "lucide-react";
+import {
+  Menu,
+  X,
+  Home,
+  Server,
+  Link2,
+  Gift,
+  Flame,
+  Activity,
+  ExternalLink,
+  type LucideIcon,
+} from "lucide-react";
 import { IS_TESTNET, getToggleUrl } from "@/lib/network";
 
-const NAV_ITEMS = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  external?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/providers", label: "Providers", icon: Server },
   { href: "/chains", label: "Chains", icon: Link2 },
-];
-
-const EXTERNAL_ITEMS = [
-  { href: "https://rewards.lavanet.xyz", label: "Rewards", icon: Gift },
+  { href: "/usage", label: "Usage", icon: Activity, external: true },
+  { href: "https://rewards.lavanet.xyz", label: "Rewards", icon: Gift, external: true },
+  { href: "https://burn.lavanet.xyz", label: "Burn", icon: Flame, external: true },
 ];
 
 export function MobileNav() {
@@ -69,48 +86,40 @@ export function MobileNav() {
             </div>
           </div>
 
-          <div className="px-3 pt-3 pb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-            Explorer
-          </div>
-          {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
-            const active = isActive(href);
+          {NAV_ITEMS.map(({ href, label, icon: Icon, external }) => {
+            const active = !external && isActive(href);
+            const className = `relative flex items-center gap-4 pl-4 pr-3 py-4 rounded-xl text-lg font-medium transition-colors ${
+              active
+                ? "bg-accent/15 text-accent"
+                : "text-foreground/80 hover:text-foreground active:bg-muted/50"
+            }`;
+            const iconClass = `h-6 w-6 shrink-0 ${active ? "text-accent" : "text-muted-foreground"}`;
+
+            if (external) {
+              return (
+                <a
+                  key={href}
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={close}
+                  className={className}
+                >
+                  <Icon className={iconClass} />
+                  {label}
+                  <ExternalLink className="h-5 w-5 ml-auto opacity-40" />
+                </a>
+              );
+            }
+
             return (
-              <Link
-                key={href}
-                href={href}
-                onClick={close}
-                className={`relative flex items-center gap-4 pl-4 pr-3 py-4 rounded-xl text-lg font-medium transition-colors ${
-                  active
-                    ? "bg-accent/15 text-accent"
-                    : "text-foreground/80 hover:text-foreground active:bg-muted/50"
-                }`}
-              >
+              <Link key={href} href={href} onClick={close} className={className}>
                 {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-1 rounded-r-full bg-accent" />}
-                <Icon className={`h-6 w-6 shrink-0 ${active ? "text-accent" : "text-muted-foreground"}`} />
+                <Icon className={iconClass} />
                 {label}
               </Link>
             );
           })}
-
-          <div className="my-4 h-px bg-border/60" />
-
-          <div className="px-3 pt-1 pb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-            External
-          </div>
-          {EXTERNAL_ITEMS.map(({ href, label, icon: Icon }) => (
-            <a
-              key={href}
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={close}
-              className="flex items-center gap-4 pl-4 pr-3 py-4 rounded-xl text-lg font-medium text-foreground/80 hover:text-foreground active:bg-muted/50 transition-colors"
-            >
-              <Icon className="h-6 w-6 shrink-0 text-muted-foreground" />
-              {label}
-              <ExternalLink className="h-5 w-5 ml-auto opacity-40" />
-            </a>
-          ))}
         </nav>
       </div>
     </>

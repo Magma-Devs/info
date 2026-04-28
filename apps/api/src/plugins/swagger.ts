@@ -25,6 +25,7 @@ export const swaggerPlugin = fp(async (app: FastifyInstance) => {
         { name: "Provider Rewards", description: "Per-provider QoS-adjusted reward distribution with USD values" },
         { name: "Validators", description: "Bonded validator list with rewards, delegations, and unbonding — matches jsinfo shape" },
         { name: "Chain Wallet", description: "Unique staker / restaker counts across the dualstaking module" },
+        { name: "Usage", description: "Network uptime / reliability data sourced from public status pages" },
       ],
     },
   });
