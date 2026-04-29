@@ -17,7 +17,7 @@ async function buildApp() {
 }
 
 describe("GET /lava/specs", () => {
-  it("returns all chain specs from rpc", async () => {
+  it("returns all chain specs with index, name, and absolute icon URL", async () => {
     (fetchAllSpecs as ReturnType<typeof vi.fn>).mockResolvedValue([
       { index: "ETH1", name: "Ethereum Mainnet" },
       { index: "LAVA", name: "Lava Mainnet" },
@@ -27,7 +27,16 @@ describe("GET /lava/specs", () => {
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.data).toHaveLength(2);
-    expect(body.data[0].index).toBe("ETH1");
+    expect(body.data[0]).toEqual({
+      index: "ETH1",
+      name: "Ethereum Mainnet",
+      icon: expect.stringMatching(/^https?:\/\/[^/]+\/chains\/ethereum\.svg$/),
+    });
+    expect(body.data[1]).toEqual({
+      index: "LAVA",
+      name: "Lava Mainnet",
+      icon: expect.stringMatching(/^https?:\/\/[^/]+\/chains\/lava\.svg$/),
+    });
   });
 
   it("returns empty data if rpc returns nothing", async () => {
