@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { headers } from "next/headers";
+import { GoogleAnalytics } from "@next/third-parties/google";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { ErrorBoundary } from "@/components/data/ErrorBoundary";
@@ -53,7 +55,13 @@ export const viewport: Viewport = {
   userScalable: true,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // headers() opts the layout out of static prerender so process.env is read
+  // per-request — needed because NEXT_PUBLIC_GA_ID is wired through ECS task
+  // env (terraform), not baked into the bundle at build time.
+  await headers();
+  const gaId = process.env.NEXT_PUBLIC_GA_ID;
+
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`min-h-screen bg-background antialiased ${inter.variable} ${inter.className}`}>
@@ -72,6 +80,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Footer />
           </div>
         </SwrProvider>
+        {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
   );

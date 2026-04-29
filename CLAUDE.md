@@ -300,6 +300,7 @@ The provider detail page (`/providers/:addr`) is expensive — it queries **ever
 | `COINGECKO_API_URL` | `https://api.coingecko.com/api/v3` | API |
 | `KEYBASE_API_URL` | `https://keybase.io/_/api/1.0` | API |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | Web |
+| `NEXT_PUBLIC_GA_ID` | (unset, GA disabled) | Web — Google Analytics 4 measurement ID. When set, the root layout renders `<GoogleAnalytics gaId>` from `@next/third-parties/google`. Layout calls `headers()` so the read happens per-request — wired via ECS task env from terraform `web_ga_id`, not baked into the bundle |
 | `NODE_ENV` | `production` | Web |
 
 ## Not Covered (external data sources needed)
