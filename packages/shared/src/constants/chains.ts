@@ -11,6 +11,10 @@ export const BASE_SPECS = new Set([
  * user-friendly (e.g. chainName="bsc-mainnet" → "BNB Chain Mainnet").
  */
 export const CHAIN_DISPLAY_NAMES: Record<string, string> = {
+  AVALANCHEC: "Avalanche C-Chain Mainnet",
+  AVALANCHECT: "Avalanche C-Chain Testnet",
+  AVALANCHEP: "Avalanche P-Chain Mainnet",
+  AVALANCHEPT: "Avalanche P-Chain Testnet",
   BSC: "BNB Chain Mainnet",
   BSCT: "BNB Chain Testnet",
   COSMOSHUB: "Cosmos Hub Mainnet",
