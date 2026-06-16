@@ -19,6 +19,8 @@ describe("getChainIcon", () => {
     expect(getChainIcon("INJECTIVE")).toBe("/chains/injective.svg");
     expect(getChainIcon("ZKSYNC")).toBe("/chains/zksync.svg");
     expect(getChainIcon("XRP")).toBe("/chains/xrp.svg");
+    expect(getChainIcon("MORALIS")).toBe("/chains/moralis.svg");
+    expect(getChainIcon("SQDSUBGRAPH")).toBe("/chains/sqdsubgraph.svg");
   });
 
   it("aliases testnet / variant specIds onto their mainnet icon", () => {
