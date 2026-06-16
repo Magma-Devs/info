@@ -34,6 +34,14 @@ describe("getChainIcon", () => {
     expect(getChainIcon("ZKSYNCSP")).toBe("/chains/zksync.svg");
   });
 
+  it("maps Avalanche C-Chain / P-Chain to their distinct icons", () => {
+    expect(getChainIcon("AVALANCHEC")).toBe("/chains/avalanche-c.svg");
+    expect(getChainIcon("AVALANCHECT")).toBe("/chains/avalanche-c.svg");
+    expect(getChainIcon("AVALANCHEP")).toBe("/chains/avalanche-p.svg");
+    expect(getChainIcon("AVALANCHEPT")).toBe("/chains/avalanche-p.svg");
+    expect(getChainIcon("AVAX")).toBe("/chains/avalanche.svg");
+  });
+
   it("is case-insensitive on input", () => {
     expect(getChainIcon("FVMT")).toBe("/chains/filecoin.svg");
     expect(getChainIcon("fvmt")).toBe("/chains/filecoin.svg");
