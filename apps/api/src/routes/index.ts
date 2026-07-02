@@ -57,22 +57,26 @@ export async function indexRoutes(app: FastifyInstance) {
   app.get("/top-chains", {
     schema: {
       tags: ["Index"],
-      summary: "Top 20 chains by alltime CU",
+      summary: "Top 20 chains by 30-day CU",
     },
     config: { cacheTTL: CACHE_TTL.LIST },
   }, async () => {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+
     const data = await gqlSafe<{
       allMvRelayDailies: {
         groupedAggregates: Array<{ keys: string[]; sum: { cu: string; relays: string } }>;
       };
-    } | null>(`{
-      allMvRelayDailies {
+    } | null>(`query($since: Date!) {
+      allMvRelayDailies(filter: { date: { greaterThanOrEqualTo: $since } }) {
         groupedAggregates(groupBy: CHAIN_ID) {
           keys
           sum { cu relays }
         }
       }
-    }`, undefined, null);
+    }`, { since: thirtyDaysAgo }, null);
 
     if (!data) return { data: [] };
 
