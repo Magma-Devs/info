@@ -7,9 +7,13 @@ vi.mock("../rpc/lava.js", () => ({
   fetchLatestBlockHeight: vi.fn(),
   fetchAllProviders: vi.fn(),
 }));
+vi.mock("../rpc/supply.js", () => ({
+  fetchStakingPool: vi.fn(),
+}));
 
 const { gqlSafe } = await import("../graphql/client.js");
 const { fetchLatestBlockHeight, fetchAllProviders } = await import("../rpc/lava.js");
+const { fetchStakingPool } = await import("../rpc/supply.js");
 const { indexRoutes } = await import("../routes/index.js");
 
 async function buildApp() {
@@ -33,6 +37,10 @@ describe("GET /index/stats", () => {
     (fetchAllProviders as ReturnType<typeof vi.fn>).mockResolvedValue([
       { address: "lava@a", totalStake: "1000", totalDelegation: "500" },
     ]);
+    (fetchStakingPool as ReturnType<typeof vi.fn>).mockResolvedValue({
+      bonded_tokens: "381000000000000",
+      not_bonded_tokens: "999",
+    });
 
     const app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/index/stats" });
@@ -40,7 +48,7 @@ describe("GET /index/stats", () => {
     const body = JSON.parse(res.body);
     expect(body.latestBlock).toBe(12345);
     expect(body.activeProviderCount).toBe(1);
-    expect(body.totalStake).toBe("1500");
+    expect(body.totalStake).toBe("381000000000000");
   });
 });
 
