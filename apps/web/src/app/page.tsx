@@ -152,12 +152,12 @@ export default function DashboardPage() {
       cell: ({ row }) => <ChainLink chainId={row.original.specId} />,
     },
     {
-      id: "totalCu", header: "Total CU",
+      id: "totalCu", header: "CU (30 Days)",
       sortingFn: (a, b) => Number(BigInt(a.original.totalCu || "0") - BigInt(b.original.totalCu || "0")),
       cell: ({ row }) => <span className="text-right">{formatNumberKMB(row.original.totalCu)}</span>,
     },
     {
-      id: "totalRelays", header: "Total Relays",
+      id: "totalRelays", header: "Relays (30 Days)",
       sortingFn: (a, b) => Number(BigInt(a.original.totalRelays || "0") - BigInt(b.original.totalRelays || "0")),
       cell: ({ row }) => <span className="text-right">{formatNumberKMB(row.original.totalRelays)}</span>,
     },
@@ -362,7 +362,7 @@ export default function DashboardPage() {
             </ul>
             {/* Desktop: sortable table */}
             <div className="hidden md:block">
-              <SortableTable data={chains} columns={chainCols} defaultSort={[{ id: "totalRelays", desc: true }]} loading={chainsLoading} />
+              <SortableTable data={chains} columns={chainCols} defaultSort={[{ id: "totalCu", desc: true }]} loading={chainsLoading} />
             </div>
           </CardContent>
         </Card>
