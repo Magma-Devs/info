@@ -3,6 +3,7 @@ import { CACHE_TTL } from "../config.js";
 import { weightedQos } from "@info/shared/utils";
 import { gqlSafe } from "../graphql/client.js";
 import { fetchLatestBlockHeight, fetchAllProviders } from "../rpc/lava.js";
+import { fetchStakingPool } from "../rpc/supply.js";
 
 export async function indexRoutes(app: FastifyInstance) {
   app.get("/stats", {
@@ -22,7 +23,7 @@ export async function indexRoutes(app: FastifyInstance) {
       };
     } | null;
 
-    const [allTimeData, last30dData, latestBlock, providers] = await Promise.all([
+    const [allTimeData, last30dData, latestBlock, providers, stakingPool] = await Promise.all([
       gqlSafe<RelayAgg>(`{
         allMvRelayDailies {
           aggregates { sum { cu relays } }
@@ -35,12 +36,10 @@ export async function indexRoutes(app: FastifyInstance) {
       }`, { since: thirtyDaysAgo }, null),
       fetchLatestBlockHeight(),
       fetchAllProviders(),
+      fetchStakingPool(),
     ]);
 
-    const totalStake = providers.reduce(
-      (sum, p) => sum + BigInt(p.totalStake) + BigInt(p.totalDelegation),
-      0n,
-    );
+    const totalStake = BigInt(stakingPool.bonded_tokens);
 
     return {
       totalCu: allTimeData?.allMvRelayDailies.aggregates.sum.cu ?? null,
