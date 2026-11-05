@@ -11,7 +11,7 @@ export function Footer() {
           rel="noopener noreferrer"
         >
           <img
-            src="https://lava-fe-assets.s3.amazonaws.com/lava-icon.svg"
+            src="/lava-icon.svg"
             alt="Lava Network Logo"
             width={24}
             height={24}
