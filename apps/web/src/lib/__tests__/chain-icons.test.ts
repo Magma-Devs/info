@@ -42,6 +42,18 @@ describe("getChainIcon", () => {
     expect(getChainIcon("AVAX")).toBe("/chains/avalanche.svg");
   });
 
+  it("maps legacy testnet specIds onto their chain's icon", () => {
+    expect(getChainIcon("ARB1")).toBe("/chains/arbitrum-one.svg");
+    expect(getChainIcon("ARBN")).toBe("/chains/arbitrum-nova.svg");
+    expect(getChainIcon("COS3")).toBe("/chains/osmosis.svg");
+    expect(getChainIcon("COS5")).toBe("/chains/cosmos-hub.svg");
+    expect(getChainIcon("COSHUBT")).toBe("/chains/cosmos-hub.svg");
+    expect(getChainIcon("GTH1")).toBe("/chains/ethereum.svg");
+    expect(getChainIcon("HEDERATest")).toBe("/chains/hedera.svg");
+    expect(getChainIcon("POLYGON1T")).toBe("/chains/polygon.svg");
+    expect(getChainIcon("STRKT")).toBe("/chains/starknet.svg");
+  });
+
   it("is case-insensitive on input", () => {
     expect(getChainIcon("FVMT")).toBe("/chains/filecoin.svg");
     expect(getChainIcon("fvmt")).toBe("/chains/filecoin.svg");
