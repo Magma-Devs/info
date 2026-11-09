@@ -9,7 +9,7 @@ export const swaggerPlugin = fp(async (app: FastifyInstance) => {
       openapi: "3.1.0",
       info: {
         title: "Lava Network Explorer API",
-        description: "REST API for the Lava Network blockchain explorer. Provides provider, chain (spec), relay, staking, and supply data across Mainnet and Testnet.",
+        description: "REST API for the Lava Network blockchain explorer. Provides provider, chain (spec), relay, staking, and supply data for Lava Mainnet.",
         version: "1.0.0",
       },
       tags: [

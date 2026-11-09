@@ -1,6 +1,6 @@
 # Info — Lava Network Explorer
 
-Blockchain explorer for [Lava Network](https://lavanet.xyz). Tracks providers, chains (specs), relay payments, staking, and supply across Mainnet and Testnet.
+Blockchain explorer for [Lava Network](https://lavanet.xyz). Tracks providers, chains (specs), relay payments, staking, and supply on Lava Mainnet.
 
 ## Quick Start
 
@@ -204,7 +204,6 @@ The API provides pagination via `request.pagination` (Fastify plugin). Default m
 - `useApi<T>(url)` — SWR wrapper with 5-min refresh, returns `{ data, isLoading, error }`
 - `useChainNames()` — fetches `/lava/specs` and returns a `getName(chainId)` lookup
 - API base URL from `NEXT_PUBLIC_API_URL`
-- Network toggle (Mainnet/Testnet pill in header) switches via `localStorage.setItem("lava-network", "testnet")`
 
 ### Key Components
 - `ChainLink` — chain ID with SVG icon + link to `/chain/{specId}`. `showName` prop renders full name on top, specId below in muted text

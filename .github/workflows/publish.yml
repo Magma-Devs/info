@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [mainnet, testnet]
+        environment: [mainnet]
     environment: ${{ matrix.environment }}
     steps:
       - uses: actions/checkout@v4
@@ -97,7 +97,6 @@ jobs:
           push: true
           build-args: |
             NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
-            NEXT_PUBLIC_NETWORK=${{ matrix.environment }}
           tags: |
             ${{ steps.ecr.outputs.registry }}/info-web:${{ matrix.environment }}-${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/info-web:${{ matrix.environment }}-latest

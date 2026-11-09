@@ -8,7 +8,6 @@ import { MobileNav } from "./MobileNav";
 import { SearchBar } from "./SearchBar";
 import { LastUpdateBadge } from "./LastUpdateBadge";
 import { api } from "@/lib/api-client";
-import { IS_TESTNET, getToggleUrl } from "@/lib/network";
 
 const IS_DEV = process.env.NODE_ENV === "development";
 
@@ -147,26 +146,6 @@ export function Header() {
       </nav>
 
       <div className="flex items-center gap-4 ml-auto md:gap-2 lg:gap-4">
-        {/* Mainnet / Testnet toggle — hidden on mobile (shown in MobileNav instead) */}
-        <div
-          className="hidden md:flex items-center gap-1 rounded-full p-1 bg-muted cursor-pointer hover:bg-muted/80 transition-all duration-300 ease-in-out hover:shadow-md shrink-0"
-          onClick={() => { window.location.href = getToggleUrl(); }}
-        >
-          <div className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
-            !IS_TESTNET
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:scale-105"
-          }`}>
-            Mainnet
-          </div>
-          <div className={`px-3 py-1 rounded-full text-sm transition-all duration-300 ${
-            IS_TESTNET
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground hover:scale-105"
-          }`}>
-            Testnet
-          </div>
-        </div>
         <LastUpdateBadge />
         <SearchBar />
         {IS_DEV && <DevToolsMenu />}

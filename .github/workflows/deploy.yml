@@ -9,7 +9,6 @@ on:
         type: choice
         options:
           - mainnet
-          - testnet
       service:
         description: "Service to deploy"
         required: true
