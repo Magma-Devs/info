@@ -26,7 +26,6 @@ export const CHAIN_DISPLAY_NAMES: Record<string, string> = {
   BTC: "Bitcoin Mainnet",
   HOL1: "Ethereum Holesky Testnet",
   LAVA: "Lava Mainnet",
-  LAV1: "Lava Testnet",
   MOVEMENTT: "Movement Testnet",
   OPTMS: "Optimism Sepolia Testnet",
   POLYGONA: "Polygon Amoy Testnet",

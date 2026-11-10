@@ -69,7 +69,6 @@ const ALIASES: Record<string, string> = {
   iotat: "iota",
   junt1: "jun1",
   koiit: "koii",
-  lav1: "lava",
   ltct: "ltc",
   mantapacifict: "mantapacific",
   monadt: "monad",
