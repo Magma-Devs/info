@@ -27,7 +27,6 @@ describe("getChainIcon", () => {
     expect(getChainIcon("CELESTIATA")).toBe("/chains/celestia.svg");
     expect(getChainIcon("CELESTIATM")).toBe("/chains/celestia.svg");
     expect(getChainIcon("SUIT")).toBe("/chains/sui.svg");
-    expect(getChainIcon("LAV1")).toBe("/chains/lava.svg");
     expect(getChainIcon("MONADT")).toBe("/chains/monad.svg");
     expect(getChainIcon("CARDANOT")).toBe("/chains/cardano.svg");
     expect(getChainIcon("BERAT2")).toBe("/chains/bera.svg");

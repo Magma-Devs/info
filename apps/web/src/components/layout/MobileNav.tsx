@@ -15,7 +15,6 @@ import {
   ExternalLink,
   type LucideIcon,
 } from "lucide-react";
-import { IS_TESTNET, getToggleUrl } from "@/lib/network";
 
 interface NavItem {
   href: string;
@@ -65,27 +64,6 @@ export function MobileNav() {
         }`}
       >
         <nav className="flex flex-col p-5 gap-1 overflow-y-auto h-full pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-          {/* Mainnet / Testnet toggle */}
-          <div
-            className="flex items-center gap-1 rounded-full p-1 bg-muted cursor-pointer mb-6 shadow-inner"
-            onClick={() => { window.location.href = getToggleUrl(); }}
-          >
-            <div className={`flex-1 text-center px-3 py-4 rounded-full text-lg font-semibold transition-all duration-300 ${
-              !IS_TESTNET
-                ? "bg-primary text-primary-foreground shadow-md"
-                : "text-muted-foreground"
-            }`}>
-              Mainnet
-            </div>
-            <div className={`flex-1 text-center px-3 py-4 rounded-full text-lg font-semibold transition-all duration-300 ${
-              IS_TESTNET
-                ? "bg-primary text-primary-foreground shadow-md"
-                : "text-muted-foreground"
-            }`}>
-              Testnet
-            </div>
-          </div>
-
           <div className="px-3 pt-3 pb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
             Explorer
           </div>
