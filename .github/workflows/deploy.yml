@@ -66,6 +66,7 @@ jobs:
 
           NEW_ARN=$(aws ecs register-task-definition \
             --cli-input-json "$UPDATED" \
+            --tags key=ManagedBy,value=github-actions "key=Repository,value=$GITHUB_REPOSITORY" key=Workflow,value=.github/workflows/deploy.yml \
             --query 'taskDefinition.taskDefinitionArn' \
             --output text)
 
@@ -113,6 +114,7 @@ jobs:
 
           NEW_ARN=$(aws ecs register-task-definition \
             --cli-input-json "$UPDATED" \
+            --tags key=ManagedBy,value=github-actions "key=Repository,value=$GITHUB_REPOSITORY" key=Workflow,value=.github/workflows/deploy.yml \
             --query 'taskDefinition.taskDefinitionArn' \
             --output text)
 
